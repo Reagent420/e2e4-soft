@@ -67,3 +67,7 @@ endif()
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
+
+if(MINGW OR (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"))
+    target_link_options(${PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()
