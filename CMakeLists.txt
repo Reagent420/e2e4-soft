@@ -4,8 +4,11 @@ project(GNO VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC OFF)
+set(CMAKE_AUTORCC OFF)
 
-option(GNO_CONSOLE "Build console-only (no Qt)" ON)
+option(GNO_CONSOLE "Build console-only (no Qt)" OFF)
 
 find_package(Threads REQUIRED)
 
@@ -40,7 +43,24 @@ set(MON_SOURCES
     src/monitoring/jitter_calculator.cpp
 )
 
-add_executable(${PROJECT_NAME}
+set(UI_SOURCES
+    src/ui/main_window.cpp
+    src/ui/sidebar.cpp
+    src/ui/dashboard.cpp
+    src/ui/game_list.cpp
+    src/ui/monitoring.cpp
+    src/ui/optimizer.cpp
+    src/ui/settings_page.cpp
+)
+
+set(COMMON_LIBS Threads::Threads)
+
+if(WIN32)
+    list(APPEND COMMON_LIBS ws2_32 iphlpapi winmm)
+endif()
+
+# Console target (always built)
+add_executable(${PROJECT_NAME}-console
     src/main_console.cpp
     ${CORE_SOURCES}
     ${OPT_SOURCES}
@@ -48,26 +68,69 @@ add_executable(${PROJECT_NAME}
     ${PLATFORM_SOURCES}
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE
+target_include_directories(${PROJECT_NAME}-console PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
     ${CMAKE_CURRENT_SOURCE_DIR}/src/optimization
     ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
+target_link_libraries(${PROJECT_NAME}-console PRIVATE ${COMMON_LIBS})
 
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 iphlpapi winmm)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE
+    target_compile_definitions(${PROJECT_NAME}-console PRIVATE
         WIN32_LEAN_AND_MEAN NOMINMAX _WINSOCK_DEPRECATED_NO_WARNINGS
     )
 endif()
 
-set_target_properties(${PROJECT_NAME} PROPERTIES
+set_target_properties(${PROJECT_NAME}-console PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
 if(MINGW OR (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"))
-    target_link_options(${PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(${PROJECT_NAME}-console PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()
+
+# GUI target (requires Qt6)
+if(NOT GNO_CONSOLE)
+    find_package(Qt6 COMPONENTS Widgets Charts QUIET)
+    if(Qt6_FOUND)
+        message(STATUS "Qt6 found: ${Qt6_VERSION} - Building GUI target")
+
+        add_executable(${PROJECT_NAME}
+            WIN32
+            src/main_gui.cpp
+            ${CORE_SOURCES}
+            ${OPT_SOURCES}
+            ${MON_SOURCES}
+            ${PLATFORM_SOURCES}
+            ${UI_SOURCES}
+        )
+
+        target_include_directories(${PROJECT_NAME} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/optimization
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
+        )
+
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${COMMON_LIBS} Qt6::Widgets Qt6::Charts)
+
+        if(WIN32)
+            target_compile_definitions(${PROJECT_NAME} PRIVATE
+                WIN32_LEAN_AND_MEAN NOMINMAX _WINSOCK_DEPRECATED_NO_WARNINGS
+            )
+        endif()
+
+        set_target_properties(${PROJECT_NAME} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+        )
+
+        if(MINGW OR (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"))
+            target_link_options(${PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++ -static)
+        endif()
+    else()
+        message(STATUS "Qt6 not found - GUI target will not be built")
+    endif()
 endif()

@@ -1,0 +1,193 @@
+#include "settings_page.h"
+
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGroupBox>
+#include <QScrollArea>
+#include <QFont>
+#include <QPalette>
+
+static QWidget* createSection(const QString& title, QVBoxLayout* contentLayout, QWidget* parent) {
+    auto* group = new QWidget(parent);
+    group->setObjectName("settingsGroup");
+    group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+    auto* layout = new QVBoxLayout(group);
+    layout->setContentsMargins(20, 16, 20, 16);
+    layout->setSpacing(8);
+
+    auto* titleLabel = new QLabel(title, group);
+    titleLabel->setObjectName("sectionTitle");
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleFont.setPointSize(11);
+    titleLabel->setFont(titleFont);
+    layout->addWidget(titleLabel);
+
+    layout->addSpacing(4);
+    layout->addLayout(contentLayout);
+
+    return group;
+}
+
+static QComboBox* createComboBox(const QStringList& items, int currentIndex, QWidget* parent) {
+    auto* combo = new QComboBox(parent);
+    combo->addItems(items);
+    combo->setCurrentIndex(currentIndex);
+    combo->setMinimumWidth(180);
+    return combo;
+}
+
+static QCheckBox* createCheckBox(const QString& text, bool checked, QWidget* parent) {
+    auto* cb = new QCheckBox(text, parent);
+    cb->setChecked(checked);
+    return cb;
+}
+
+SettingsPageWidget::SettingsPageWidget(QWidget* parent)
+    : QWidget(parent)
+{
+    auto* mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(32, 24, 32, 24);
+    mainLayout->setSpacing(16);
+
+    auto* headerLayout = new QHBoxLayout();
+    auto* headerTitle = new QLabel("Settings", this);
+    headerTitle->setObjectName("headerTitle");
+    QFont hFont = headerTitle->font();
+    hFont.setBold(true);
+    hFont.setPointSize(16);
+    headerTitle->setFont(hFont);
+
+    auto* headerSubtitle = new QLabel("Configure application", this);
+    headerSubtitle->setObjectName("headerSubtitle");
+
+    headerLayout->addWidget(headerTitle);
+    headerLayout->addSpacing(12);
+    headerLayout->addWidget(headerSubtitle);
+    headerLayout->addStretch();
+    mainLayout->addLayout(headerLayout);
+
+    auto* scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setObjectName("settingsScrollArea");
+
+    auto* scrollContent = new QWidget();
+    auto* scrollLayout = new QVBoxLayout(scrollContent);
+    scrollLayout->setContentsMargins(0, 0, 0, 0);
+    scrollLayout->setSpacing(12);
+
+    {
+        auto* generalLayout = new QVBoxLayout();
+        generalLayout->setSpacing(10);
+        start_windows_ = createCheckBox("Start with Windows", false, this);
+        minimize_tray_ = createCheckBox("Minimize to system tray", true, this);
+        show_notifications_ = createCheckBox("Show notifications", true, this);
+        generalLayout->addWidget(start_windows_);
+        generalLayout->addWidget(minimize_tray_);
+        generalLayout->addWidget(show_notifications_);
+
+        auto* langRow = new QHBoxLayout();
+        auto* langLabel = new QLabel("Language:", this);
+        language_ = createComboBox({"English", "Russian", "Chinese", "Korean", "Japanese"}, 0, this);
+        langRow->addWidget(langLabel);
+        langRow->addSpacing(12);
+        langRow->addWidget(language_);
+        langRow->addStretch();
+        generalLayout->addLayout(langRow);
+
+        scrollLayout->addWidget(createSection("GENERAL", generalLayout, this));
+    }
+
+    {
+        auto* connLayout = new QVBoxLayout();
+        connLayout->setSpacing(10);
+
+        auto addComboRow = [&](const QString& labelText, QComboBox** combo, const QStringList& items, int defIdx) {
+            auto* row = new QHBoxLayout();
+            auto* label = new QLabel(labelText, this);
+            *combo = createComboBox(items, defIdx, this);
+            row->addWidget(label);
+            row->addSpacing(12);
+            row->addWidget(*combo);
+            row->addStretch();
+            connLayout->addLayout(row);
+        };
+
+        addComboRow("Protocol:", &protocol_, {"UDP", "TCP", "ICMP"}, 0);
+        addComboRow("Server Region:", &region_, {"Auto Detect", "Europe", "North America", "Asia Pacific", "South America"}, 0);
+        addComboRow("Max Routes:", &max_routes_, {"1", "2", "3", "4", "5"}, 2);
+        addComboRow("Ping Interval:", &ping_interval_, {"500", "1000", "2000", "5000"}, 1);
+
+        scrollLayout->addWidget(createSection("CONNECTION", connLayout, this));
+    }
+
+    {
+        auto* advLayout = new QVBoxLayout();
+        advLayout->setSpacing(10);
+        verbose_log_ = createCheckBox("Verbose logging", false, this);
+        auto_update_ = createCheckBox("Auto-update", true, this);
+        dev_mode_ = createCheckBox("Developer mode", false, this);
+        advLayout->addWidget(verbose_log_);
+        advLayout->addWidget(auto_update_);
+        advLayout->addWidget(dev_mode_);
+
+        scrollLayout->addWidget(createSection("ADVANCED", advLayout, this));
+    }
+
+    {
+        auto* aboutLayout = new QVBoxLayout();
+        aboutLayout->setSpacing(6);
+
+        auto* appName = new QLabel("GNO - Game Network Optimizer", this);
+        QFont appFont = appName->font();
+        appFont.setBold(true);
+        appFont.setPointSize(13);
+        appName->setFont(appFont);
+        aboutLayout->addWidget(appName);
+
+        aboutLayout->addWidget(new QLabel("Version 1.0.0", this));
+        aboutLayout->addWidget(new QLabel("Built with Qt 6.11.1 + MinGW GCC 16.1.0", this));
+        aboutLayout->addWidget(new QLabel("License: MIT", this));
+
+        auto* githubLabel = new QLabel("GitHub: github.com/user/gno-native", this);
+        QPalette pal = githubLabel->palette();
+        pal.setColor(QPalette::WindowText, QColor(0x55, 0x99, 0xFF));
+        githubLabel->setPalette(pal);
+        aboutLayout->addWidget(githubLabel);
+
+        scrollLayout->addWidget(createSection("ABOUT", aboutLayout, this));
+    }
+
+    scrollLayout->addStretch();
+    scrollArea->setWidget(scrollContent);
+    mainLayout->addWidget(scrollArea, 1);
+
+    auto* btnRow = new QHBoxLayout();
+    btnRow->setContentsMargins(0, 4, 0, 0);
+    auto* resetBtn = new QPushButton("Reset to Defaults", this);
+    resetBtn->setObjectName("boostButton");
+    resetBtn->setFixedWidth(200);
+    btnRow->addWidget(resetBtn);
+    btnRow->addStretch();
+    mainLayout->addLayout(btnRow);
+
+    connect(resetBtn, &QPushButton::clicked, this, &SettingsPageWidget::onResetDefaults);
+}
+
+void SettingsPageWidget::onResetDefaults() {
+    start_windows_->setChecked(false);
+    minimize_tray_->setChecked(true);
+    show_notifications_->setChecked(true);
+    language_->setCurrentIndex(0);
+
+    protocol_->setCurrentIndex(0);
+    region_->setCurrentIndex(0);
+    max_routes_->setCurrentIndex(2);
+    ping_interval_->setCurrentIndex(1);
+
+    verbose_log_->setChecked(false);
+    auto_update_->setChecked(true);
+    dev_mode_->setChecked(false);
+}

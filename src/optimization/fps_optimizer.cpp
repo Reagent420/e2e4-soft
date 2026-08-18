@@ -4,9 +4,18 @@
 #include <windows.h>
 #include <winreg.h>
 #include <tlhelp32.h>
+#include <cwchar>
 #endif
 
 namespace gno {
+
+static std::wstring toWide(const std::string& s) {
+    if (s.empty()) return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring ws(len - 1, 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], len);
+    return ws;
+}
 
 FPSOptimizer::FPSOptimizer() = default;
 FPSOptimizer::~FPSOptimizer() = default;
@@ -162,12 +171,12 @@ OptimizationResult FPSOptimizer::setProcessPriority(const std::string& process_n
 #ifdef PLATFORM_WINDOWS
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32 pe;
+        PROCESSENTRY32W pe;
         pe.dwSize = sizeof(pe);
         
-        if (Process32First(snapshot, &pe)) {
+        if (Process32FirstW(snapshot, &pe)) {
             do {
-                if (_stricmp(pe.szExeFile, process_name.c_str()) == 0) {
+                if (_wcsicmp(pe.szExeFile, toWide(process_name).c_str()) == 0) {
                     HANDLE process = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pe.th32ProcessID);
                     if (process) {
                         SetPriorityClass(process, HIGH_PRIORITY_CLASS);
@@ -176,7 +185,7 @@ OptimizationResult FPSOptimizer::setProcessPriority(const std::string& process_n
                     }
                     break;
                 }
-            } while (Process32Next(snapshot, &pe));
+            } while (Process32NextW(snapshot, &pe));
         }
         
         CloseHandle(snapshot);

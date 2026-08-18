@@ -7,10 +7,20 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <psapi.h>
+#include <cstdlib>
+#include <cwchar>
 #pragma comment(lib, "psapi.lib")
 #endif
 
 namespace gno {
+
+static std::wstring toWide(const std::string& s) {
+    if (s.empty()) return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring ws(len - 1, 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], len);
+    return ws;
+}
 
 GameDetector::GameDetector() {
     supported_games_ = {
@@ -66,18 +76,18 @@ void GameDetector::detectRunningGames() {
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) return;
     
-    PROCESSENTRY32 pe;
+    PROCESSENTRY32W pe;
     pe.dwSize = sizeof(pe);
     
-    if (Process32First(snapshot, &pe)) {
+    if (Process32FirstW(snapshot, &pe)) {
         do {
             for (auto& game : supported_games_) {
-                if (_stricmp(pe.szExeFile, game.process_name.c_str()) == 0) {
+                if (_wcsicmp(pe.szExeFile, toWide(game.process_name).c_str()) == 0) {
                     game.is_running = true;
                     running_games_.push_back(game);
                 }
             }
-        } while (Process32Next(snapshot, &pe));
+        } while (Process32NextW(snapshot, &pe));
     }
     
     CloseHandle(snapshot);
@@ -182,17 +192,17 @@ bool GameDetector::isProcessRunning(const std::string& process_name) const {
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) return false;
     
-    PROCESSENTRY32 pe;
+    PROCESSENTRY32W pe;
     pe.dwSize = sizeof(pe);
     
     bool found = false;
-    if (Process32First(snapshot, &pe)) {
+    if (Process32FirstW(snapshot, &pe)) {
         do {
-            if (_stricmp(pe.szExeFile, process_name.c_str()) == 0) {
+            if (_wcsicmp(pe.szExeFile, toWide(process_name).c_str()) == 0) {
                 found = true;
                 break;
             }
-        } while (Process32Next(snapshot, &pe));
+        } while (Process32NextW(snapshot, &pe));
     }
     
     CloseHandle(snapshot);
