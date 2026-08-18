@@ -1,13 +1,29 @@
 #include "packet_capture.h"
 #include <thread>
 #include <chrono>
+#include <algorithm>
 
 #ifdef PLATFORM_WINDOWS
+#include <windows.h>
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <iphlpapi.h>
-#include <mstcpip.h>
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
+
+struct ip_header {
+    uint8_t ip_hl:4;
+    uint8_t ip_v:4;
+    uint8_t ip_tos;
+    uint16_t ip_len;
+    uint16_t ip_id;
+    uint16_t ip_off;
+    uint8_t ip_ttl;
+    uint8_t ip_p;
+    uint16_t ip_sum;
+    struct in_addr ip_src;
+    struct in_addr ip_dst;
+};
 #endif
 
 namespace gno {

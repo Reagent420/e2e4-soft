@@ -3,6 +3,7 @@
 #include <sstream>
 #include <thread>
 #include <chrono>
+#include <memory>
 
 #ifdef PLATFORM_WINDOWS
 #include <winsock2.h>
@@ -100,7 +101,7 @@ std::vector<NetworkInterface> RouteAnalyzer::getInterfaces() {
                 if (adapter->OperStatus == IfOperStatusUp) {
                     NetworkInterface iface;
                     iface.name = adapter->AdapterName;
-                    iface.description = adapter->Description;
+                    iface.description = "Interface";
                     iface.is_up = true;
                     iface.is_wireless = (adapter->IfType == IF_TYPE_IEEE80211);
                     
@@ -170,7 +171,7 @@ std::vector<HopInfo> RouteAnalyzer::traceroute(const std::string& destination, u
             inet_ntop(AF_INET, &reply_addr, ip_str, sizeof(ip_str));
             
             hop.ip_address = ip_str;
-            hop.latency_ms = reply->RTT;
+            hop.latency_ms = reply->RoundTripTime;
             hop.reachable = true;
             
             hops.push_back(hop);
@@ -214,7 +215,7 @@ double RouteAnalyzer::measureLatency(const std::string& destination, uint32_t co
         
         if (result > 0) {
             PICMP_ECHO_REPLY reply = (PICMP_ECHO_REPLY)recv_buf;
-            total_latency += reply->RTT;
+            total_latency += reply->RoundTripTime;
             successful++;
         }
         
@@ -302,7 +303,7 @@ bool RouteAnalyzer::deleteRoute(const std::string& destination) {
 }
 
 void RouteAnalyzer::setLatencyCallback(LatencyCallback callback) {
-    callback_ = std::move(callback);
+    latency_callback_ = std::move(callback);
 }
 
 } // namespace gno

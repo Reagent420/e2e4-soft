@@ -4,6 +4,10 @@
 #include <vector>
 #include <cstdint>
 #include <functional>
+#include <atomic>
+#include <thread>
+#include <mutex>
+#include <chrono>
 
 namespace gno {
 

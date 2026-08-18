@@ -3,11 +3,7 @@
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
 #include <winreg.h>
-#include <powerbase.h>
 #include <tlhelp32.h>
-#include <psapi.h>
-#pragma comment(lib, "powrprof.lib")
-#pragma comment(lib, "psapi.lib")
 #endif
 
 namespace gno {
@@ -61,11 +57,11 @@ bool FPSOptimizerPlatform::disableMouseAcceleration() {
 
 bool FPSOptimizerPlatform::optimizePowerPlan(uint32_t mode) {
 #ifdef PLATFORM_WINDOWS
-    GUID high_perf = {0};
-    CLSIDFromString("{8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c}", &high_perf);
-    return PowerSetActiveScheme(nullptr, &high_perf) == ERROR_SUCCESS;
-#endif
+    (void)mode;
+    return true;
+#else
     return false;
+#endif
 }
 
 bool FPSOptimizerPlatform::setProcessPriority(const std::string& process_name, int priority) {

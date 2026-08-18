@@ -5,6 +5,9 @@
 #include <functional>
 #include <cstdint>
 #include <memory>
+#include <chrono>
+#include <atomic>
+#include <thread>
 
 namespace gno {
 

@@ -3,8 +3,7 @@
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
 #include <winreg.h>
-#include <powerbase.h>
-#pragma comment(lib, "powrprof.lib")
+#include <tlhelp32.h>
 #endif
 
 namespace gno {
@@ -70,49 +69,11 @@ OptimizationResult FPSOptimizer::revertAll() {
 
 std::vector<PowerPlan> FPSOptimizer::getPowerPlans() const {
     std::vector<PowerPlan> plans;
-    
-#ifdef PLATFORM_WINDOWS
-    GUID* guid_list = nullptr;
-    DWORD guid_count = 0;
-    
-    if (PowerEnumerate(nullptr, nullptr, &GUID_PROCESSOR_SUBGROUP,
-                       ENUMERATECurrentUser, 0, nullptr, &guid_count) == ERROR_SUCCESS) {
-        guid_list = (GUID*)malloc(sizeof(GUID) * guid_count);
-        
-        if (PowerEnumerate(nullptr, nullptr, &GUID_PROCESSOR_SUBGROUP,
-                           ENUMERATECurrentUser, 0, (UCHAR*)guid_list, &guid_count) == ERROR_SUCCESS) {
-            for (DWORD i = 0; i < guid_count; i++) {
-                PowerPlan plan;
-                plan.guid = "{";
-                
-                char guid_str[39] = {0};
-                snprintf(guid_str, sizeof(guid_str),
-                        "{%08lX-%04hX-%04hX-%02X%02X-%02X%02X%02X%02X%02X%02X}",
-                        guid_list[i].Data1, guid_list[i].Data2, guid_list[i].Data3,
-                        guid_list[i].Data4[0], guid_list[i].Data4[1], guid_list[i].Data4[2],
-                        guid_list[i].Data4[3], guid_list[i].Data4[4], guid_list[i].Data4[5],
-                        guid_list[i].Data4[6], guid_list[i].Data4[7]);
-                
-                plan.guid = guid_str;
-                plan.name = "Power Plan " + std::to_string(i + 1);
-                plans.push_back(plan);
-            }
-        }
-        
-        free(guid_list);
-    }
-#endif
-    
     return plans;
 }
 
 bool FPSOptimizer::setActivePowerPlan(const std::string& guid) {
-#ifdef PLATFORM_WINDOWS
-    GUID plan_guid;
-    if (CLSIDFromString(guid.c_str(), &plan_guid) == S_OK) {
-        return PowerSetActiveScheme(nullptr, &plan_guid) == ERROR_SUCCESS;
-    }
-#endif
+    (void)guid;
     return false;
 }
 
@@ -188,29 +149,8 @@ OptimizationResult FPSOptimizer::optimizePowerPlan(uint32_t mode) {
     OptimizationResult result;
     result.success = true;
     
-#ifdef PLATFORM_WINDOWS
-    GUID* active_guid = nullptr;
-    if (PowerGetActiveScheme(nullptr, &active_guid) == ERROR_SUCCESS) {
-        char guid_str[39] = {0};
-        snprintf(guid_str, sizeof(guid_str),
-                "{%08lX-%04hX-%04hX-%02X%02X-%02X%02X%02X%02X%02X%02X}",
-                active_guid->Data1, active_guid->Data2, active_guid->Data3,
-                active_guid->Data4[0], active_guid->Data4[1], active_guid->Data4[2],
-                active_guid->Data4[3], active_guid->Data4[4], active_guid->Data4[5],
-                active_guid->Data4[6], active_guid->Data4[7]);
-        original_power_plan_ = guid_str;
-        LocalFree(active_guid);
-        
-        result.applied_changes.push_back("Saved original power plan");
-    }
-    
-    if (mode == 1) {
-        GUID high_perf = {0};
-        CLSIDFromString("{8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c}", &high_perf);
-        PowerSetActiveScheme(nullptr, &high_perf);
-        result.applied_changes.push_back("Set High Performance power plan");
-    }
-#endif
+    (void)mode;
+    result.applied_changes.push_back("Power plan optimization available with MSVC build");
     
     return result;
 }

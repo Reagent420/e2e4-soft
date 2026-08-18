@@ -17,7 +17,7 @@ struct OptimizationResult {
 struct FPSBoostConfig {
     bool disable_game_dvr = true;
     bool disable_hardware_scheduling = false;
-    bool disable fullscreen_optimizations = true;
+    bool disable_fullscreen_optimizations = true;
     bool disable_game_mode = false;
     bool disable_windowsTips = true;
     bool optimize_power_plan = true;

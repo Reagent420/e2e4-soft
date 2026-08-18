@@ -7,6 +7,8 @@
 #include <mutex>
 #include <map>
 #include <chrono>
+#include <optional>
+#include <functional>
 
 namespace gno {
 

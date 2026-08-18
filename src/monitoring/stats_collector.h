@@ -8,6 +8,8 @@
 #include <mutex>
 #include <atomic>
 #include <fstream>
+#include <chrono>
+#include <functional>
 
 namespace gno {
 

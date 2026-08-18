@@ -64,7 +64,7 @@ ICMPResult PingMonitor::ping(const std::string& target_ip, uint32_t timeout_ms) 
     if (reply > 0) {
         PICMP_ECHO_REPLY echo_reply = (PICMP_ECHO_REPLY)recv_buf;
         result.success = true;
-        result.latency_ms = echo_reply->RTT;
+        result.latency_ms = echo_reply->RoundTripTime;
         result.bytes = echo_reply->DataSize;
         result.ttl = echo_reply->Options.Ttl;
     }

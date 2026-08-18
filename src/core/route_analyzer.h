@@ -6,6 +6,7 @@
 #include <optional>
 #include <functional>
 #include <cstdint>
+#include <memory>
 
 namespace gno {
 
@@ -16,6 +17,7 @@ struct RouteInfo {
     std::string destination_ip;
     uint32_t metric = 0;
     uint32_t mtu = 1500;
+    uint32_t interface_index = 0;
     double latency_ms = 0.0;
     double packet_loss_percent = 0.0;
     bool is_active = false;
@@ -73,6 +75,7 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    LatencyCallback latency_callback_;
 };
 
 } // namespace gno

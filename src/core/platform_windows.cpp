@@ -4,7 +4,6 @@
 #include <windows.h>
 #include <winreg.h>
 #include <iphlpapi.h>
-#include <mstcpip.h>
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 #endif
