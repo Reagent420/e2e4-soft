@@ -1,0 +1,284 @@
+{
+  "version": "1.0",
+  "games": [
+    {
+      "name": "Counter-Strike 2",
+      "process_name": "cs2.exe",
+      "executable_path": "",
+      "game_ports": [27015, 27016],
+      "server_ips": ["155.133.226.0/24"],
+      "category": "FPS",
+      "icon_path": ""
+    },
+    {
+      "name": "Dota 2",
+      "process_name": "dota2.exe",
+      "executable_path": "",
+      "game_ports": [27015, 27016],
+      "server_ips": ["155.133.226.0/24"],
+      "category": "MOBA",
+      "icon_path": ""
+    },
+    {
+      "name": "VALORANT",
+      "process_name": "VALORANT-Win64-Shipping.exe",
+      "executable_path": "",
+      "game_ports": [7000],
+      "server_ips": ["162.249.72.0/24"],
+      "category": "FPS",
+      "icon_path": ""
+    },
+    {
+      "name": "Fortnite",
+      "process_name": "FortniteClient-Win64-Shipping.exe",
+      "executable_path": "",
+      "game_ports": [5222],
+      "server_ips": ["154.59.128.0/24"],
+      "category": "Battle Royale",
+      "icon_path": ""
+    },
+    {
+      "name": "Apex Legends",
+      "process_name": "r5apex.exe",
+      "executable_path": "",
+      "game_ports": [37000, 40000],
+      "server_ips": ["159.153.0.0/16"],
+      "category": "Battle Royale",
+      "icon_path": ""
+    },
+    {
+      "name": "League of Legends",
+      "process_name": "League of Legends.exe",
+      "executable_path": "",
+      "game_ports": [5000, 5500],
+      "server_ips": ["104.160.0.0/12"],
+      "category": "MOBA",
+      "icon_path": ""
+    },
+    {
+      "name": "Overwatch 2",
+      "process_name": "Overwatch.exe",
+      "executable_path": "",
+      "game_ports": [1119, 1120],
+      "server_ips": ["24.105.0.0/16"],
+      "category": "FPS",
+      "icon_path": ""
+    },
+    {
+      "name": "PUBG: Battlegrounds",
+      "process_name": "TslGame.exe",
+      "executable_path": "",
+      "game_ports": [7000, 7100],
+      "server_ips": ["23.52.0.0/16"],
+      "category": "Battle Royale",
+      "icon_path": ""
+    },
+    {
+      "name": "Rainbow Six Siege",
+      "process_name": "RainbowSix.exe",
+      "executable_path": "",
+      "game_ports": [37000, 40000],
+      "server_ips": ["23.52.0.0/16"],
+      "category": "FPS",
+      "icon_path": ""
+    },
+    {
+      "name": "Call of Duty: Warzone",
+      "process_name": "ModernWarfare.exe",
+      "executable_path": "",
+      "game_ports": [3074],
+      "server_ips": ["24.105.0.0/16"],
+      "category": "FPS",
+      "icon_path": ""
+    },
+    {
+      "name": "Genshin Impact",
+      "process_name": "GenshinImpact.exe",
+      "executable_path": "",
+      "game_ports": [443],
+      "server_ips": ["47.246.0.0/16"],
+      "category": "RPG",
+      "icon_path": ""
+    },
+    {
+      "name": "World of Warcraft",
+      "process_name": "Wow.exe",
+      "executable_path": "",
+      "game_ports": [3724],
+      "server_ips": ["195.12.0.0/16"],
+      "category": "MMORPG",
+      "icon_path": ""
+    },
+    {
+      "name": "EVE Online",
+      "process_name": "exefile.exe",
+      "executable_path": "",
+      "game_ports": [26000, 26004],
+      "server_ips": ["87.237.0.0/16"],
+      "category": "MMORPG",
+      "icon_path": ""
+    },
+    {
+      "name": "Rocket League",
+      "process_name": "RocketLeague.exe",
+      "executable_path": "",
+      "game_ports": [7000, 7100],
+      "server_ips": ["23.52.0.0/16"],
+      "category": "Sports",
+      "icon_path": ""
+    },
+    {
+      "name": "Dead by Daylight",
+      "process_name": "DeadByDaylight.exe",
+      "executable_path": "",
+      "game_ports": [7777],
+      "server_ips": ["23.52.0.0/16"],
+      "category": "Horror",
+      "icon_path": ""
+    },
+    {
+      "name": "Rust",
+      "process_name": "RustClient.exe",
+      "executable_path": "",
+      "game_ports": [28015, 28016],
+      "server_ips": ["162.244.52.0/24"],
+      "category": "Survival",
+      "icon_path": ""
+    },
+    {
+      "name": "Minecraft",
+      "process_name": "javaw.exe",
+      "executable_path": "",
+      "game_ports": [25565],
+      "server_ips": ["52.0.0.0/8"],
+      "category": "Sandbox",
+      "icon_path": ""
+    },
+    {
+      "name": "Escape from Tarkov",
+      "process_name": "EscapeFromTarkov.exe",
+      "executable_path": "",
+      "game_ports": [10000],
+      "server_ips": ["37.230.0.0/16"],
+      "category": "FPS",
+      "icon_path": ""
+    },
+    {
+      "name": "Brawlhalla",
+      "process_name": "BrawlhallaGame.exe",
+      "executable_path": "",
+      "game_ports": [7000, 7100],
+      "server_ips": ["23.52.0.0/16"],
+      "category": "Fighting",
+      "icon_path": ""
+    },
+    {
+      "name": "Fall Guys",
+      "process_name": "FallGuys_client_game.exe",
+      "executable_path": "",
+      "game_ports": [7000, 7100],
+      "server_ips": ["23.52.0.0/16"],
+      "category": "Party",
+      "icon_path": ""
+    },
+    {
+      "name": "Stardew Valley",
+      "process_name": "Stardew Valley.exe",
+      "executable_path": "",
+      "game_ports": [24642, 24643],
+      "server_ips": [],
+      "category": "Simulation",
+      "icon_path": ""
+    },
+    {
+      "name": "Terraria",
+      "process_name": "Terraria.exe",
+      "executable_path": "",
+      "game_ports": [7777],
+      "server_ips": [],
+      "category": "Sandbox",
+      "icon_path": ""
+    },
+    {
+      "name": "Factorio",
+      "process_name": "factorio.exe",
+      "executable_path": "",
+      "game_ports": [34197],
+      "server_ips": [],
+      "category": "Strategy",
+      "icon_path": ""
+    },
+    {
+      "name": "Civilization VI",
+      "process_name": "CivilizationVI.exe",
+      "executable_path": "",
+      "game_ports": [34197],
+      "server_ips": [],
+      "category": "Strategy",
+      "icon_path": ""
+    },
+    {
+      "name": "StarCraft II",
+      "process_name": "SC2Switcher.exe",
+      "executable_path": "",
+      "game_ports": [1119, 1120],
+      "server_ips": ["24.105.0.0/16"],
+      "category": "RTS",
+      "icon_path": ""
+    },
+    {
+      "name": "Diablo IV",
+      "process_name": "Diablo IV.exe",
+      "executable_path": "",
+      "game_ports": [1119, 1120],
+      "server_ips": ["24.105.0.0/16"],
+      "category": "ARPG",
+      "icon_path": ""
+    },
+    {
+      "name": "Hearthstone",
+      "process_name": "Hearthstone.exe",
+      "executable_path": "",
+      "game_ports": [1119, 1120],
+      "server_ips": ["24.105.0.0/16"],
+      "category": "Card Game",
+      "icon_path": ""
+    },
+    {
+      "name": "World of Tanks",
+      "process_name": "WorldOfTanks.exe",
+      "executable_path": "",
+      "game_ports": [20000, 20100],
+      "server_ips": ["162.244.52.0/24"],
+      "category": "Action",
+      "icon_path": ""
+    },
+    {
+      "name": "War Thunder",
+      "process_name": "aces.exe",
+      "executable_path": "",
+      "game_ports": [20010, 20020],
+      "server_ips": ["162.244.52.0/24"],
+      "category": "Action",
+      "icon_path": ""
+    },
+    {
+      "name": "DayZ",
+      "process_name": "DayZ_x64.exe",
+      "executable_path": "",
+      "game_ports": [2302, 2305],
+      "server_ips": ["162.244.52.0/24"],
+      "category": "Survival",
+      "icon_path": ""
+    },
+    {
+      "name": "ARK: Survival Evolved",
+      "process_name": "ShooterGame.exe",
+      "executable_path": "",
+      "game_ports": [7777, 7778],
+      "server_ips": ["162.244.52.0/24"],
+      "category": "Survival",
+      "icon_path": ""
+    }
+  ]
+}
