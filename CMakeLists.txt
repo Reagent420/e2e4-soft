@@ -29,6 +29,11 @@ set(CORE_SOURCES
     src/core/packet_capture.cpp
     src/core/game_detector.cpp
     src/core/network_utils.cpp
+    src/core/game_profiles.cpp
+    src/core/speed_test.cpp
+    src/core/dns_manager.cpp
+    src/core/process_monitor.cpp
+    src/core/session_history.cpp
 )
 
 set(OPT_SOURCES
@@ -51,6 +56,11 @@ set(UI_SOURCES
     src/ui/monitoring.cpp
     src/ui/optimizer.cpp
     src/ui/settings_page.cpp
+    src/ui/system_tray.cpp
+    src/ui/network_tools.cpp
+    src/ui/process_monitor_widget.cpp
+    src/ui/session_history_widget.cpp
+    src/ui/geo_map.cpp
 )
 
 set(COMMON_LIBS Threads::Threads)

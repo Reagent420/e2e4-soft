@@ -4,6 +4,7 @@
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QLabel>
+#include <QCloseEvent>
 
 namespace gno {
 
@@ -16,9 +17,13 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override = default;
 
+    void forceShow();
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
+
 private slots:
     void onNavigationChanged(int index);
-    void updateConnectionStatus(const QString& status);
 
 private:
     void setupUi();

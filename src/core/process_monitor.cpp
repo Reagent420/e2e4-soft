@@ -1,0 +1,154 @@
+#include "process_monitor.h"
+#include <algorithm>
+#include <thread>
+#include <chrono>
+
+#ifdef PLATFORM_WINDOWS
+#include <windows.h>
+#include <tlhelp32.h>
+#include <psapi.h>
+#include <iphlpapi.h>
+#pragma comment(lib, "psapi.lib")
+#pragma comment(lib, "iphlpapi.lib")
+#endif
+
+namespace gno {
+
+static std::wstring toWide(const std::string& s) {
+    if (s.empty()) return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring ws(len - 1, 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], len);
+    return ws;
+}
+
+ProcessMonitor::ProcessMonitor() = default;
+ProcessMonitor::~ProcessMonitor() { stopMonitoring(); }
+
+std::vector<ProcessInfo> ProcessMonitor::scanProcesses() {
+    std::vector<ProcessInfo> processes;
+
+#ifdef PLATFORM_WINDOWS
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return processes;
+
+    PROCESSENTRY32W pe;
+    pe.dwSize = sizeof(pe);
+
+    if (Process32FirstW(snapshot, &pe)) {
+        do {
+            ProcessInfo info;
+            info.pid = pe.th32ProcessID;
+            info.name = [&pe]() {
+                char buf[MAX_PATH] = {};
+                WideCharToMultiByte(CP_UTF8, 0, pe.szExeFile, -1, buf, MAX_PATH, nullptr, nullptr);
+                return std::string(buf);
+            }();
+
+            HANDLE proc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, info.pid);
+            if (proc) {
+                PROCESS_MEMORY_COUNTERS pmc;
+                if (GetProcessMemoryInfo(proc, &pmc, sizeof(pmc))) {
+                    info.memory_mb = static_cast<uint32_t>(pmc.WorkingSetSize / (1024 * 1024));
+                }
+
+                char path_buf[MAX_PATH] = {};
+                DWORD path_len = MAX_PATH;
+                if (QueryFullProcessImageNameA(proc, 0, path_buf, &path_len)) {
+                    info.path = path_buf;
+                }
+                CloseHandle(proc);
+            }
+
+            info.total_bytes = info.bytes_sent + info.bytes_received;
+
+            static const std::vector<std::string> game_keywords = {
+                "cs2", "dota2", "valorant", "fortnite", "r5apex", "league",
+                "overwatch", "tslgame", "rainbow", "warzone", "genshin",
+                "wow", "rust", "javaw", "rocketleague", "deadbydaylight"
+            };
+            std::string lower_name = info.name;
+            std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
+            for (const auto& kw : game_keywords) {
+                if (lower_name.find(kw) != std::string::npos) {
+                    info.is_game = true;
+                    break;
+                }
+            }
+
+            if (info.memory_mb > 10 || info.is_game) {
+                processes.push_back(info);
+            }
+        } while (Process32NextW(snapshot, &pe));
+    }
+
+    CloseHandle(snapshot);
+#endif
+
+    std::sort(processes.begin(), processes.end(),
+              [](const ProcessInfo& a, const ProcessInfo& b) {
+                  return a.memory_mb > b.memory_mb;
+              });
+
+    return processes;
+}
+
+std::vector<ProcessInfo> ProcessMonitor::getTopProcesses(int count) {
+    auto all = scanProcesses();
+    if (static_cast<int>(all.size()) > count) {
+        all.resize(count);
+    }
+    return all;
+}
+
+bool ProcessMonitor::killProcess(uint32_t pid) {
+#ifdef PLATFORM_WINDOWS
+    HANDLE proc = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+    if (proc) {
+        bool ok = TerminateProcess(proc, 1) != 0;
+        CloseHandle(proc);
+        return ok;
+    }
+#endif
+    return false;
+}
+
+bool ProcessMonitor::blockProcess(const std::string& process_name) {
+    if (std::find(blocked_.begin(), blocked_.end(), process_name) == blocked_.end()) {
+        blocked_.push_back(process_name);
+        return true;
+    }
+    return false;
+}
+
+bool ProcessMonitor::unblockProcess(const std::string& process_name) {
+    auto it = std::find(blocked_.begin(), blocked_.end(), process_name);
+    if (it != blocked_.end()) {
+        blocked_.erase(it);
+        return true;
+    }
+    return false;
+}
+
+std::vector<std::string> ProcessMonitor::getBlockedProcesses() const { return blocked_; }
+
+void ProcessMonitor::setProcessCallback(ProcessCallback callback) { callback_ = std::move(callback); }
+
+void ProcessMonitor::startMonitoring(uint32_t interval_ms) {
+    if (monitoring_) return;
+    monitoring_ = true;
+    monitor_thread_ = std::thread([this, interval_ms]() {
+        while (monitoring_) {
+            auto procs = scanProcesses();
+            if (callback_) callback_(procs);
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+        }
+    });
+}
+
+void ProcessMonitor::stopMonitoring() {
+    monitoring_ = false;
+    if (monitor_thread_.joinable()) monitor_thread_.join();
+}
+
+} // namespace gno

@@ -10,6 +10,10 @@
 #include "game_list.h"
 #include "monitoring.h"
 #include "optimizer.h"
+#include "network_tools.h"
+#include "process_monitor_widget.h"
+#include "session_history_widget.h"
+#include "geo_map.h"
 #include "settings_page.h"
 
 namespace gno {
@@ -71,6 +75,10 @@ void MainWindow::setupPages()
     m_stackedWidget->addWidget(new GameListWidget(this));
     m_stackedWidget->addWidget(new MonitoringWidget(this));
     m_stackedWidget->addWidget(new OptimizerWidget(this));
+    m_stackedWidget->addWidget(new NetworkToolsWidget(this));
+    m_stackedWidget->addWidget(new ProcessMonitorWidget(this));
+    m_stackedWidget->addWidget(new SessionHistoryWidget(this));
+    m_stackedWidget->addWidget(new GeoMapWidget(this));
     m_stackedWidget->addWidget(new SettingsPageWidget(this));
 }
 
@@ -79,13 +87,17 @@ void MainWindow::onNavigationChanged(int index)
     m_stackedWidget->setCurrentIndex(index);
 }
 
-void MainWindow::updateConnectionStatus(const QString& status)
+void MainWindow::closeEvent(QCloseEvent* event)
 {
-    bool connected = (status != "Disconnected");
-    m_statusLabel->setText(status);
-    m_statusLabel->setObjectName(connected ? "statusConnected" : "statusDisconnected");
-    m_statusLabel->style()->unpolish(m_statusLabel);
-    m_statusLabel->style()->polish(m_statusLabel);
+    hide();
+    event->ignore();
+}
+
+void MainWindow::forceShow()
+{
+    show();
+    raise();
+    activateWindow();
 }
 
 } // namespace gno

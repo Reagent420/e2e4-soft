@@ -5,8 +5,24 @@
 #include <QVBoxLayout>
 #include <QButtonGroup>
 #include <QLabel>
+#include <QIcon>
+#include <QPixmap>
+#include <QPainter>
 
 namespace gno {
+
+enum class NavPage {
+    Dashboard = 0,
+    Games,
+    Monitoring,
+    Optimizer,
+    NetworkTools,
+    ProcessMonitor,
+    History,
+    GeoMap,
+    Settings,
+    Count
+};
 
 class Sidebar : public QWidget {
     Q_OBJECT
@@ -21,12 +37,13 @@ signals:
     void navigationChanged(int index);
 
 private:
-    QPushButton* createNavButton(const QString& icon, const QString& text);
+    QPushButton* createNavButton(NavPage page, const QString& text);
+    static QIcon makeIcon(NavPage page, const QColor& color);
 
     QButtonGroup* m_buttonGroup;
     QLabel* m_logoLabel;
     QLabel* m_versionLabel;
-    static constexpr int BUTTON_COUNT = 5;
+    static constexpr int BUTTON_COUNT = static_cast<int>(NavPage::Count);
 };
 
 } // namespace gno

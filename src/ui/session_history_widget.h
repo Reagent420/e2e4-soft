@@ -1,0 +1,29 @@
+#pragma once
+
+#include <QWidget>
+#include <QVBoxLayout>
+#include <QLabel>
+#include <QTimer>
+
+namespace gno {
+
+class SessionHistory;
+
+class SessionHistoryWidget : public QWidget {
+    Q_OBJECT
+
+public:
+    explicit SessionHistoryWidget(QWidget* parent = nullptr);
+
+private slots:
+    void refreshHistory();
+
+private:
+    void setupUI();
+
+    SessionHistory* m_history;
+    QWidget* m_sessionList;
+    QLabel* m_statsLabel;
+};
+
+} // namespace gno

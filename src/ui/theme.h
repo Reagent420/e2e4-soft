@@ -62,6 +62,7 @@ inline QString globalStyleSheet() {
             text-align: left;
             font-size: 13px;
             font-weight: 500;
+            icon-size: 20px 20px;
         }
 
         #sidebarButton:hover {
