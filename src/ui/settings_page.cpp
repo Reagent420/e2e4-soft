@@ -97,6 +97,18 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
         langRow->addStretch();
         generalLayout->addLayout(langRow);
 
+        auto* themeRow = new QHBoxLayout();
+        auto* themeLabel = new QLabel("Theme:", this);
+        theme_ = createComboBox({"Dark", "Light"}, 0, this);
+        themeRow->addWidget(themeLabel);
+        themeRow->addSpacing(12);
+        themeRow->addWidget(theme_);
+        themeRow->addStretch();
+        generalLayout->addLayout(themeRow);
+
+        connect(theme_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int index) { emit themeChanged(index == 1); });
+
         scrollLayout->addWidget(createSection("GENERAL", generalLayout, this));
     }
 
@@ -181,6 +193,7 @@ void SettingsPageWidget::onResetDefaults() {
     minimize_tray_->setChecked(true);
     show_notifications_->setChecked(true);
     language_->setCurrentIndex(0);
+    theme_->setCurrentIndex(0);
 
     protocol_->setCurrentIndex(0);
     region_->setCurrentIndex(0);

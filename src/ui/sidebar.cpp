@@ -32,13 +32,14 @@ Sidebar::Sidebar(QWidget* parent)
 
     m_buttonGroup->addButton(createNavButton(NavPage::Dashboard,       "Dashboard"),       0);
     m_buttonGroup->addButton(createNavButton(NavPage::Games,           "Games"),           1);
-    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring,      "Monitoring"),      2);
-    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "Optimizer"),       3);
-    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "Net Tools"),       4);
-    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "Processes"),       5);
-    m_buttonGroup->addButton(createNavButton(NavPage::History,         "History"),         6);
-    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "Geo Map"),         7);
-    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "Settings"),        8);
+    m_buttonGroup->addButton(createNavButton(NavPage::Profiles,        "Profiles"),        2);
+    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring,      "Monitoring"),      3);
+    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "Optimizer"),       4);
+    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "Net Tools"),       5);
+    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "Processes"),       6);
+    m_buttonGroup->addButton(createNavButton(NavPage::History,         "History"),         7);
+    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "Geo Map"),         8);
+    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "Settings"),        9);
 
     for (int i = 0; i < BUTTON_COUNT; ++i) {
         layout->addWidget(m_buttonGroup->button(i));
@@ -97,6 +98,13 @@ QIcon Sidebar::makeIcon(NavPage page, const QColor& color)
         int cy = sz / 2 + 2;
         p.drawEllipse(QPoint(cx, cy), 2, 2);
         p.drawEllipse(QPoint(cx + 8, cy), 2, 2);
+        break;
+    }
+
+    case NavPage::Profiles: {
+        p.drawEllipse(QPoint(sz / 2, m + 8), 5, 5);
+        QRectF body(m + 8, m + 17, s - 16, m + 10);
+        p.drawChord(body, 0 * 16, 180 * 16);
         break;
     }
 

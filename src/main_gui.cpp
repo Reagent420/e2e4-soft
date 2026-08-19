@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QSettings>
 #include <cstdio>
 
 #include "ui/main_window.h"
@@ -55,13 +56,20 @@ int main(int argc, char* argv[]) {
     }
 
     fprintf(stderr, "Applying stylesheet...\n");
-    app.setStyleSheet(gno::theme::globalStyleSheet());
+    QSettings settings;
+    bool darkTheme = settings.value("theme", "dark").toString() != "light";
+    app.setStyleSheet(gno::theme::globalStyleSheet(darkTheme));
 
     fprintf(stderr, "Creating MainWindow...\n");
     try {
         gno::MainWindow window;
         gno::SystemTray tray;
 
+        QObject::connect(&window, &gno::MainWindow::themeChanged,
+                         &window, [&app, &settings](bool dark) {
+            settings.setValue("theme", dark ? "dark" : "light");
+            app.setStyleSheet(gno::theme::globalStyleSheet(dark));
+        });
         QObject::connect(&tray, &gno::SystemTray::showRequested,
                          &window, &gno::MainWindow::forceShow);
         QObject::connect(&tray, &gno::SystemTray::boostToggled,

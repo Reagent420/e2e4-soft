@@ -14,6 +14,7 @@ namespace gno {
 enum class NavPage {
     Dashboard = 0,
     Games,
+    Profiles,
     Monitoring,
     Optimizer,
     NetworkTools,

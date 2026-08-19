@@ -11,6 +11,9 @@ class SettingsPageWidget : public QWidget {
 public:
     explicit SettingsPageWidget(QWidget* parent = nullptr);
 
+signals:
+    void themeChanged(bool dark);
+
 private slots:
     void onResetDefaults();
 
@@ -19,6 +22,7 @@ private:
     QCheckBox* minimize_tray_;
     QCheckBox* show_notifications_;
     QComboBox* language_;
+    QComboBox* theme_;
     QComboBox* protocol_;
     QComboBox* region_;
     QComboBox* max_routes_;

@@ -1,0 +1,251 @@
+#include "game_profiles_widget.h"
+#include "theme.h"
+
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QGroupBox>
+#include <QScrollArea>
+#include <QFrame>
+
+#include "../core/game_profiles.h"
+#include "../core/game_detector.h"
+
+namespace gno {
+
+GameProfilesWidget::GameProfilesWidget(QWidget* parent)
+    : QWidget(parent)
+{
+    m_profiles = new GameProfiles();
+    m_detector = new GameDetector();
+    setupUI();
+
+    connect(m_gameCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &GameProfilesWidget::onGameSelected);
+    refreshProfileList();
+}
+
+void GameProfilesWidget::setupUI()
+{
+    auto* mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(24, 24, 24, 24);
+    mainLayout->setSpacing(16);
+
+    auto* title = new QLabel("Game Profiles", this);
+    title->setObjectName("sectionTitle");
+    mainLayout->addWidget(title);
+
+    auto* subtitle = new QLabel("Per-game optimization settings, saved to %APPDATA%\\GNO\\profiles.json", this);
+    subtitle->setObjectName("sectionSubtitle");
+    mainLayout->addWidget(subtitle);
+
+    auto* editorGroup = new QGroupBox("Profile Editor", this);
+    auto* editorLayout = new QVBoxLayout(editorGroup);
+    editorLayout->setSpacing(10);
+
+    auto* gameRow = new QHBoxLayout();
+    auto* gameLabel = new QLabel("Game:", editorGroup);
+    m_gameCombo = new QComboBox(editorGroup);
+    m_gameCombo->setMinimumWidth(260);
+
+    auto games = m_detector->getSupportedGames();
+    for (const auto& g : games) {
+        m_gameCombo->addItem(QString::fromStdString(g.name), QString::fromStdString(g.process_name));
+    }
+
+    gameRow->addWidget(gameLabel);
+    gameRow->addSpacing(12);
+    gameRow->addWidget(m_gameCombo);
+    gameRow->addStretch();
+    editorLayout->addLayout(gameRow);
+
+    m_multipathCb = new QCheckBox("Multipath routing (multi-route connections)", editorGroup);
+    m_multipathCb->setChecked(true);
+    editorLayout->addWidget(m_multipathCb);
+
+    m_fpsBoostCb = new QCheckBox("FPS boost optimizations (Game DVR, power plan)", editorGroup);
+    m_fpsBoostCb->setChecked(true);
+    editorLayout->addWidget(m_fpsBoostCb);
+
+    m_networkOptCb = new QCheckBox("Network stack optimizations (TCP tweaks)", editorGroup);
+    m_networkOptCb->setChecked(true);
+    editorLayout->addWidget(m_networkOptCb);
+
+    m_autoApplyCb = new QCheckBox("Auto-apply when game launches", editorGroup);
+    m_autoApplyCb->setChecked(true);
+    editorLayout->addWidget(m_autoApplyCb);
+
+    auto* routesRow = new QHBoxLayout();
+    auto* routesLabel = new QLabel("Max routes:", editorGroup);
+    m_maxRoutesSpin = new QSpinBox(editorGroup);
+    m_maxRoutesSpin->setRange(1, 5);
+    m_maxRoutesSpin->setValue(3);
+    m_maxRoutesSpin->setFixedWidth(70);
+    routesRow->addWidget(routesLabel);
+    routesRow->addSpacing(12);
+    routesRow->addWidget(m_maxRoutesSpin);
+    routesRow->addStretch();
+    editorLayout->addLayout(routesRow);
+
+    auto* btnRow = new QHBoxLayout();
+    auto* saveBtn = new QPushButton("Save Profile", editorGroup);
+    saveBtn->setObjectName("boostButton");
+    saveBtn->setFixedWidth(160);
+    connect(saveBtn, &QPushButton::clicked, this, &GameProfilesWidget::onSaveProfile);
+    btnRow->addWidget(saveBtn);
+
+    m_statusLabel = new QLabel("", editorGroup);
+    m_statusLabel->setObjectName("sectionSubtitle");
+    btnRow->addWidget(m_statusLabel);
+    btnRow->addStretch();
+    editorLayout->addLayout(btnRow);
+
+    mainLayout->addWidget(editorGroup);
+
+    auto* listTitle = new QLabel("Saved Profiles", this);
+    listTitle->setObjectName("sectionTitle");
+    mainLayout->addWidget(listTitle);
+
+    auto* scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+
+    m_profileList = new QWidget();
+    m_profileList->setLayout(new QVBoxLayout(m_profileList));
+    m_profileList->layout()->setContentsMargins(0, 0, 0, 0);
+    m_profileList->layout()->setSpacing(4);
+    scrollArea->setWidget(m_profileList);
+
+    mainLayout->addWidget(scrollArea, 1);
+}
+
+void GameProfilesWidget::onGameSelected(int index)
+{
+    if (index < 0) return;
+
+    QString processName = m_gameCombo->itemData(index).toString();
+    auto games = m_detector->getSupportedGames();
+
+    std::string gameName;
+    for (const auto& g : games) {
+        if (QString::fromStdString(g.process_name) == processName) {
+            gameName = g.name;
+            break;
+        }
+    }
+
+    if (gameName.empty() || !m_profiles->has(gameName)) {
+        m_multipathCb->setChecked(true);
+        m_fpsBoostCb->setChecked(true);
+        m_networkOptCb->setChecked(true);
+        m_autoApplyCb->setChecked(true);
+        m_maxRoutesSpin->setValue(3);
+        return;
+    }
+
+    auto p = m_profiles->get(gameName);
+    m_multipathCb->setChecked(p.multipath_enabled);
+    m_fpsBoostCb->setChecked(p.fps_boost_enabled);
+    m_networkOptCb->setChecked(p.network_optimization);
+    m_autoApplyCb->setChecked(p.auto_apply);
+    m_maxRoutesSpin->setValue(p.max_routes);
+}
+
+void GameProfilesWidget::onSaveProfile()
+{
+    int idx = m_gameCombo->currentIndex();
+    if (idx < 0) return;
+
+    QString processName = m_gameCombo->itemData(idx).toString();
+    auto games = m_detector->getSupportedGames();
+
+    std::string gameName;
+    for (const auto& g : games) {
+        if (QString::fromStdString(g.process_name) == processName) {
+            gameName = g.name;
+            break;
+        }
+    }
+
+    if (gameName.empty()) {
+        m_statusLabel->setText("Cannot determine game name");
+        return;
+    }
+
+    GameProfile p;
+    p.game_name = gameName;
+    p.process_name = processName.toStdString();
+    p.multipath_enabled = m_multipathCb->isChecked();
+    p.fps_boost_enabled = m_fpsBoostCb->isChecked();
+    p.network_optimization = m_networkOptCb->isChecked();
+    p.auto_apply = m_autoApplyCb->isChecked();
+    p.max_routes = m_maxRoutesSpin->value();
+
+    m_profiles->set(p);
+    m_statusLabel->setText(QString("Saved: %1").arg(QString::fromStdString(gameName)));
+    refreshProfileList();
+}
+
+void GameProfilesWidget::refreshProfileList()
+{
+    auto* layout = qobject_cast<QVBoxLayout*>(m_profileList->layout());
+    if (!layout) return;
+
+    QLayoutItem* item;
+    while ((item = layout->takeAt(0)) != nullptr) {
+        if (item->widget()) item->widget()->deleteLater();
+        delete item;
+    }
+
+    auto profiles = m_profiles->getAll();
+    if (profiles.empty()) {
+        auto* emptyLbl = new QLabel("No profiles saved yet", m_profileList);
+        emptyLbl->setObjectName("sectionSubtitle");
+        layout->addWidget(emptyLbl);
+        layout->addStretch();
+        return;
+    }
+
+    for (const auto& p : profiles) {
+        auto* card = new QWidget(m_profileList);
+        card->setObjectName("gameCard");
+        card->setFixedHeight(52);
+
+        auto* cardLayout = new QHBoxLayout(card);
+        cardLayout->setContentsMargins(12, 8, 12, 8);
+        cardLayout->setSpacing(12);
+
+        auto* nameLbl = new QLabel(QString::fromStdString(p.game_name), card);
+        nameLbl->setObjectName("gameTitle");
+        nameLbl->setFixedWidth(160);
+        cardLayout->addWidget(nameLbl);
+
+        QString flags;
+        if (p.multipath_enabled) flags += "MP ";
+        if (p.fps_boost_enabled) flags += "FPS ";
+        if (p.network_optimization) flags += "NET ";
+        flags += QString("R:%1").arg(p.max_routes);
+        if (p.auto_apply) flags += " AUTO";
+
+        auto* flagsLbl = new QLabel(flags, card);
+        flagsLbl->setObjectName("sectionSubtitle");
+        cardLayout->addWidget(flagsLbl);
+        cardLayout->addStretch();
+
+        auto* removeBtn = new QPushButton("Remove", card);
+        removeBtn->setObjectName("sidebarButton");
+        removeBtn->setFixedWidth(80);
+        QString gname = QString::fromStdString(p.game_name);
+        connect(removeBtn, &QPushButton::clicked, this, [this, gname]() {
+            m_profiles->remove(gname.toStdString());
+            refreshProfileList();
+            onGameSelected(m_gameCombo->currentIndex());
+        });
+        cardLayout->addWidget(removeBtn);
+
+        layout->addWidget(card);
+    }
+
+    layout->addStretch();
+}
+
+} // namespace gno

@@ -53,6 +53,7 @@ set(UI_SOURCES
     src/ui/sidebar.cpp
     src/ui/dashboard.cpp
     src/ui/game_list.cpp
+    src/ui/game_profiles_widget.cpp
     src/ui/monitoring.cpp
     src/ui/optimizer.cpp
     src/ui/settings_page.cpp

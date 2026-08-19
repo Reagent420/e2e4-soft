@@ -29,7 +29,45 @@ struct Colors {
     static constexpr auto GLOW_GREEN       = "rgba(34,197,94,0.3)";
 };
 
-inline QString globalStyleSheet() {
+struct LightColors {
+    static constexpr auto BG_PRIMARY       = "#F1F5F9";
+    static constexpr auto BG_SURFACE       = "#FFFFFF";
+    static constexpr auto BG_ELEVATED      = "#E2E8F0";
+    static constexpr auto BG_HOVER         = "#DBEAFE";
+    static constexpr auto ACCENT_BLUE      = "#2563EB";
+    static constexpr auto ACCENT_CYAN      = "#0891B2";
+    static constexpr auto ACCENT_VIOLET    = "#7C3AED";
+    static constexpr auto SUCCESS          = "#16A34A";
+    static constexpr auto WARNING          = "#D97706";
+    static constexpr auto ERROR            = "#DC2626";
+    static constexpr auto TEXT_PRIMARY     = "#0F172A";
+    static constexpr auto TEXT_SECONDARY   = "#475569";
+    static constexpr auto TEXT_TERTIARY    = "#94A3B8";
+    static constexpr auto BORDER           = "rgba(15,23,42,0.10)";
+    static constexpr auto BORDER_ACTIVE    = "rgba(37,99,235,0.5)";
+    static constexpr auto GLOW_BLUE        = "rgba(37,99,235,0.25)";
+    static constexpr auto GLOW_GREEN       = "rgba(22,163,74,0.25)";
+};
+
+inline QString globalStyleSheet(bool dark = true) {
+    const QString bgPrimary   = dark ? Colors::BG_PRIMARY       : LightColors::BG_PRIMARY;
+    const QString bgSurface   = dark ? Colors::BG_SURFACE       : LightColors::BG_SURFACE;
+    const QString bgElevated  = dark ? Colors::BG_ELEVATED      : LightColors::BG_ELEVATED;
+    const QString bgHover     = dark ? Colors::BG_HOVER         : LightColors::BG_HOVER;
+    const QString accentBlue  = dark ? Colors::ACCENT_BLUE      : LightColors::ACCENT_BLUE;
+    const QString accentCyan  = dark ? Colors::ACCENT_CYAN      : LightColors::ACCENT_CYAN;
+    const QString accentViolet= dark ? Colors::ACCENT_VIOLET    : LightColors::ACCENT_VIOLET;
+    const QString success     = dark ? Colors::SUCCESS          : LightColors::SUCCESS;
+    const QString warning     = dark ? Colors::WARNING          : LightColors::WARNING;
+    const QString error       = dark ? Colors::ERROR            : LightColors::ERROR;
+    const QString textPrimary = dark ? Colors::TEXT_PRIMARY     : LightColors::TEXT_PRIMARY;
+    const QString textSecond  = dark ? Colors::TEXT_SECONDARY   : LightColors::TEXT_SECONDARY;
+    const QString textTertiary= dark ? Colors::TEXT_TERTIARY    : LightColors::TEXT_TERTIARY;
+    const QString border      = dark ? Colors::BORDER           : LightColors::BORDER;
+    const QString borderActive= dark ? Colors::BORDER_ACTIVE    : LightColors::BORDER_ACTIVE;
+    const QString glowBlue    = dark ? Colors::GLOW_BLUE        : LightColors::GLOW_BLUE;
+    const QString glowGreen   = dark ? Colors::GLOW_GREEN       : LightColors::GLOW_GREEN;
+
     return QStringLiteral(R"(
         * {
             font-family: "Segoe UI", "Inter", "SF Pro Display", system-ui, sans-serif;
@@ -394,17 +432,17 @@ inline QString globalStyleSheet() {
             font-size: 12px;
         }
     )")
-    .arg(Colors::BG_PRIMARY)        // %1
-    .arg(Colors::TEXT_PRIMARY)      // %2
-    .arg(Colors::BG_SURFACE)        // %3
-    .arg(Colors::TEXT_SECONDARY)    // %4
-    .arg(Colors::BG_HOVER)          // %5
-    .arg(Colors::ACCENT_BLUE)       // %6
-    .arg(Colors::BORDER)            // %7
-    .arg(Colors::TEXT_TERTIARY)     // %8
-    .arg(Colors::SUCCESS)           // %9
-    .arg(Colors::WARNING)           // %10
-    .arg(Colors::ERROR);            // %11
+    .arg(bgPrimary)          // %1
+    .arg(textPrimary)        // %2
+    .arg(bgSurface)          // %3
+    .arg(textSecond)         // %4
+    .arg(bgHover)            // %5
+    .arg(accentBlue)         // %6
+    .arg(border)             // %7
+    .arg(textTertiary)       // %8
+    .arg(success)            // %9
+    .arg(warning)            // %10
+    .arg(error);             // %11
 }
 
 } // namespace theme

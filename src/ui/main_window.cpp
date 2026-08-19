@@ -8,6 +8,7 @@
 
 #include "dashboard.h"
 #include "game_list.h"
+#include "game_profiles_widget.h"
 #include "monitoring.h"
 #include "optimizer.h"
 #include "network_tools.h"
@@ -21,7 +22,6 @@ namespace gno {
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    qApp->setStyleSheet(theme::globalStyleSheet());
     setupUi();
     setupPages();
 
@@ -73,13 +73,17 @@ void MainWindow::setupPages()
 {
     m_stackedWidget->addWidget(new DashboardWidget(this));
     m_stackedWidget->addWidget(new GameListWidget(this));
+    m_stackedWidget->addWidget(new GameProfilesWidget(this));
     m_stackedWidget->addWidget(new MonitoringWidget(this));
     m_stackedWidget->addWidget(new OptimizerWidget(this));
     m_stackedWidget->addWidget(new NetworkToolsWidget(this));
     m_stackedWidget->addWidget(new ProcessMonitorWidget(this));
     m_stackedWidget->addWidget(new SessionHistoryWidget(this));
     m_stackedWidget->addWidget(new GeoMapWidget(this));
-    m_stackedWidget->addWidget(new SettingsPageWidget(this));
+
+    auto* settings = new SettingsPageWidget(this);
+    connect(settings, &SettingsPageWidget::themeChanged, this, &MainWindow::themeChanged);
+    m_stackedWidget->addWidget(settings);
 }
 
 void MainWindow::onNavigationChanged(int index)

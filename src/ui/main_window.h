@@ -19,6 +19,9 @@ public:
 
     void forceShow();
 
+signals:
+    void themeChanged(bool dark);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 
