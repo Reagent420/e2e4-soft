@@ -66,6 +66,7 @@ signals:
     void gameEnded(const QString& gameName);
     void sessionRecorded();
     void recommendationAvailable(const QString& text);
+    void diagnosticsTriggered(const QString& gameName, const QString& processName);
 
 private slots:
     void onTick();
@@ -74,7 +75,7 @@ private:
     MonitoringService();
     ~MonitoringService() override;
 
-    void handleGameStart(const QString& game);
+    void handleGameStart(const QString& game, const QString& process = QString());
     void handleGameEnd(const QString& game);
     void playEventSound(const QString& kind);
     void playTone(int freqHz, int durationMs);

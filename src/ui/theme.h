@@ -7,7 +7,7 @@ namespace gno {
 namespace theme {
 
 constexpr const char* APP_NAME = "E2E4 Soft — Оптимизатор игровой сети";
-constexpr const char* APP_VERSION = "1.3.0";
+constexpr const char* APP_VERSION = "1.4.0";
 
 struct Colors {
     static constexpr auto BG_PRIMARY       = "#0D0D0F";

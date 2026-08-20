@@ -78,7 +78,7 @@ static void applyBoost(bool on, gno::MainWindow& window) {
 int main(int argc, char* argv[]) {
     qInstallMessageHandler(myMessageHandler);
 
-    fprintf(stderr, "=== E2E4 Soft v1.3.0 Starting ===\n");
+    fprintf(stderr, "=== E2E4 Soft v1.4.0 Starting ===\n");
     fprintf(stderr, "App dir: %s\n", QDir::currentPath().toUtf8().constData());
 
     QApplication app(argc, argv);

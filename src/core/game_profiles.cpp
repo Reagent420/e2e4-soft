@@ -109,6 +109,27 @@ GameProfile GameProfiles::parseProfile(const std::string& json) {
     p.network_optimization = extractBool("network_optimization");
     p.max_routes = extractInt("max_routes");
     p.auto_apply = extractBool("auto_apply");
+
+    // granular flags (v1.4); default to the coarse flags for old files
+    p.game_dvr_opt = extractBool("game_dvr_opt");
+    p.power_plan_opt = extractBool("power_plan_opt");
+    p.high_priority_opt = extractBool("high_priority_opt");
+    p.tcp_opt = extractBool("tcp_opt");
+    p.mtu_opt = extractBool("mtu_opt");
+    p.custom_dns = extractBool("custom_dns");
+    p.dns_server = extractString("dns_server");
+    p.pro_config_opt = extractBool("pro_config_opt");
+    p.overlay_enabled = extractBool("overlay_enabled");
+
+    // migration: old profiles only had coarse flags
+    bool hasGranular = json.find("\"game_dvr_opt\"") != std::string::npos;
+    if (!hasGranular) {
+        p.game_dvr_opt = p.fps_boost_enabled;
+        p.power_plan_opt = p.fps_boost_enabled;
+        p.high_priority_opt = p.fps_boost_enabled;
+        p.tcp_opt = p.network_optimization;
+        p.mtu_opt = p.network_optimization;
+    }
     return p;
 }
 
@@ -133,7 +154,16 @@ void GameProfiles::save() {
         file << "    \"fps_boost_enabled\": " << (p.fps_boost_enabled ? "true" : "false") << ",\n";
         file << "    \"network_optimization\": " << (p.network_optimization ? "true" : "false") << ",\n";
         file << "    \"max_routes\": " << p.max_routes << ",\n";
-        file << "    \"auto_apply\": " << (p.auto_apply ? "true" : "false") << "\n";
+        file << "    \"auto_apply\": " << (p.auto_apply ? "true" : "false") << ",\n";
+        file << "    \"game_dvr_opt\": " << (p.game_dvr_opt ? "true" : "false") << ",\n";
+        file << "    \"power_plan_opt\": " << (p.power_plan_opt ? "true" : "false") << ",\n";
+        file << "    \"high_priority_opt\": " << (p.high_priority_opt ? "true" : "false") << ",\n";
+        file << "    \"tcp_opt\": " << (p.tcp_opt ? "true" : "false") << ",\n";
+        file << "    \"mtu_opt\": " << (p.mtu_opt ? "true" : "false") << ",\n";
+        file << "    \"custom_dns\": " << (p.custom_dns ? "true" : "false") << ",\n";
+        file << "    \"dns_server\": \"" << GameProfiles::escapeJson(p.dns_server) << "\",\n";
+        file << "    \"pro_config_opt\": " << (p.pro_config_opt ? "true" : "false") << ",\n";
+        file << "    \"overlay_enabled\": " << (p.overlay_enabled ? "true" : "false") << "\n";
         file << "  }";
         if (i < profiles_.size() - 1) file << ",";
         file << "\n";
@@ -177,7 +207,16 @@ bool GameProfiles::exportToFile(const std::string& path) const {
         file << "      \"fps_boost_enabled\": " << (p.fps_boost_enabled ? "true" : "false") << ",\n";
         file << "      \"network_optimization\": " << (p.network_optimization ? "true" : "false") << ",\n";
         file << "      \"max_routes\": " << p.max_routes << ",\n";
-        file << "      \"auto_apply\": " << (p.auto_apply ? "true" : "false") << "\n";
+        file << "      \"auto_apply\": " << (p.auto_apply ? "true" : "false") << ",\n";
+        file << "      \"game_dvr_opt\": " << (p.game_dvr_opt ? "true" : "false") << ",\n";
+        file << "      \"power_plan_opt\": " << (p.power_plan_opt ? "true" : "false") << ",\n";
+        file << "      \"high_priority_opt\": " << (p.high_priority_opt ? "true" : "false") << ",\n";
+        file << "      \"tcp_opt\": " << (p.tcp_opt ? "true" : "false") << ",\n";
+        file << "      \"mtu_opt\": " << (p.mtu_opt ? "true" : "false") << ",\n";
+        file << "      \"custom_dns\": " << (p.custom_dns ? "true" : "false") << ",\n";
+        file << "      \"dns_server\": \"" << GameProfiles::escapeJson(p.dns_server) << "\",\n";
+        file << "      \"pro_config_opt\": " << (p.pro_config_opt ? "true" : "false") << ",\n";
+        file << "      \"overlay_enabled\": " << (p.overlay_enabled ? "true" : "false") << "\n";
         file << "    }";
         if (i < profiles_.size() - 1) file << ",";
         file << "\n";

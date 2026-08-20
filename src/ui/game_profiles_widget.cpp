@@ -60,15 +60,44 @@ void GameProfilesWidget::setupUI()
 
     m_multipathCb = new QCheckBox(QString::fromUtf8("Мультимаршрут (несколько путей передачи данных)"), editorGroup);
     m_multipathCb->setChecked(true);
+    m_multipathCb->setToolTip(QString::fromUtf8("Будет доступно после подключения серверной сети"));
+    m_multipathCb->setEnabled(false);
     editorLayout->addWidget(m_multipathCb);
 
-    m_fpsBoostCb = new QCheckBox(QString::fromUtf8("Ускорение FPS (Game DVR, план питания)"), editorGroup);
+    m_fpsBoostCb = new QCheckBox(QString::fromUtf8("Ускорение FPS (все параметры ниже, кроме приоритета)"), editorGroup);
     m_fpsBoostCb->setChecked(true);
     editorLayout->addWidget(m_fpsBoostCb);
 
-    m_networkOptCb = new QCheckBox(QString::fromUtf8("Оптимизация сети (настройки TCP)"), editorGroup);
+    m_networkOptCb = new QCheckBox(QString::fromUtf8("Оптимизация сети (все сетевые параметры ниже)"), editorGroup);
     m_networkOptCb->setChecked(true);
     editorLayout->addWidget(m_networkOptCb);
+
+    auto* actionsTitle = new QLabel(QString::fromUtf8("— Функции и действия при запуске этой игры —"), editorGroup);
+    actionsTitle->setObjectName("sectionTitle");
+    editorLayout->addWidget(actionsTitle);
+
+    m_gameDvrCb = new QCheckBox(QString::fromUtf8("Отключить запись игр (Game DVR)"), editorGroup);
+    m_powerPlanCb = new QCheckBox(QString::fromUtf8("Переключить на план «Высокая производительность»"), editorGroup);
+    m_priorityCb = new QCheckBox(QString::fromUtf8("Поднять приоритет процесса игры"), editorGroup);
+    m_tcpCb = new QCheckBox(QString::fromUtf8("Оптимизировать TCP-стек (адаптивные ACK)"), editorGroup);
+    m_mtuCb = new QCheckBox(QString::fromUtf8("Установить MTU 1400"), editorGroup);
+    m_dnsCb = new QCheckBox(QString::fromUtf8("Установить быстрый DNS (1.1.1.1)"), editorGroup);
+    m_proConfigCb = new QCheckBox(QString::fromUtf8("Применить про-конфиг (autoexec.cfg / GameUserSettings.ini)"), editorGroup);
+    for (QCheckBox* cb : {m_gameDvrCb, m_powerPlanCb, m_priorityCb, m_tcpCb, m_mtuCb, m_dnsCb, m_proConfigCb}) {
+        cb->setChecked(true);
+        editorLayout->addWidget(cb);
+    }
+    m_proConfigCb->setChecked(false);
+
+    connect(m_fpsBoostCb, &QCheckBox::toggled, this, [this](bool on) {
+        m_gameDvrCb->setEnabled(on);
+        m_powerPlanCb->setEnabled(on);
+    });
+    connect(m_networkOptCb, &QCheckBox::toggled, this, [this](bool on) {
+        m_tcpCb->setEnabled(on);
+        m_mtuCb->setEnabled(on);
+        m_dnsCb->setEnabled(on);
+    });
 
     m_autoApplyCb = new QCheckBox(QString::fromUtf8("Применять автоматически при запуске игры"), editorGroup);
     m_autoApplyCb->setChecked(true);
@@ -139,6 +168,18 @@ void GameProfilesWidget::onGameSelected(int index)
         m_networkOptCb->setChecked(true);
         m_autoApplyCb->setChecked(true);
         m_maxRoutesSpin->setValue(3);
+        m_gameDvrCb->setChecked(true);
+        m_powerPlanCb->setChecked(true);
+        m_priorityCb->setChecked(true);
+        m_tcpCb->setChecked(true);
+        m_mtuCb->setChecked(true);
+        m_dnsCb->setChecked(false);
+        m_proConfigCb->setChecked(false);
+        m_gameDvrCb->setEnabled(true);
+        m_powerPlanCb->setEnabled(true);
+        m_tcpCb->setEnabled(true);
+        m_mtuCb->setEnabled(true);
+        m_dnsCb->setEnabled(true);
         return;
     }
 
@@ -148,6 +189,18 @@ void GameProfilesWidget::onGameSelected(int index)
     m_networkOptCb->setChecked(p.network_optimization);
     m_autoApplyCb->setChecked(p.auto_apply);
     m_maxRoutesSpin->setValue(p.max_routes);
+    m_gameDvrCb->setChecked(p.game_dvr_opt);
+    m_powerPlanCb->setChecked(p.power_plan_opt);
+    m_priorityCb->setChecked(p.high_priority_opt);
+    m_tcpCb->setChecked(p.tcp_opt);
+    m_mtuCb->setChecked(p.mtu_opt);
+    m_dnsCb->setChecked(p.custom_dns);
+    m_proConfigCb->setChecked(p.pro_config_opt);
+    m_gameDvrCb->setEnabled(m_fpsBoostCb->isChecked());
+    m_powerPlanCb->setEnabled(m_fpsBoostCb->isChecked());
+    m_tcpCb->setEnabled(m_networkOptCb->isChecked());
+    m_mtuCb->setEnabled(m_networkOptCb->isChecked());
+    m_dnsCb->setEnabled(m_networkOptCb->isChecked());
 }
 
 void GameProfilesWidget::onSaveProfile()
@@ -179,6 +232,13 @@ void GameProfilesWidget::onSaveProfile()
     p.network_optimization = m_networkOptCb->isChecked();
     p.auto_apply = m_autoApplyCb->isChecked();
     p.max_routes = m_maxRoutesSpin->value();
+    p.game_dvr_opt = m_fpsBoostCb->isChecked() && m_gameDvrCb->isChecked();
+    p.power_plan_opt = m_fpsBoostCb->isChecked() && m_powerPlanCb->isChecked();
+    p.high_priority_opt = m_priorityCb->isChecked();
+    p.tcp_opt = m_networkOptCb->isChecked() && m_tcpCb->isChecked();
+    p.mtu_opt = m_networkOptCb->isChecked() && m_mtuCb->isChecked();
+    p.custom_dns = m_networkOptCb->isChecked() && m_dnsCb->isChecked();
+    p.pro_config_opt = m_proConfigCb->isChecked();
 
     m_profiles->set(p);
     m_statusLabel->setText(QString("Сохранено: %1").arg(QString::fromStdString(gameName)));
@@ -221,8 +281,13 @@ void GameProfilesWidget::refreshProfileList()
 
         QString flags;
         if (p.multipath_enabled) flags += "MP ";
-        if (p.fps_boost_enabled) flags += "FPS ";
-        if (p.network_optimization) flags += "NET ";
+        if (p.game_dvr_opt) flags += "DVR ";
+        if (p.power_plan_opt) flags += "PWR ";
+        if (p.high_priority_opt) flags += "PRIO ";
+        if (p.tcp_opt) flags += "TCP ";
+        if (p.mtu_opt) flags += "MTU ";
+        if (p.custom_dns) flags += "DNS ";
+        if (p.pro_config_opt) flags += "PRO ";
         flags += QString("R:%1").arg(p.max_routes);
         if (p.auto_apply) flags += " AUTO";
 

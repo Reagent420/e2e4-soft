@@ -5,9 +5,15 @@
 #include <cmath>
 #include <algorithm>
 
+#include "game_profiles.h"
+#include "network_utils.h"
+#include "launch_diagnostics.h"
+#include "../core/system_audit.h"
+
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
 #include <mmsystem.h>
+#include <tlhelp32.h>
 #pragma comment(lib, "winmm.lib")
 #endif
 
@@ -57,9 +63,10 @@ void MonitoringService::start() {
     wcfg.auto_apply_profiles = false;
     wcfg.notify_on_game_start = true;
     wcfg.notify_on_game_end = true;
-    watcher_.setGameStartCallback([this](const std::string& game, const std::string&, uint32_t) {
+    watcher_.setGameStartCallback([this](const std::string& game, const std::string& process, uint32_t) {
         QString name = QString::fromStdString(game);
-        QMetaObject::invokeMethod(this, [this, name]() { handleGameStart(name); }, Qt::QueuedConnection);
+        QString proc = QString::fromStdString(process);
+        QMetaObject::invokeMethod(this, [this, name, proc]() { handleGameStart(name, proc); }, Qt::QueuedConnection);
     });
     watcher_.setGameEndCallback([this](const std::string& game, const std::string&) {
         QString name = QString::fromStdString(game);
@@ -257,7 +264,7 @@ void MonitoringService::onTick() {
     }
 }
 
-void MonitoringService::handleGameStart(const QString& game) {
+void MonitoringService::handleGameStart(const QString& game, const QString& process) {
     current_game_ = game;
     session_clock_.restart();
     session_ping_sum_ = 0.0;
@@ -270,7 +277,73 @@ void MonitoringService::handleGameStart(const QString& game) {
     history_.recordStart(game.toStdString(), boost_active_);
     collector_.start(game.toStdString());
     playEventSound(QStringLiteral("game_start"));
-    emit gameStarted(game);
+
+    // auto-apply the saved per-game profile (non-VPN actions only)
+    try {
+        GameProfiles profiles;
+        if (profiles.has(game.toStdString())) {
+            GameProfile p = profiles.get(game.toStdString());
+            if (p.auto_apply) {
+                QStringList notes;
+                if (p.power_plan_opt) {
+                    LaunchDiagnostics::applyFix("power_plan");
+                    notes << QString::fromUtf8("план питания");
+                }
+                if (p.game_dvr_opt)
+                    notes << QString::fromUtf8("Game DVR");
+                if (p.tcp_opt) {
+                    NetworkUtils::applyTCPOptimizations(true);
+                    notes << QString::fromUtf8("TCP");
+                }
+                if (p.mtu_opt) {
+                    std::string iface = NetworkUtils::getNetworkInterfaceName();
+                    if (iface != "default") {
+                        NetworkUtils::setMTU(iface, 1400);
+                        notes << QString::fromUtf8("MTU");
+                    }
+                }
+                if (p.custom_dns) {
+                    std::string iface = NetworkUtils::getNetworkInterfaceName();
+                    if (iface != "default") {
+                        NetworkUtils::setDNS(iface, p.dns_server);
+                        notes << QString::fromUtf8("DNS");
+                    }
+                }
+                if (p.high_priority_opt && !process.isEmpty()) {
+#ifdef PLATFORM_WINDOWS
+                    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                    if (snap != INVALID_HANDLE_VALUE) {
+                        PROCESSENTRY32W pe;
+                        pe.dwSize = sizeof(pe);
+                        std::wstring target = process.toStdWString();
+                        for (BOOL ok = Process32FirstW(snap, &pe); ok; ok = Process32NextW(snap, &pe)) {
+                            if (target == pe.szExeFile) {
+                                HANDLE hProc = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pe.th32ProcessID);
+                                if (hProc) {
+                                    SetPriorityClass(hProc, HIGH_PRIORITY_CLASS);
+                                    CloseHandle(hProc);
+                                }
+                                break;
+                            }
+                        }
+                        CloseHandle(snap);
+                        notes << QString::fromUtf8("приоритет процесса");
+                    }
+#endif
+                }
+                emit gameStarted(game + (notes.isEmpty() ? QString()
+                    : QString::fromUtf8(" · профиль применён: ") + notes.join(", ")));
+            } else {
+                emit gameStarted(game);
+            }
+        } else {
+            emit gameStarted(game);
+        }
+    } catch (...) {
+        emit gameStarted(game);
+    }
+
+    emit diagnosticsTriggered(game, process);
 }
 
 void MonitoringService::handleGameEnd(const QString& game) {

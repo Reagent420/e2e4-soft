@@ -5,6 +5,11 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QLabel>
+#include <QVector>
+
+#include "../core/system_audit.h"
+
+namespace gno {
 
 struct FPSBoostSettings {
     bool disable_game_dvr = true;
@@ -42,6 +47,10 @@ private slots:
 private:
     void loadSettings();
     void saveSettings();
+    void renderChanges(const QVector<SettingChange>& changes);
+    void renderCapabilities();
+    QWidget* makeChangeCard(const SettingChange& c);
+    QWidget* makeCapabilityCard(const Capability& c);
 
     QCheckBox* fps_checkboxes_[7];
     QCheckBox* net_checkboxes_[6];
@@ -49,4 +58,8 @@ private:
     QLineEdit* mtu_input_;
     QPushButton* apply_btn_;
     QLabel* status_label_;
+    QWidget* changes_list_;
+    QWidget* caps_list_;
 };
+
+} // namespace gno

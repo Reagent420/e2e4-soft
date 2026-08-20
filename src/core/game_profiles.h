@@ -17,6 +17,17 @@ struct GameProfile {
     int priority_class = 6;
     std::vector<std::string> custom_routes;
     bool auto_apply = true;
+
+    // granular per-game actions (v1.4)
+    bool game_dvr_opt = true;
+    bool power_plan_opt = true;
+    bool high_priority_opt = true;
+    bool tcp_opt = true;
+    bool mtu_opt = true;
+    bool custom_dns = false;
+    std::string dns_server = "1.1.1.1";
+    bool pro_config_opt = false;
+    bool overlay_enabled = false;
 };
 
 class GameProfiles {

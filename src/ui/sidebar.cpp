@@ -20,7 +20,7 @@ Sidebar::Sidebar(QWidget* parent)
     m_logoLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_logoLabel);
 
-    m_versionLabel = new QLabel("v1.3.0", this);
+    m_versionLabel = new QLabel("v1.4.0", this);
     m_versionLabel->setObjectName("versionLabel");
     m_versionLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_versionLabel);
@@ -37,9 +37,10 @@ Sidebar::Sidebar(QWidget* parent)
     m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "Оптимизация"),      4);
     m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "Сетевые утилиты"),  5);
     m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "Процессы"),         6);
-    m_buttonGroup->addButton(createNavButton(NavPage::History,         "История"),          7);
-    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "Карта серверов"),   8);
-    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "Настройки"),        9);
+m_buttonGroup->addButton(createNavButton(NavPage::History,         "История"),         7);
+    m_buttonGroup->addButton(createNavButton(NavPage::Diagnostics,     "Диагностика"),     8);
+    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "Карта серверов"),  9);
+    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "Настройки"),       10);
 
     for (int i = 0; i < BUTTON_COUNT; ++i) {
         layout->addWidget(m_buttonGroup->button(i));
@@ -160,6 +161,17 @@ QIcon Sidebar::makeIcon(NavPage page, const QColor& color)
         p.drawLine(m + 4, m + 16, m + s - 4, m + 16);
         p.drawLine(m + 4, m + 22, m + s - 4, m + 22);
         p.drawLine(m + 8, m + 28, m + s - 4, m + 28);
+        break;
+    }
+
+    case NavPage::Diagnostics: {
+        // stethoscope / magnifier
+        p.setPen(QPen(color, 2));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QPoint(m + 8, m + 8), 6, 6);
+        p.drawLine(m + 12, m + 12, m + s - 2, m + s - 2);
+        p.drawLine(m + 8, m + 20, m + 8, m + s - 4);
+        p.drawEllipse(QPoint(m + 8, m + s - 4), 2, 2);
         break;
     }
 

@@ -33,7 +33,7 @@ void printSeparator() {
 
 void printHelp() {
     std::cout << R"(
-E2E4 Soft - Game Network Optimizer v1.3.0
+E2E4 Soft - Game Network Optimizer v1.4.0
 
 Usage: E2E4-console [OPTIONS]
 
@@ -104,7 +104,7 @@ int main(int argc, char* argv[]) {
             printHelp();
             return 0;
         } else if (arg == "-v" || arg == "--version") {
-            std::cout << "GNO-console v1.3.0\n";
+            std::cout << "GNO-console v1.4.0\n";
             return 0;
         } else if (arg == "--target" && i + 1 < argc) {
             target = argv[++i];
@@ -412,7 +412,7 @@ int main(int argc, char* argv[]) {
     // Default: run all tests
     if (run_tests) {
         std::cout << "========================================\n";
-        std::cout << "  GNO - Game Network Optimizer v1.3.0\n";
+        std::cout << "  GNO - Game Network Optimizer v1.4.0\n";
         std::cout << "========================================\n";
 
         // Test 1: Network Utils

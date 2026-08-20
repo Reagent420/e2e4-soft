@@ -20,6 +20,7 @@ enum class NavPage {
     NetworkTools,
     ProcessMonitor,
     History,
+    Diagnostics,
     GeoMap,
     Settings,
     Count

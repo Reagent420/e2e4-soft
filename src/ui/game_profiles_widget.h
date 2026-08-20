@@ -35,6 +35,14 @@ private:
     QCheckBox* m_networkOptCb;
     QCheckBox* m_autoApplyCb;
     QSpinBox* m_maxRoutesSpin;
+    // granular per-game actions ("Функции и действия")
+    QCheckBox* m_gameDvrCb;
+    QCheckBox* m_powerPlanCb;
+    QCheckBox* m_priorityCb;
+    QCheckBox* m_tcpCb;
+    QCheckBox* m_mtuCb;
+    QCheckBox* m_dnsCb;
+    QCheckBox* m_proConfigCb;
     QWidget* m_profileList;
     QLabel* m_statusLabel;
 };

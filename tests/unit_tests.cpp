@@ -6,6 +6,9 @@
 #include "core/speed_test.h"
 #include "core/dns_manager.h"
 #include "core/process_monitor.h"
+#include "core/system_audit.h"
+#include "core/launch_diagnostics.h"
+#include "core/problem_db.h"
 #include "monitoring/jitter_calculator.h"
 #include "monitoring/packet_loss_monitor.h"
 #include "monitoring/stats_collector.h"
@@ -138,4 +141,79 @@ TEST_CASE("StatsCollector::session") {
     auto session = sc.getCurrentSession();
     REQUIRE(session.total_samples == 1);
     REQUIRE(session.total_ping_ms == 30.0);
+}
+
+TEST_CASE("ProblemDb::known games and fixes") {
+    auto games = gno::ProblemDb::getKnownGames();
+    REQUIRE(games.size() >= 5);
+    REQUIRE(games[0] == "CS2");
+
+auto problems = gno::ProblemDb::getForGame("CS2");
+    REQUIRE(problems.size() >= 2);
+    bool hasTitle = false;
+    for (const auto& p : problems)
+        if (p.title.find("пинг") != std::string::npos) hasTitle = true;
+    REQUIRE(hasTitle);
+}
+
+TEST_CASE("ProblemDb::getForGame is case-insensitive") {
+    auto a = gno::ProblemDb::getForGame("valorant");
+    auto b = gno::ProblemDb::getForGame("Valorant");
+    REQUIRE(a.size() == b.size());
+    REQUIRE(a.size() >= 2);
+}
+
+TEST_CASE("ProblemDb::auto-fix ids map to known actions") {
+    const std::vector<std::string> known = {"power_plan", "game_dvr", "fullscreen_opt",
+                                            "dns", "mtu", "tcp", "vm", "priority",
+                                            "tcp_mtu", "dns_tcp", "fps_boost"};
+    for (const auto& p : gno::ProblemDb::getAll()) {
+        if (p.fix_action.empty()) continue;
+        bool knownId = false;
+        for (const auto& k : known)
+            if (k == p.fix_action) knownId = true;
+        REQUIRE(knownId);
+    }
+}
+
+TEST_CASE("SystemAudit::formatChanges renders old->new") {
+    gno::SettingChange c;
+    c.section = "Network";
+    c.name = "TCP NoDelay";
+    c.action = "enable";
+    c.old_value = "";
+    c.new_value = "1";
+    c.status = gno::SettingChange::Status::Applied;
+    c.detail = "ok";
+    std::vector<gno::SettingChange> list{c};
+    std::string out = gno::SystemAudit::formatChanges(list);
+    REQUIRE(out.find("[APPLIED]") != std::string::npos);
+    REQUIRE(out.find("TCP NoDelay") != std::string::npos);
+    REQUIRE(out.find("old") != std::string::npos);
+}
+
+TEST_CASE("SystemAudit::capabilities have sensible statuses") {
+    auto caps = gno::SystemAudit::getCapabilities();
+    REQUIRE(caps.size() >= 10);
+    bool hasVpn = false, hasLocal = false;
+    for (const auto& c : caps) {
+        if (c.requires_vpn_server) hasVpn = true;
+        else hasLocal = true;
+    }
+    REQUIRE(hasVpn);
+    REQUIRE(hasLocal);
+}
+
+TEST_CASE("LaunchDiagnostics::checks cover categories") {
+    gno::GameDiagnostics d = gno::LaunchDiagnostics::run("TestGame", "test_game.exe");
+    REQUIRE(d.checks.size() >= 8);
+    bool hasNetwork = false, hasFps = false, hasSystem = false;
+    for (const auto& c : d.checks) {
+        if (c.category == "Сеть") hasNetwork = true;
+        if (c.category == "FPS") hasFps = true;
+        if (c.category == "Система") hasSystem = true;
+    }
+    REQUIRE(hasNetwork);
+    REQUIRE(hasFps);
+    REQUIRE(hasSystem);
 }

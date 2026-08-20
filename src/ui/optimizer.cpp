@@ -6,10 +6,14 @@
 #include <QGridLayout>
 #include <QTimer>
 #include <QSettings>
+#include <QScrollArea>
+#include <QFrame>
+#include <QHash>
 
 #include "../optimization/fps_optimizer.h"
 #include "../optimization/fps_optimizer_windows.h"
 #include "../core/network_utils.h"
+#include "../core/system_audit.h"
 
 static QWidget* createSettingsGroup(const QString& title, QLayout* contentLayout) {
     auto* group = new QWidget;
@@ -44,6 +48,8 @@ static QCheckBox* createOptCheckBox(const QString& text, const QString& desc, bo
 // ---------------------------------------------------------------------------
 // OptimizerWidget
 // ---------------------------------------------------------------------------
+
+namespace gno {
 
 OptimizerWidget::OptimizerWidget(QWidget* parent)
     : QWidget(parent) {
@@ -153,8 +159,41 @@ OptimizerWidget::OptimizerWidget(QWidget* parent)
     status_label_->setAlignment(Qt::AlignCenter);
     root->addWidget(status_label_);
 
+    // --- What was applied (old -> new) ---
+    auto* changesTitle = new QLabel("Что применилось (до → после)");
+    changesTitle->setStyleSheet("font-size:14px; font-weight:700; color:white; background:transparent;");
+    root->addWidget(changesTitle);
+
+    auto* changesScroll = new QScrollArea;
+    changesScroll->setWidgetResizable(true);
+    changesScroll->setFrameShape(QFrame::NoFrame);
+    changesScroll->setMaximumHeight(260);
+    changes_list_ = new QWidget;
+    changes_list_->setLayout(new QVBoxLayout(changes_list_));
+    changes_list_->layout()->setContentsMargins(0, 0, 0, 0);
+    changes_list_->layout()->setSpacing(6);
+    changesScroll->setWidget(changes_list_);
+    root->addWidget(changesScroll);
+
+    // --- Capability matrix ---
+    auto* capsTitle = new QLabel("Что программа может и не может сделать");
+    capsTitle->setStyleSheet("font-size:14px; font-weight:700; color:white; background:transparent;");
+    root->addWidget(capsTitle);
+
+    auto* capsScroll = new QScrollArea;
+    capsScroll->setWidgetResizable(true);
+    capsScroll->setFrameShape(QFrame::NoFrame);
+    capsScroll->setMaximumHeight(300);
+    caps_list_ = new QWidget;
+    caps_list_->setLayout(new QVBoxLayout(caps_list_));
+    caps_list_->layout()->setContentsMargins(0, 0, 0, 0);
+    caps_list_->layout()->setSpacing(6);
+    capsScroll->setWidget(caps_list_);
+    root->addWidget(capsScroll);
+
     root->addStretch();
 
+    renderCapabilities();
     loadSettings();
 }
 
@@ -239,6 +278,18 @@ void OptimizerWidget::onApplyClicked() {
     apply_btn_->setEnabled(false);
     apply_btn_->setText("⚡  ПРИМЕНЯЕМ…");
 
+    // capture BEFORE state so we can show a real diff
+    QStringList beforeKeys = {
+        "GameDVR", "FullscreenOpt", "GameMode", "PowerPlan", "TcpAck", "TcpNoDelay"
+    };
+    QHash<QString, QString> before;
+    before["GameDVR"] = QString::fromStdString(SystemAudit::readGameDvrValue());
+    before["FullscreenOpt"] = QString::fromStdString(SystemAudit::readFullscreenOptValue());
+    before["GameMode"] = QString::fromStdString(SystemAudit::readGameModeValue());
+    before["PowerPlan"] = QString::fromStdString(SystemAudit::readActivePowerPlan());
+    before["TcpAck"] = QString::fromStdString(SystemAudit::readTcpValue("TcpAckFrequency"));
+    before["TcpNoDelay"] = QString::fromStdString(SystemAudit::readTcpValue("TCPNoDelay"));
+
     auto settings = getSettings();
     QStringList applied;
     QStringList warnings;
@@ -298,6 +349,66 @@ void OptimizerWidget::onApplyClicked() {
     saveSettings();
     emit optimizationsApplied();
 
+    // --- build the old -> new diff with verification ---
+    QVector<SettingChange> changes;
+
+    auto makeChange = [&](const QString& key, const QString& section, const QString& name,
+                          const QString& action, const QString& expectedNew) {
+        SettingChange c;
+        c.section = section.toStdString();
+        c.name = name.toStdString();
+        c.action = action.toStdString();
+        c.old_value = before.value(key).toStdString();
+        c.new_value = expectedNew.toStdString();
+        QString after = [&]() -> QString {
+            if (key == "GameDVR") return QString::fromStdString(SystemAudit::readGameDvrValue());
+            if (key == "FullscreenOpt") return QString::fromStdString(SystemAudit::readFullscreenOptValue());
+            if (key == "GameMode") return QString::fromStdString(SystemAudit::readGameModeValue());
+            if (key == "PowerPlan") return QString::fromStdString(SystemAudit::readActivePowerPlan());
+            if (key == "TcpAck") return QString::fromStdString(SystemAudit::readTcpValue("TcpAckFrequency"));
+            if (key == "TcpNoDelay") return QString::fromStdString(SystemAudit::readTcpValue("TCPNoDelay"));
+            return QString();
+        }();
+        if (after == before.value(key)) {
+            c.status = SettingChange::Status::NotApplied;
+            c.detail = "Значение не изменилось — параметр уже был применён ранее или не доступен.";
+        } else if (!after.isEmpty()) {
+            c.status = SettingChange::Status::Applied;
+            c.new_value = after.toStdString();
+            c.detail = "Программа записала значение в реестр и проверила его обратно — применилось.";
+        } else {
+            c.status = SettingChange::Status::AdminRequired;
+            c.detail = "Программа не смогла прочитать значение обратно — возможно, нужны права администратора.";
+        }
+        changes.append(c);
+    };
+
+    if (settings.disable_game_dvr)
+        makeChange("GameDVR", "FPS", "Запись игр (Game DVR)", "Отключить фоновую запись", "0");
+    if (settings.disable_fullscreen_opt)
+        makeChange("FullscreenOpt", "FPS", "Оптимизации полноэкранного режима", "Отключить", "1");
+    if (settings.disable_game_mode)
+        makeChange("GameMode", "FPS", "Игровой режим Windows", "Отключить", "0");
+    if (settings.optimize_power_plan)
+        makeChange("PowerPlan", "FPS", "План питания", "Высокая производительность", "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
+    if (settings.tcp_optimization) {
+        makeChange("TcpAck", "Network", "Адаптивные ACK (TcpAckFrequency)", "Включить", "1");
+        makeChange("TcpNoDelay", "Network", "TCP NoDelay", "Включить", "1");
+    }
+
+    // verify everything again (authoritative read-back check)
+    auto verifiedFps = SystemAudit::verifyFpsSettings();
+    auto verifiedNet = SystemAudit::verifyNetworkSettings();
+    for (auto& v : verifiedFps)
+        if (v.status == SettingChange::Status::Verified || v.status == SettingChange::Status::Failed)
+            changes.append(v);
+    for (auto& v : verifiedNet)
+        if (v.status == SettingChange::Status::Verified || v.status == SettingChange::Status::Failed)
+            changes.append(v);
+
+    renderChanges(changes);
+    renderCapabilities();
+
     // show result
     QString text;
     if (!applied.isEmpty())
@@ -324,3 +435,149 @@ void OptimizerWidget::onDnsToggled(bool checked) {
 void OptimizerWidget::onMtuToggled(bool checked) {
     mtu_input_->setEnabled(checked);
 }
+
+QWidget* OptimizerWidget::makeChangeCard(const SettingChange& c)
+{
+    auto* card = new QWidget(this);
+    card->setObjectName("gameCard");
+
+    QString color;
+    QString icon;
+    QString statusText;
+    switch (c.status) {
+        case SettingChange::Status::Applied:
+            color = theme::Colors::SUCCESS; icon = QString::fromUtf8("✓"); statusText = QString::fromUtf8("Применено"); break;
+        case SettingChange::Status::Verified:
+            color = theme::Colors::SUCCESS; icon = QString::fromUtf8("✓✓"); statusText = QString::fromUtf8("Проверено чтением реестра"); break;
+        case SettingChange::Status::AdminRequired:
+            color = theme::Colors::WARNING; icon = QString::fromUtf8("⚠"); statusText = QString::fromUtf8("Нужны права администратора"); break;
+        case SettingChange::Status::Failed:
+            color = theme::Colors::ERROR; icon = QString::fromUtf8("✕"); statusText = QString::fromUtf8("Не удалось"); break;
+        default:
+            color = theme::Colors::TEXT_TERTIARY; icon = QString::fromUtf8("·"); statusText = QString::fromUtf8("Не применялось"); break;
+    }
+
+    auto* row = new QHBoxLayout(card);
+    row->setContentsMargins(12, 8, 12, 8);
+    row->setSpacing(10);
+
+    auto* iconLbl = new QLabel(icon, card);
+    iconLbl->setStyleSheet(QString("color:%1; font-size:16px; font-weight:700; background:transparent;").arg(color));
+    row->addWidget(iconLbl);
+
+    auto* textLayout = new QVBoxLayout();
+    auto* titleRow = new QHBoxLayout();
+    auto* titleLbl = new QLabel(QString::fromStdString(c.name), card);
+    titleLbl->setObjectName("gameTitle");
+    titleRow->addWidget(titleLbl);
+    titleRow->addStretch();
+    auto* catLbl = new QLabel(QString::fromStdString(c.section), card);
+    catLbl->setObjectName("gameCategory");
+    titleRow->addWidget(catLbl);
+    textLayout->addLayout(titleRow);
+
+    auto* valsLbl = new QLabel(QString::fromUtf8("было: %1   →   стало: %2")
+        .arg(QString::fromStdString(c.old_value.empty() ? "-" : c.old_value),
+             QString::fromStdString(c.new_value.empty() ? "-" : c.new_value)), card);
+    valsLbl->setStyleSheet(QString("color:%1; font-size:12px; background:transparent;").arg(color));
+    textLayout->addWidget(valsLbl);
+
+    auto* detailLbl = new QLabel(QString::fromStdString(c.detail), card);
+    detailLbl->setStyleSheet("color:rgba(255,255,255,0.5); font-size:11px; font-style:italic; background:transparent;");
+    detailLbl->setWordWrap(true);
+    textLayout->addWidget(detailLbl);
+
+    auto* statusLbl = new QLabel(statusText, card);
+    statusLbl->setStyleSheet(QString("color:%1; font-size:11px; font-weight:600; background:transparent;").arg(color));
+    textLayout->addWidget(statusLbl);
+
+    row->addLayout(textLayout, 1);
+    return card;
+}
+
+void OptimizerWidget::renderChanges(const QVector<SettingChange>& changes)
+{
+    auto* layout = qobject_cast<QVBoxLayout*>(changes_list_->layout());
+    if (!layout) return;
+
+    QLayoutItem* item;
+    while ((item = layout->takeAt(0)) != nullptr) {
+        if (item->widget()) item->widget()->deleteLater();
+        delete item;
+    }
+
+    if (changes.isEmpty()) {
+        auto* lbl = new QLabel(QString::fromUtf8("Нажмите «Применить», чтобы увидеть разницу «до → после»."), this);
+        lbl->setObjectName("sectionSubtitle");
+        layout->addWidget(lbl);
+        layout->addStretch();
+        return;
+    }
+
+    for (const auto& c : changes)
+        layout->addWidget(makeChangeCard(c));
+    layout->addStretch();
+}
+
+QWidget* OptimizerWidget::makeCapabilityCard(const Capability& c)
+{
+    auto* card = new QWidget(this);
+    card->setObjectName("gameCard");
+
+    QColor color = c.currently_possible ? QColor(theme::Colors::SUCCESS)
+                   : c.requires_vpn_server ? QColor(theme::Colors::TEXT_TERTIARY)
+                                           : QColor(theme::Colors::WARNING);
+    QString icon = c.currently_possible ? QString::fromUtf8("✓")
+                  : c.requires_vpn_server ? QString::fromUtf8("⏳")
+                                          : QString::fromUtf8("⚠");
+
+    auto* row = new QHBoxLayout(card);
+    row->setContentsMargins(12, 8, 12, 8);
+    row->setSpacing(10);
+
+    auto* iconLbl = new QLabel(icon, card);
+    iconLbl->setStyleSheet(QString("color:%1; font-size:15px; font-weight:700; background:transparent;").arg(color.name()));
+    row->addWidget(iconLbl);
+
+    auto* textLayout = new QVBoxLayout();
+    auto* titleLbl = new QLabel(QString::fromStdString(c.title), card);
+    titleLbl->setObjectName("gameTitle");
+    textLayout->addWidget(titleLbl);
+
+    auto* descLbl = new QLabel(QString::fromStdString(c.description), card);
+    descLbl->setObjectName("sectionSubtitle");
+    descLbl->setWordWrap(true);
+    textLayout->addWidget(descLbl);
+
+    auto* seesLbl = new QLabel(QString::fromUtf8("Как программа это видит: ") +
+                                   QString::fromStdString(c.what_it_sees), card);
+    seesLbl->setStyleSheet("color:rgba(255,255,255,0.4); font-size:11px; font-style:italic; background:transparent;");
+    seesLbl->setWordWrap(true);
+    textLayout->addWidget(seesLbl);
+
+    auto* statusLbl = new QLabel(QString::fromStdString(c.status_text), card);
+    statusLbl->setStyleSheet(QString("color:%1; font-size:11px; font-weight:600; background:transparent;").arg(color.name()));
+    textLayout->addWidget(statusLbl);
+
+    row->addLayout(textLayout, 1);
+    return card;
+}
+
+void OptimizerWidget::renderCapabilities()
+{
+    auto* layout = qobject_cast<QVBoxLayout*>(caps_list_->layout());
+    if (!layout) return;
+
+    QLayoutItem* item;
+    while ((item = layout->takeAt(0)) != nullptr) {
+        if (item->widget()) item->widget()->deleteLater();
+        delete item;
+    }
+
+    auto caps = SystemAudit::getCapabilities();
+    for (const auto& c : caps)
+        layout->addWidget(makeCapabilityCard(c));
+    layout->addStretch();
+}
+
+} // namespace gno

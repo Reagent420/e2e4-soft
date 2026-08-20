@@ -14,6 +14,7 @@
 #include "network_tools.h"
 #include "process_monitor_widget.h"
 #include "session_history_widget.h"
+#include "diagnostics_widget.h"
 #include "geo_map.h"
 #include "settings_page.h"
 
@@ -105,6 +106,7 @@ void MainWindow::setupPages()
     m_stackedWidget->addWidget(new NetworkToolsWidget(this));
     m_stackedWidget->addWidget(new ProcessMonitorWidget(this));
     m_stackedWidget->addWidget(new SessionHistoryWidget(this));
+    m_stackedWidget->addWidget(new DiagnosticsWidget(this));
     m_stackedWidget->addWidget(new GeoMapWidget(this));
 
     auto* settings = new SettingsPageWidget(this);
