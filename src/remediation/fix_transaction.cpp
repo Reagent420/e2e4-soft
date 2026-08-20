@@ -46,8 +46,7 @@ bool rollbackEligible(const TransactionRecord& record) noexcept {
                                  record.status == TransactionStatus::Failed ||
                                  record.status == TransactionStatus::Cancelled ||
                                  record.status == TransactionStatus::RollbackFailed;
-    if (!eligible_status || record.error == RemediationError::BackupFailed ||
-        record.applied_action_order.empty() ||
+    if (!eligible_status || record.applied_action_order.empty() ||
         record.applied_action_order.size() > record.prepared_actions.size() ||
         record.outcomes.size() != record.prepared_actions.size()) {
         return false;
@@ -300,6 +299,32 @@ Result<TransactionRecord> FixTransaction::rollback(
         current.outcomes.size() != actions_.size() || !rollbackEligible(current)) {
         return makeResult(std::move(current), RemediationError::RollbackFailed,
                           "transaction has no eligible reversible applied prefix");
+    }
+
+    bool stale = false;
+    std::string stale_detail;
+    for (std::size_t index = 0; index < current.applied_action_order.size(); ++index) {
+        if (current.outcomes[index].status != ActionStatus::Applied) {
+            continue;
+        }
+        if (cancellation.isCancelled()) {
+            return makeResult(std::move(current), RemediationError::Cancelled,
+                              "rollback cancelled during freshness check");
+        }
+        const auto fresh = actions_[index]->observe(targets_[index], cancellation);
+        if (!fresh.ok() || fresh.value != current.outcomes[index].state ||
+            !isBounded(fresh.value)) {
+            stale = true;
+            if (stale_detail.empty()) {
+                stale_detail = fresh.ok()
+                                   ? "applied state changed before rollback"
+                                   : fresh.detail;
+            }
+        }
+    }
+    if (stale) {
+        return makeResult(std::move(current), RemediationError::RollbackFailed,
+                          std::move(stale_detail));
     }
 
     TransactionRecord rolling_back = current;

@@ -174,11 +174,12 @@ public:
     explicit FakeBackupStore(std::vector<std::string>& log) : log_(log) {}
 
     Result<std::monostate> save(const TransactionRecord& record) override {
+        ++save_calls;
         if (records.empty()) {
             log_.push_back("save");
         }
         records.push_back(record);
-        if (fail_next_save) {
+        if (fail_next_save || (fail_on_save != 0 && save_calls == fail_on_save)) {
             fail_next_save = false;
             return failure<std::monostate>(RemediationError::BackupFailed, "save failed");
         }
@@ -200,6 +201,8 @@ public:
 
     std::vector<TransactionRecord> records;
     bool fail_next_save = false;
+    std::size_t fail_on_save = 0;
+    std::size_t save_calls = 0;
 
 private:
     std::vector<std::string>& log_;
@@ -534,6 +537,90 @@ TEST_CASE("rollback observation mismatch remains applied and succeeds on retry")
           std::vector<gno::ActionId>{gno::ActionId::PowerPlan});
     CHECK(retried.value.outcomes[0].status == gno::ActionStatus::Reverted);
     CHECK(retried.value.outcomes[0].rollback_error == gno::RemediationError::None);
+}
+
+TEST_CASE("rollback recovers a verified applied prefix after transition save failure") {
+    std::vector<std::string> log;
+    FakeBackupStore store(log);
+    store.fail_on_save = 2;
+    auto transaction = makeTransaction(
+        store, oneAction(log, gno::ActionId::PowerPlan));
+    const gno::CancellationToken token;
+    requirePrepared(*transaction, token);
+
+    const auto execution = transaction->execute(token);
+
+    CHECK(execution.error == gno::RemediationError::BackupFailed);
+    CHECK(execution.value.status == gno::TransactionStatus::Failed);
+    CHECK(execution.value.outcomes[0].status == gno::ActionStatus::Applied);
+    CHECK(execution.value.applied_action_order ==
+          std::vector<gno::ActionId>{gno::ActionId::PowerPlan});
+
+    const auto recovered = transaction->rollback(token);
+
+    REQUIRE(recovered.ok());
+    CHECK(recovered.value.status == gno::TransactionStatus::Reverted);
+    CHECK(recovered.value.outcomes[0].status == gno::ActionStatus::Reverted);
+    CHECK(recovered.value.action_order ==
+          std::vector<gno::ActionId>{gno::ActionId::PowerPlan});
+}
+
+TEST_CASE("rollback recovery preserves unresolved prefix after reverted-state save failure") {
+    std::vector<std::string> log;
+    FakeBackupStore store(log);
+    store.fail_on_save = 5;
+    auto transaction = makeTransaction(store, twoActions(log));
+    const gno::CancellationToken token;
+    requirePrepared(*transaction, token);
+    REQUIRE(transaction->execute(token).ok());
+
+    const auto interrupted = transaction->rollback(token);
+
+    CHECK(interrupted.error == gno::RemediationError::BackupFailed);
+    CHECK(interrupted.value.status == gno::TransactionStatus::RollbackFailed);
+    CHECK(interrupted.value.outcomes[0].status == gno::ActionStatus::Applied);
+    CHECK(interrupted.value.outcomes[1].status == gno::ActionStatus::Reverted);
+    CHECK(interrupted.value.status != gno::TransactionStatus::Reverted);
+
+    const auto recovered = transaction->rollback(token);
+
+    REQUIRE(recovered.ok());
+    CHECK(recovered.value.status == gno::TransactionStatus::Reverted);
+    CHECK(recovered.value.outcomes[0].status == gno::ActionStatus::Reverted);
+    CHECK(recovered.value.outcomes[1].status == gno::ActionStatus::Reverted);
+    CHECK(recovered.value.action_order ==
+          std::vector<gno::ActionId>{gno::ActionId::PowerPlan});
+}
+
+TEST_CASE("rollback freshness checks every unresolved action before any rollback mutation") {
+    std::vector<std::string> log;
+    FakeBackupStore store(log);
+    auto power_state = std::make_shared<gno::ActionValue>(
+        originalValue(gno::ActionId::PowerPlan));
+    auto dns_state = std::make_shared<gno::ActionValue>(
+        originalValue(gno::ActionId::Dns));
+    std::vector<std::unique_ptr<gno::FixAction>> actions;
+    actions.push_back(std::make_unique<FakeAction>(
+        gno::ActionId::PowerPlan, log, power_state));
+    actions.push_back(std::make_unique<FakeAction>(
+        gno::ActionId::Dns, log, dns_state));
+    auto transaction = makeTransaction(store, std::move(actions));
+    const gno::CancellationToken token;
+    requirePrepared(*transaction, token);
+    REQUIRE(transaction->execute(token).ok());
+    *power_state = originalValue(gno::ActionId::PowerPlan);
+    const auto saves_before = store.save_calls;
+
+    const auto result = transaction->rollback(token);
+
+    CHECK_FALSE(result.ok());
+    CHECK(result.error == gno::RemediationError::RollbackFailed);
+    CHECK(store.save_calls == saves_before);
+    CHECK(result.value.status == gno::TransactionStatus::Applied);
+    CHECK(result.value.outcomes[0].status == gno::ActionStatus::Applied);
+    CHECK(result.value.outcomes[1].status == gno::ActionStatus::Applied);
+    CHECK(log[log.size() - 2] == "observe:power");
+    CHECK(log.back() == "observe:dns");
 }
 
 TEST_CASE("rollback rejects transactions without an eligible reversible applied prefix") {
