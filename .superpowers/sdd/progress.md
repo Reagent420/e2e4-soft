@@ -18,7 +18,7 @@ Plan: `docs/superpowers/plans/2026-08-20-safe-remediation-actions.md`
 |---|---|---|---|---|
 | 1. Foundation safety prerequisites | Complete | `8c2f52f` | `8ec1c30` | Approved; no Critical/Important/Minor issues |
 | 2. Remediation domain and transaction engine | Complete | `ce7c5da` | `797463c` | Approved; no findings |
-| 3. Durable transaction backups | In progress | `797463c` | — | — |
+| 3. Durable transaction backups | Complete | `ce15bb8` | `117b0f6` | Focused review issues fixed; Win32 CI pending |
 | 4. Allowlisted Windows actions | Pending | — | — | — |
 | 5. Elevated UUID-only Windows helper | Pending | — | — | — |
 | 6. Remediation UI and confirmation | Pending | — | — | — |
