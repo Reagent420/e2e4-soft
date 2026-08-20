@@ -588,12 +588,23 @@ rtk git commit -m "fix: bound and validate diagnostic inputs"
 - Modify: `src/ui/sidebar.h`
 - Modify: `src/ui/sidebar.cpp`
 - Modify: `src/ui/main_window.cpp`
+- Modify: `src/ui/dashboard.h`
+- Modify: `src/ui/dashboard.cpp`
+- Modify: `src/ui/settings_page.h`
+- Modify: `src/ui/settings_page.cpp`
+- Modify: `src/ui/system_tray.h`
+- Modify: `src/ui/system_tray.cpp`
+- Modify: `src/main_gui.cpp`
+- Modify: `src/core/dns_manager.h`
+- Modify: `src/core/dns_manager.cpp`
+- Modify: `src/main_console.cpp`
 - Create: `tests/ui_tests.cpp`
 - Modify: `CMakeLists.txt`
 
 **Interfaces:**
-- Produces: `NetworkToolsWidget::~NetworkToolsWidget()` that cancels and joins its worker.
+- Produces: `NetworkToolsWidget::~NetworkToolsWidget()` that signals cancellation and joins its worker; DNS sampling observes the cancellation token between bounded probes.
 - Produces: `NavPage::{Dashboard, Games, Monitoring, Diagnostics, History, Settings, Count}` with contiguous stack indices.
+- Removes mutating CLI entry points `--boost`, `--game`, and `--dns-apply`; `--watch` remains observational and sets `auto_apply_profiles = false`.
 
 - [ ] **Step 1: Add a compile-time diagnostic navigation test**
 
@@ -665,19 +676,11 @@ void NetworkToolsWidget::stopDnsWorker() {
 
 Include `<QPointer>`. At the start of `runDNSBenchmark`, use `if (m_dnsRunning.exchange(true)) return;`, join a previously completed joinable worker, and launch into `m_dnsWorker` rather than detaching. Capture `QPointer<NetworkToolsWidget> owner(this)`. Before queueing the UI update, check `m_stopping`; check `owner` again inside the queued lambda. Set `m_dnsRunning = false` on every worker exit and remove `.detach()`.
 
+Extend `DNSManager::benchmarkServer` and `benchmarkAll` with an optional `const std::atomic<bool>* cancellation` parameter. Check it before each server and before each bounded ICMP attempt; pass `&m_stopping` from the widget worker. Keep each individual platform call bounded so joining cannot wait indefinitely.
+
 - [ ] **Step 3: Stop claiming that DNS changes were applied**
 
-Replace `NetworkToolsWidget::applyDNS` with diagnostic-only behavior:
-
-```cpp
-void NetworkToolsWidget::applyDNS(const QString& primary, const QString&) {
-    m_dnsResultLabel->setText(
-        QString::fromUtf8("Диагностический режим: DNS %1 измерен, но настройки системы не изменялись")
-            .arg(primary));
-}
-```
-
-Remove the call to `m_dnsManager->applyDNS`. Change the DHCP button handler to state that reset is unavailable in diagnostic mode and remove its call to `resetToDHCP`.
+Remove the `applyDNS` slot and every call to `m_dnsManager->applyDNS` or `resetToDHCP` from the widget. Remove those two mutating methods from `DNSManager` as well, so they are absent from the diagnostic binary API. Replace each result-row `Применить` button with non-interactive text `Только замер`; remove the DHCP reset button entirely. Rename the section/title/subtitle so they say `Диагностика сети`, `Диагностика DNS`, and explicitly state that system settings are not changed.
 
 - [ ] **Step 4: Reduce navigation to non-mutating pages**
 
@@ -699,6 +702,14 @@ In `src/ui/sidebar.cpp`, create exactly six buttons with IDs 0 through 5 and lab
 
 In `src/ui/main_window.cpp`, add pages in the identical order. Until the diagnostics page is implemented in the next plan, use a `NetworkToolsWidget` at index 3 because it is now read-only. Do not instantiate `GameProfilesWidget`, `OptimizerWidget`, `ProcessMonitorWidget`, or `GeoMapWidget` in the diagnostic release.
 
+Remove those four widgets' headers from `main_window.cpp` and their `.cpp` files from `UI_SOURCES`; otherwise the diagnostic GUI still compiles and links hidden mutating/broken pages. Keep their source files in the repository for later migration, but do not include them in the release target.
+
+Remove the dashboard's fake optimization button, `boostToggled` signal, slot, and state. Queue ping-result UI updates onto the Qt object thread through a `QPointer<DashboardWidget>` instead of mutating widgets from `PingMonitor`'s worker callback. In the settings page, remove or disable unsupported system-changing controls and rewrite the About copy to describe route diagnostics only; it must not claim FPS, DNS application, multipath routing, process termination, or automatic optimization. Remove the system-tray optimization action/signal/state and its connection in `main_gui.cpp`. Change remaining product copy from “optimizer/optimization” to “game route diagnostics.”
+
+In `src/main_console.cpp`, remove `--boost`, `--game`, and `--dns-apply` from help, argument parsing, state, and execution. They must fall through to the existing unknown-option error. Keep `--watch` observational: describe it as game detection, set `auto_apply_profiles = false`, and remove auto-apply claims/messages. Remove now-unused optimizer includes. Add CTest cases for the removed flags and mark them `WILL_FAIL TRUE` so a zero exit would fail CI.
+
+Remove `${OPT_SOURCES}` and `${PLATFORM_SOURCES}` from console, GUI, and test target source lists, and remove the default console's FPS-optimizer inspection block. The legacy mutator sources remain in the repository for a later release but must not be linked into diagnostic release binaries.
+
 - [ ] **Step 5: Verify lifecycle and navigation**
 
 Run:
@@ -709,12 +720,12 @@ rtk cmake --build build-foundation-gui --parallel 4
 rtk ctest --test-dir build-foundation-gui --output-on-failure
 ```
 
-Expected: GUI and tests build; navigation test passes; closing a widget during a DNS benchmark completes without a detached thread or access to destroyed UI state.
+Expected: GUI and tests build; navigation and rejected-mutating-CLI tests pass; closing a widget during a DNS benchmark completes without a detached thread, an unbounded join, or access to destroyed UI state.
 
 - [ ] **Step 6: Commit diagnostic-only lifecycle changes**
 
 ```bash
-rtk git add CMakeLists.txt src/ui/network_tools.h src/ui/network_tools.cpp src/ui/sidebar.h src/ui/sidebar.cpp src/ui/main_window.cpp tests/ui_tests.cpp
+rtk git add CMakeLists.txt src/ui/network_tools.h src/ui/network_tools.cpp src/ui/sidebar.h src/ui/sidebar.cpp src/ui/main_window.cpp src/ui/dashboard.h src/ui/dashboard.cpp src/ui/settings_page.h src/ui/settings_page.cpp src/ui/system_tray.h src/ui/system_tray.cpp src/main_gui.cpp src/core/dns_manager.h src/core/dns_manager.cpp src/main_console.cpp tests/ui_tests.cpp
 rtk git commit -m "fix: own workers and expose diagnostic-only UI"
 ```
 
