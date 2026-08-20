@@ -101,49 +101,32 @@ Ipv4Address parsedAddress(const char* value) {
     return *parsed;
 }
 
-ActionValue persistedValue(std::size_t index) {
-    switch (index % 13) {
-    case 0:
-        return std::monostate{};
-    case 1:
-        return DnsValue{false, {parsedAddress("1.1.1.1"), parsedAddress("8.8.8.8")}};
-    case 2:
-        return MtuValue{1450};
-    case 3:
-        return TcpValue{{TcpSetting{TcpParameter::AutoTuningLevel, true, 1},
-                         TcpSetting{TcpParameter::CongestionProvider, false, 2}}};
-    case 4:
-        return PowerPlanValue{"381b4222-f694-41f0-9685-ff5bb260df2e"};
-    case 5:
-        return EnergyValue{EnergyMode::HighPower};
-    case 6:
-        return RegistryValue{false, std::monostate{}};
-    case 7:
-        return RegistryValue{true, uint32_t{7}};
-    case 8:
-        return RegistryValue{true, int64_t{-9}};
-    case 9:
-        return RegistryValue{true, std::string("registry value")};
-    case 10:
-        return FullscreenValue{true, "~ DISABLEDXMAXIMIZEDWINDOWEDMODE"};
-    case 11:
-        return PriorityValue::AboveNormal;
+ActionTarget persistedTarget(std::size_t index) {
+    switch (static_cast<ActionId>(index)) {
+    case ActionId::Dns:
+    case ActionId::Mtu:
+        return InterfaceId{"{01234567-89ab-cdef-0123-456789abcdef}"};
+    case ActionId::FullscreenOptimizations:
+        return ExecutableIdentity{"C:/Games/example.exe"};
+    case ActionId::ProcessPriority:
+        return ProcessIdentity{1234, 5678, "C:/Games/example.exe"};
     default:
-        return NiceValue{-5};
+        return std::monostate{};
     }
 }
 
-ActionTarget persistedTarget(std::size_t index) {
-    switch (index % 4) {
-    case 0:
-        return std::monostate{};
-    case 1:
-        return InterfaceId{"{01234567-89ab-cdef-0123-456789abcdef}"};
-    case 2:
-        return ExecutableIdentity{"C:/Games/example.exe"};
-    default:
-        return ProcessIdentity{1234, 5678, "C:/Games/example.exe"};
+ActionValue persistedValueFor(ActionId id) {
+    switch (id) {
+    case ActionId::PowerPlan: return PowerPlanValue{"381b4222-f694-41f0-9685-ff5bb260df2e"};
+    case ActionId::EnergyMode: return EnergyValue{EnergyMode::HighPower};
+    case ActionId::GameDvr: return RegistryValue{true, uint32_t{7}};
+    case ActionId::FullscreenOptimizations: return FullscreenValue{true, "~ DISABLEDXMAXIMIZEDWINDOWEDMODE"};
+    case ActionId::TcpParameters: return TcpValue{{TcpSetting{TcpParameter::AutoTuningLevel, true, 1}}};
+    case ActionId::Dns: return DnsValue{false, {parsedAddress("1.1.1.1")}};
+    case ActionId::Mtu: return MtuValue{1450};
+    case ActionId::ProcessPriority: return PriorityValue::AboveNormal;
     }
+    return std::monostate{};
 }
 
 TransactionRecord persistedRecord(std::string id, TransactionStatus status = TransactionStatus::Applied) {
@@ -157,9 +140,9 @@ TransactionRecord persistedRecord(std::string id, TransactionStatus status = Tra
         action.id = action_id;
         action.target = persistedTarget(index);
         action.before = ActionState{action_id, ActionStatus::Recommended,
-                                    persistedValue(index), "before detail"};
+                                    persistedValueFor(action_id), "before detail"};
         action.proposed = ActionState{action_id, ActionStatus::Applied,
-                                      persistedValue(index + 8), "proposed detail"};
+                                      persistedValueFor(action_id), "proposed detail"};
         action.rollback_supported = true;
         record.prepared_actions.push_back(std::move(action));
 
@@ -168,7 +151,7 @@ TransactionRecord persistedRecord(std::string id, TransactionStatus status = Tra
         outcome.status = status == TransactionStatus::Reverted ? ActionStatus::Reverted
                                                                 : ActionStatus::Applied;
         outcome.attempted = true;
-        outcome.state = ActionState{action_id, outcome.status, persistedValue(index + 3),
+        outcome.state = ActionState{action_id, outcome.status, persistedValueFor(action_id),
                                     "outcome detail"};
         outcome.detail = "apply detail";
         outcome.rollback_detail = "rollback detail";
@@ -999,6 +982,10 @@ TEST_CASE("JSON backups reject unsafe identifiers and files beyond the transacti
     unsafe_proposal.prepared_actions.front().proposed.value = PriorityValue::Realtime;
     CHECK_FALSE(store.save(unsafe_proposal).ok());
 
+    auto incompatible = persistedRecord(transactionId(9));
+    incompatible.prepared_actions.front().target = InterfaceId{"unexpected-interface"};
+    CHECK_FALSE(store.save(incompatible).ok());
+
     const auto id = transactionId(2);
     const auto path = backupPath(root, id);
     writeText(path, std::string(256 * 1024 + 1, 'x'));
@@ -1054,6 +1041,17 @@ TEST_CASE("JSON backup save preserves the previous record when temporary output 
     changed.detail = "must not replace prior transaction";
     CHECK_FALSE(store.save(changed).ok());
     CHECK(readText(path) == valid_before_failed_save);
+}
+
+TEST_CASE("JSON backup rejects replacement that changes an unresolved rollback plan") {
+    TemporaryBackupRoot root("gno-json-backup-collision");
+    JsonBackupStore store(root.path());
+    auto original = persistedRecord(transactionId(10));
+    REQUIRE(store.save(original).ok());
+    auto replacement = original;
+    replacement.prepared_actions.front().before.value =
+        PowerPlanValue{"different-original-plan"};
+    CHECK_FALSE(store.save(replacement).ok());
 }
 
 TEST_CASE("JSON backup retention keeps unresolved records and bounds only resolved records") {

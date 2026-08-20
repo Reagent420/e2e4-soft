@@ -464,6 +464,20 @@ bool validRecordShape(const TransactionRecord& record) {
         record.detail.size() > kMaxDetailLength) return false;
 
     std::array<bool, kMaxTransactionActions> seen{};
+    const auto compatible = [](ActionId id, const ActionTarget& target, const ActionValue& value) {
+        const bool no_target = std::holds_alternative<std::monostate>(target);
+        switch (id) {
+        case ActionId::PowerPlan: return no_target && std::holds_alternative<PowerPlanValue>(value);
+        case ActionId::EnergyMode: return no_target && std::holds_alternative<EnergyValue>(value);
+        case ActionId::GameDvr: return no_target && std::holds_alternative<RegistryValue>(value);
+        case ActionId::FullscreenOptimizations: return std::holds_alternative<ExecutableIdentity>(target) && std::holds_alternative<FullscreenValue>(value);
+        case ActionId::TcpParameters: return no_target && std::holds_alternative<TcpValue>(value);
+        case ActionId::Dns: return std::holds_alternative<InterfaceId>(target) && std::holds_alternative<DnsValue>(value);
+        case ActionId::Mtu: return std::holds_alternative<InterfaceId>(target) && std::holds_alternative<MtuValue>(value);
+        case ActionId::ProcessPriority: return std::holds_alternative<ProcessIdentity>(target) && (std::holds_alternative<PriorityValue>(value) || std::holds_alternative<NiceValue>(value));
+        }
+        return false;
+    };
     for (std::size_t index = 0; index < record.prepared_actions.size(); ++index) {
         const auto& action = record.prepared_actions[index];
         const auto id = static_cast<std::size_t>(action.id);
@@ -471,6 +485,8 @@ bool validRecordShape(const TransactionRecord& record) {
             action.proposed.id != action.id || !isBounded(action.target) ||
             static_cast<std::size_t>(action.before.status) >= 7 ||
             static_cast<std::size_t>(action.proposed.status) >= 7 ||
+            !compatible(action.id, action.target, action.before.value) ||
+            !compatible(action.id, action.target, action.proposed.value) ||
             !isBounded(action.before.value) || !isSafeProposed(action.proposed.value) ||
             action.before.detail.size() > kMaxDetailLength ||
             action.proposed.detail.size() > kMaxDetailLength) return false;
@@ -481,6 +497,7 @@ bool validRecordShape(const TransactionRecord& record) {
             static_cast<std::size_t>(outcome.error) >= 14 ||
             static_cast<std::size_t>(outcome.rollback_error) >= 14 ||
             static_cast<std::size_t>(outcome.state.status) >= 7 ||
+            !compatible(action.id, action.target, outcome.state.value) ||
             !isBounded(outcome.state.value) || outcome.state.detail.size() > kMaxDetailLength ||
             outcome.detail.size() > kMaxDetailLength ||
             outcome.rollback_detail.size() > kMaxDetailLength) return false;
@@ -550,6 +567,18 @@ bool isResolved(const TransactionRecord& record) noexcept {
     return record.status == TransactionStatus::Reverted;
 }
 
+bool sameRollbackPlan(const TransactionRecord& left, const TransactionRecord& right) {
+    if (left.transaction_id != right.transaction_id ||
+        left.prepared_actions.size() != right.prepared_actions.size()) return false;
+    for (std::size_t index = 0; index < left.prepared_actions.size(); ++index) {
+        const auto& a = left.prepared_actions[index];
+        const auto& b = right.prepared_actions[index];
+        if (a.id != b.id || a.target != b.target || a.before != b.before ||
+            a.proposed != b.proposed || a.rollback_supported != b.rollback_supported) return false;
+    }
+    return true;
+}
+
 } // namespace
 
 JsonBackupStore::JsonBackupStore(std::filesystem::path storage_root)
@@ -565,6 +594,9 @@ Result<std::monostate> JsonBackupStore::save(const TransactionRecord& record) {
         if (!existing.ok()) {
             return backupFailure<std::monostate>(
                 "refusing to overwrite an unrecognized transaction backup");
+        }
+        if (!isResolved(existing.value) && !sameRollbackPlan(existing.value, record)) {
+            return backupFailure<std::monostate>("refusing to replace an unresolved rollback plan");
         }
     } else if (exists_error) {
         return backupFailure<std::monostate>("could not inspect existing transaction backup");
