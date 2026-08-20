@@ -178,6 +178,25 @@ FileIdentity identityFromHandle(HANDLE handle, bool& regular) noexcept {
                              info.ftLastWriteTime.dwLowDateTime);
     return identity;
 }
+
+constexpr DWORD kDirectoryAccess =
+    GENERIC_READ | GENERIC_WRITE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES;
+constexpr DWORD kDirectoryShare = FILE_SHARE_READ | FILE_SHARE_WRITE;
+constexpr DWORD kDirectoryFlags =
+    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT;
+
+bool isSafeDirectoryHandle(HANDLE handle) noexcept {
+    BY_HANDLE_FILE_INFORMATION info{};
+    return GetFileInformationByHandle(handle, &info) != 0 &&
+           (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 &&
+           (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
+}
+
+WindowsHandle openWritableDirectory(const std::filesystem::path& path) {
+    return WindowsHandle(CreateFileW(
+        path.c_str(), kDirectoryAccess, kDirectoryShare, nullptr, OPEN_EXISTING,
+        kDirectoryFlags, nullptr));
+}
 #endif
 
 class TransactionDirectory {
@@ -206,8 +225,7 @@ public:
                 bool created = false;
                 HANDLE handle = CreateFileW(
                     current.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                    kDirectoryShare, nullptr, OPEN_EXISTING, kDirectoryFlags,
                     nullptr);
                 if (handle == INVALID_HANDLE_VALUE &&
                     (GetLastError() == ERROR_FILE_NOT_FOUND ||
@@ -216,31 +234,43 @@ public:
                         missing = true;
                         return std::nullopt;
                     }
-                    if (!CreateDirectoryW(current.c_str(), nullptr) &&
+                    const bool directory_created =
+                        CreateDirectoryW(current.c_str(), nullptr) != 0;
+                    if (!directory_created &&
                         GetLastError() != ERROR_ALREADY_EXISTS) {
                         return std::nullopt;
                     }
-                    created = true;
-                    handle = CreateFileW(
-                        current.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-                        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-                        nullptr);
+                    created = directory_created;
+                    handle = CreateFileW(current.c_str(),
+                                         created ? kDirectoryAccess
+                                                 : FILE_LIST_DIRECTORY |
+                                                       FILE_READ_ATTRIBUTES,
+                                         kDirectoryShare, nullptr, OPEN_EXISTING,
+                                         kDirectoryFlags, nullptr);
                 }
                 WindowsHandle owned(handle);
-                if (!owned) return std::nullopt;
-                BY_HANDLE_FILE_INFORMATION info{};
-                if (!GetFileInformationByHandle(owned.get(), &info) ||
-                    (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
-                    (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+                if (!owned || !isSafeDirectoryHandle(owned.get())) {
                     return std::nullopt;
                 }
-                if (created && result.inject(FailurePoint::SyncDirectory, current)) {
-                    return std::nullopt;
+                if (created) {
+                    if (result.inject(FailurePoint::SyncDirectory, current)) {
+                        return std::nullopt;
+                    }
+                    auto parent = openWritableDirectory(current.parent_path());
+                    if (!parent || !isSafeDirectoryHandle(parent.get()) ||
+                        !FlushFileBuffers(owned.get()) ||
+                        !FlushFileBuffers(parent.get())) {
+                        return std::nullopt;
+                    }
                 }
                 result.ancestor_handles_.push_back(std::move(owned));
             }
             if (result.ancestor_handles_.empty()) return std::nullopt;
+            result.sync_handle_ = openWritableDirectory(absolute);
+            if (!result.sync_handle_ ||
+                !isSafeDirectoryHandle(result.sync_handle_.get())) {
+                return std::nullopt;
+            }
             return std::optional<TransactionDirectory>{std::move(result)};
 #else
             FileDescriptor current(::open(absolute.is_absolute() ? "/" : ".",
@@ -651,10 +681,7 @@ private:
     bool syncDirectory() const {
         if (inject(FailurePoint::SyncDirectory, path_)) return false;
 #ifdef _WIN32
-        if (ancestor_handles_.empty()) return false;
-        if (FlushFileBuffers(ancestor_handles_.back().get())) return true;
-        const DWORD error = GetLastError();
-        return error == ERROR_INVALID_FUNCTION || error == ERROR_ACCESS_DENIED;
+        return sync_handle_ && FlushFileBuffers(sync_handle_.get()) != 0;
 #else
         return ::fsync(directory_.get()) == 0;
 #endif
@@ -664,6 +691,7 @@ private:
     FailureInjector injector_;
 #ifdef _WIN32
     std::vector<WindowsHandle> ancestor_handles_;
+    WindowsHandle sync_handle_;
     WindowsHandle lock_handle_;
 #else
     FileDescriptor directory_;

@@ -1668,6 +1668,25 @@ TEST_CASE("JSON backup save preserves the previous record when temporary output 
     CHECK(temporary_count == 0);
 }
 
+TEST_CASE("JSON backup directory sync failure is reported before first mutation") {
+    TemporaryBackupRoot root("gno-json-backup-directory-sync-failure");
+    const auto id = transactionId(15);
+    bool sync_attempted = false;
+    JsonBackupStore failing_store(
+        root.path(),
+        [&](JsonBackupStore::FailurePoint point, const std::filesystem::path&) {
+            if (point != JsonBackupStore::FailurePoint::SyncDirectory) {
+                return false;
+            }
+            sync_attempted = true;
+            return true;
+        });
+
+    CHECK_FALSE(failing_store.save(persistedRecord(id)).ok());
+    CHECK(sync_attempted);
+    CHECK_FALSE(std::filesystem::exists(backupPath(root, id)));
+}
+
 TEST_CASE("JSON backup same-ID transitions are monotonic across store instances") {
     TemporaryBackupRoot root("gno-json-backup-stale-writers");
     JsonBackupStore first(root.path());
