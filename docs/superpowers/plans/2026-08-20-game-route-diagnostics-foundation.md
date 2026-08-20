@@ -440,9 +440,16 @@ gno::GameProfile profileFromJson(const nlohmann::json& value) {
     profile.fps_boost_enabled = value.value("fps_boost_enabled", false);
     profile.network_optimization = value.value("network_optimization", false);
     profile.max_routes = std::clamp(value.value("max_routes", 1), 1, 5);
+    profile.preferred_region = value.value("preferred_region", std::string{"auto"});
+    profile.priority_class = std::clamp(value.value("priority_class", 0), 0, 10);
     profile.auto_apply = value.value("auto_apply", false);
-    if (profile.game_name.size() > 128 || profile.process_name.size() > 260) {
+    if (profile.game_name.size() > 128 || profile.process_name.size() > 260 ||
+        profile.preferred_region.size() > 64) {
         throw std::runtime_error("profile string too long");
+    }
+    if (value.contains("custom_routes") &&
+        (!value.at("custom_routes").is_array() || !value.at("custom_routes").empty())) {
+        throw std::runtime_error("imported custom routes are not permitted");
     }
     return profile;
 }
@@ -454,6 +461,8 @@ nlohmann::json profileToJson(const gno::GameProfile& profile) {
             {"fps_boost_enabled", profile.fps_boost_enabled},
             {"network_optimization", profile.network_optimization},
             {"max_routes", profile.max_routes},
+            {"preferred_region", profile.preferred_region},
+            {"priority_class", profile.priority_class},
             {"auto_apply", profile.auto_apply}};
 }
 }
@@ -506,7 +515,7 @@ bool GameProfiles::importFromFile(const std::string& path) {
 }
 ```
 
-Implement `save()` and `exportToFile()` by pushing `profileToJson(profile)` into `nlohmann::json::array()`. Write `items.dump(2)` for the local file and `nlohmann::json{{"version", 1}, {"profiles", items}}.dump(2)` for export. Return failure if the output stream cannot be opened or written.
+Change `GameProfiles::save()` from `void` to `bool`; existing callers may ignore its result. Implement `save()` and `exportToFile()` by pushing `profileToJson(profile)` into `nlohmann::json::array()`. Write `items.dump(2)` for the local file and `nlohmann::json{{"version", 1}, {"profiles", items}}.dump(2)` for export. Return `false` if the output stream cannot be opened or written.
 
 - [ ] **Step 6: Make session history bounded and non-recursively locked**
 
@@ -538,6 +547,14 @@ Extend `tests/foundation_tests.cpp` with a malformed-profile regression:
 TEST_CASE("profile import rejects malformed JSON") {
     const std::string path = "foundation-malformed.json";
     { std::ofstream out(path); out << "{not-json"; }
+    gno::GameProfiles profiles;
+    CHECK_FALSE(profiles.importFromFile(path));
+    std::remove(path.c_str());
+}
+
+TEST_CASE("profile import rejects user supplied routes") {
+    const std::string path = "foundation-custom-routes.json";
+    { std::ofstream out(path); out << R"([{"game_name":"unsafe","process_name":"game.exe","custom_routes":["203.0.113.1"]}])"; }
     gno::GameProfiles profiles;
     CHECK_FALSE(profiles.importFromFile(path));
     std::remove(path.c_str());
