@@ -261,47 +261,6 @@ double RouteAnalyzer::measurePacketLoss(const std::string& destination, uint32_t
     return count > 0 ? (1.0 - static_cast<double>(successful) / count) * 100.0 : 0.0;
 }
 
-bool RouteAnalyzer::setRoute(const std::string& destination, const std::string& gateway) {
-#ifdef PLATFORM_WINDOWS
-    MIB_IPFORWARDROW row = {0};
-    struct in_addr dest_addr, gw_addr;
-    
-    inet_pton(AF_INET, destination.c_str(), &dest_addr);
-    inet_pton(AF_INET, gateway.c_str(), &gw_addr);
-    
-    row.dwForwardDest = dest_addr.S_un.S_addr;
-    row.dwForwardMask = 0;
-    row.dwForwardPolicy = 0;
-    row.dwForwardNextHop = gw_addr.S_un.S_addr;
-    row.dwForwardIfIndex = 0;
-    row.dwForwardType = 3;
-    row.dwForwardProto = 3;
-    row.dwForwardAge = 0;
-    row.dwForwardNextHopAS = 0;
-    row.dwForwardMetric1 = 1;
-    
-    DWORD result = CreateIpForwardEntry(&row);
-    return (result == NO_ERROR);
-#else
-    return false;
-#endif
-}
-
-bool RouteAnalyzer::deleteRoute(const std::string& destination) {
-#ifdef PLATFORM_WINDOWS
-    MIB_IPFORWARDROW row = {0};
-    struct in_addr dest_addr;
-    
-    inet_pton(AF_INET, destination.c_str(), &dest_addr);
-    row.dwForwardDest = dest_addr.S_un.S_addr;
-    
-    DWORD result = DeleteIpForwardEntry(&row);
-    return (result == NO_ERROR);
-#else
-    return false;
-#endif
-}
-
 void RouteAnalyzer::setLatencyCallback(LatencyCallback callback) {
     latency_callback_ = std::move(callback);
 }

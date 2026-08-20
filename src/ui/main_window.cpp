@@ -8,13 +8,9 @@
 
 #include "dashboard.h"
 #include "game_list.h"
-#include "game_profiles_widget.h"
 #include "monitoring.h"
-#include "optimizer.h"
 #include "network_tools.h"
-#include "process_monitor_widget.h"
 #include "session_history_widget.h"
-#include "geo_map.h"
 #include "settings_page.h"
 
 namespace gno {
@@ -62,7 +58,7 @@ void MainWindow::setupUi()
     statusBarLayout->addWidget(m_statusLabel);
     statusBarLayout->addStretch();
 
-    auto* hint = new QLabel(QString::fromUtf8("E2E4 Soft — оптимизация игровой сети"), statusBarWidget);
+    auto* hint = new QLabel(QString::fromUtf8("E2E4 Soft — диагностика игровых маршрутов"), statusBarWidget);
     hint->setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px; background: transparent;");
     statusBarLayout->addWidget(hint);
 
@@ -77,13 +73,9 @@ void MainWindow::setupPages()
 {
     m_stackedWidget->addWidget(new DashboardWidget(this));
     m_stackedWidget->addWidget(new GameListWidget(this));
-    m_stackedWidget->addWidget(new GameProfilesWidget(this));
     m_stackedWidget->addWidget(new MonitoringWidget(this));
-    m_stackedWidget->addWidget(new OptimizerWidget(this));
     m_stackedWidget->addWidget(new NetworkToolsWidget(this));
-    m_stackedWidget->addWidget(new ProcessMonitorWidget(this));
     m_stackedWidget->addWidget(new SessionHistoryWidget(this));
-    m_stackedWidget->addWidget(new GeoMapWidget(this));
 
     auto* settings = new SettingsPageWidget(this);
     connect(settings, &SettingsPageWidget::themeChanged, this, &MainWindow::themeChanged);

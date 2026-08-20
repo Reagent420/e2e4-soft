@@ -63,9 +63,6 @@ public:
     std::optional<RouteInfo> getRouteTo(const std::string& destination);
     std::vector<HopInfo> traceroute(const std::string& destination, uint32_t max_hops = 30);
     
-    bool setRoute(const std::string& destination, const std::string& gateway);
-    bool deleteRoute(const std::string& destination);
-    
     double measureLatency(const std::string& destination, uint32_t count = 10);
     double measurePacketLoss(const std::string& destination, uint32_t count = 100);
 

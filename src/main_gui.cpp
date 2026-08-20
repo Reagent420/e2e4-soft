@@ -72,10 +72,6 @@ int main(int argc, char* argv[]) {
         });
         QObject::connect(&tray, &gno::SystemTray::showRequested,
                          &window, &gno::MainWindow::forceShow);
-        QObject::connect(&tray, &gno::SystemTray::boostToggled,
-                         &window, [](bool on) {
-            fprintf(stderr, "Boost toggled: %s\n", on ? "ON" : "OFF");
-        });
         QObject::connect(&tray, &gno::SystemTray::quitRequested,
                          &app, &QApplication::quit);
 

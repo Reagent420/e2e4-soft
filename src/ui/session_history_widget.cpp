@@ -125,12 +125,6 @@ void SessionHistoryWidget::refreshHistory()
         lossLbl->setFixedWidth(80);
         cardLayout->addWidget(lossLbl);
 
-        if (r.boost_was_active) {
-            auto* boostTag = new QLabel(QString::fromUtf8("УСКОРЕНИЕ"), card);
-            boostTag->setObjectName("gameCategory");
-            cardLayout->addWidget(boostTag);
-        }
-
         cardLayout->addStretch();
         layout->addWidget(card);
     }

@@ -24,7 +24,6 @@ public:
 
 signals:
     void showRequested();
-    void boostToggled(bool on);
     void quitRequested();
 
 private slots:
@@ -37,14 +36,12 @@ private:
     QSystemTrayIcon* m_trayIcon;
     QMenu* m_menu;
     QAction* m_showAction;
-    QAction* m_boostAction;
     QAction* m_quitAction;
 
     int m_ping = 0;
     int m_jitter = 0;
     double m_packetLoss = 0.0;
     bool m_connected = false;
-    bool m_boostOn = false;
 };
 
 } // namespace gno

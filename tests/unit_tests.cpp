@@ -100,17 +100,6 @@ TEST_CASE("ProcessMonitor::getTopProcesses") {
 #endif
 }
 
-TEST_CASE("ProcessMonitor::block/unblock") {
-    ProcessMonitor pm;
-    pm.blockProcess("testblock.exe");
-    auto blocked = pm.getBlockedProcesses();
-    REQUIRE(std::find(blocked.begin(), blocked.end(), "testblock.exe") != blocked.end());
-    
-    pm.unblockProcess("testblock.exe");
-    blocked = pm.getBlockedProcesses();
-    REQUIRE(std::find(blocked.begin(), blocked.end(), "testblock.exe") == blocked.end());
-}
-
 TEST_CASE("JitterCalculator::basic") {
     JitterCalculator jc;
     jc.addSample(10.0);

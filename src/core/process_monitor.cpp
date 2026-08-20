@@ -110,37 +110,6 @@ std::vector<ProcessInfo> ProcessMonitor::getTopProcesses(int count) {
     return all;
 }
 
-bool ProcessMonitor::killProcess(uint32_t pid) {
-#ifdef PLATFORM_WINDOWS
-    HANDLE proc = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
-    if (proc) {
-        bool ok = TerminateProcess(proc, 1) != 0;
-        CloseHandle(proc);
-        return ok;
-    }
-#endif
-    return false;
-}
-
-bool ProcessMonitor::blockProcess(const std::string& process_name) {
-    if (std::find(blocked_.begin(), blocked_.end(), process_name) == blocked_.end()) {
-        blocked_.push_back(process_name);
-        return true;
-    }
-    return false;
-}
-
-bool ProcessMonitor::unblockProcess(const std::string& process_name) {
-    auto it = std::find(blocked_.begin(), blocked_.end(), process_name);
-    if (it != blocked_.end()) {
-        blocked_.erase(it);
-        return true;
-    }
-    return false;
-}
-
-std::vector<std::string> ProcessMonitor::getBlockedProcesses() const { return blocked_; }
-
 void ProcessMonitor::setProcessCallback(ProcessCallback callback) { callback_ = std::move(callback); }
 
 void ProcessMonitor::startMonitoring(uint32_t interval_ms) {

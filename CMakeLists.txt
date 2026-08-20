@@ -32,13 +32,10 @@ find_package(Threads REQUIRED)
 
 if(WIN32)
     add_definitions(-DPLATFORM_WINDOWS)
-    set(PLATFORM_SOURCES src/core/platform_windows.cpp src/optimization/fps_optimizer_windows.cpp)
 elseif(APPLE)
     add_definitions(-DPLATFORM_MACOS)
-    set(PLATFORM_SOURCES src/core/platform_macos.cpp)
 else()
     add_definitions(-DPLATFORM_LINUX)
-    set(PLATFORM_SOURCES src/core/platform_linux.cpp)
 endif()
 
 function(gno_enable_warnings target)
@@ -51,8 +48,6 @@ endfunction()
 
 set(CORE_SOURCES
     src/core/route_analyzer.cpp
-    src/core/multipath_engine.cpp
-    src/core/packet_capture.cpp
     src/core/game_detector.cpp
     src/core/network_utils.cpp
     src/core/game_profiles.cpp
@@ -63,11 +58,6 @@ set(CORE_SOURCES
     src/core/game_watcher.cpp
     src/core/connection_grader.cpp
     src/core/input_validation.cpp
-)
-
-set(OPT_SOURCES
-    src/optimization/fps_optimizer.cpp
-    src/optimization/system_tweaks.cpp
 )
 
 set(MON_SOURCES
@@ -82,15 +72,11 @@ set(UI_SOURCES
     src/ui/sidebar.cpp
     src/ui/dashboard.cpp
     src/ui/game_list.cpp
-    src/ui/game_profiles_widget.cpp
     src/ui/monitoring.cpp
-    src/ui/optimizer.cpp
     src/ui/settings_page.cpp
     src/ui/system_tray.cpp
     src/ui/network_tools.cpp
-    src/ui/process_monitor_widget.cpp
     src/ui/session_history_widget.cpp
-    src/ui/geo_map.cpp
 )
 
 set(COMMON_LIBS Threads::Threads nlohmann_json::nlohmann_json)
@@ -103,9 +89,7 @@ endif()
 add_executable(${PROJECT_NAME}-console
     src/main_console.cpp
     ${CORE_SOURCES}
-    ${OPT_SOURCES}
     ${MON_SOURCES}
-    ${PLATFORM_SOURCES}
 )
 
 gno_enable_warnings(${PROJECT_NAME}-console)
@@ -113,7 +97,6 @@ gno_enable_warnings(${PROJECT_NAME}-console)
 target_include_directories(${PROJECT_NAME}-console PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/optimization
     ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
 )
 
@@ -143,9 +126,7 @@ if(NOT GNO_CONSOLE)
             WIN32
             src/main_gui.cpp
             ${CORE_SOURCES}
-            ${OPT_SOURCES}
             ${MON_SOURCES}
-            ${PLATFORM_SOURCES}
             ${UI_SOURCES}
         )
 
@@ -154,7 +135,6 @@ if(NOT GNO_CONSOLE)
         target_include_directories(${PROJECT_NAME} PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_SOURCE_DIR}/src/core
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/optimization
             ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
             ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
         )
@@ -174,6 +154,17 @@ if(NOT GNO_CONSOLE)
         if(MINGW OR (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"))
             target_link_options(${PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++ -static)
         endif()
+
+        if(GNO_TESTS)
+            add_executable(${PROJECT_NAME}-ui-tests tests/ui_tests.cpp src/ui/sidebar.cpp)
+            target_include_directories(${PROJECT_NAME}-ui-tests PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/src
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
+                ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+            target_link_libraries(${PROJECT_NAME}-ui-tests PRIVATE Qt6::Widgets)
+            gno_enable_warnings(${PROJECT_NAME}-ui-tests)
+            add_test(NAME GNO-UITests COMMAND ${PROJECT_NAME}-ui-tests)
+        endif()
     else()
         message(STATUS "Qt6 not found - GUI target will not be built")
     endif()
@@ -187,9 +178,7 @@ if(GNO_TESTS)
         tests/unit_tests.cpp
         tests/foundation_tests.cpp
         ${CORE_SOURCES}
-        ${OPT_SOURCES}
         ${MON_SOURCES}
-        ${PLATFORM_SOURCES}
     )
 
     gno_enable_warnings(${PROJECT_NAME}-tests)
@@ -197,7 +186,6 @@ if(GNO_TESTS)
     target_include_directories(${PROJECT_NAME}-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/core
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/optimization
         ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
     )
@@ -219,4 +207,13 @@ if(GNO_TESTS)
     endif()
     
     add_test(NAME GNO-UnitTests COMMAND ${PROJECT_NAME}-tests)
+
+    add_test(NAME GNO-RejectBoost COMMAND $<TARGET_FILE:${PROJECT_NAME}-console> --boost)
+    add_test(NAME GNO-RejectGame COMMAND $<TARGET_FILE:${PROJECT_NAME}-console> --game test-game)
+    add_test(NAME GNO-RejectDnsApply COMMAND $<TARGET_FILE:${PROJECT_NAME}-console> --dns-apply 1.1.1.1)
+    set_tests_properties(
+        GNO-RejectBoost
+        GNO-RejectGame
+        GNO-RejectDnsApply
+        PROPERTIES WILL_FAIL TRUE)
 endif()

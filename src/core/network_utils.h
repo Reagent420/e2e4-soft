@@ -17,9 +17,6 @@ struct NetworkUtils {
     
     static double measureBandwidth(const std::string& server, bool download = true);
     static std::string getNetworkInterfaceName();
-    
-    static bool setDNS(const std::string& interface_name, const std::string& primary_dns, const std::string& secondary_dns = "");
-    static bool resetDNS(const std::string& interface_name);
 };
 
 } // namespace gno

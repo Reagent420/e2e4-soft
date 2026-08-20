@@ -81,10 +81,8 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
     {
         auto* generalLayout = new QVBoxLayout();
         generalLayout->setSpacing(10);
-        start_windows_ = createCheckBox(QString::fromUtf8("Запускать при загрузке Windows"), false, this);
         minimize_tray_ = createCheckBox(QString::fromUtf8("Сворачивать в системный трей"), true, this);
         show_notifications_ = createCheckBox(QString::fromUtf8("Показывать уведомления"), true, this);
-        generalLayout->addWidget(start_windows_);
         generalLayout->addWidget(minimize_tray_);
         generalLayout->addWidget(show_notifications_);
 
@@ -113,36 +111,11 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
     }
 
     {
-        auto* connLayout = new QVBoxLayout();
-        connLayout->setSpacing(10);
-
-        auto addComboRow = [&](const QString& labelText, QComboBox** combo, const QStringList& items, int defIdx) {
-            auto* row = new QHBoxLayout();
-            auto* label = new QLabel(labelText, this);
-            *combo = createComboBox(items, defIdx, this);
-            row->addWidget(label);
-            row->addSpacing(12);
-            row->addWidget(*combo);
-            row->addStretch();
-            connLayout->addLayout(row);
-        };
-
-        addComboRow(QString::fromUtf8("Протокол:"), &protocol_, {QString::fromUtf8("UDP"), QString::fromUtf8("TCP"), QString::fromUtf8("ICMP")}, 0);
-        addComboRow(QString::fromUtf8("Регион серверов:"), &region_, {QString::fromUtf8("Автоопределение"), QString::fromUtf8("Европа"), QString::fromUtf8("Северная Америка"), QString::fromUtf8("Азия"), QString::fromUtf8("Южная Америка")}, 0);
-        addComboRow(QString::fromUtf8("Макс. маршрутов:"), &max_routes_, {"1", "2", "3", "4", "5"}, 2);
-        addComboRow(QString::fromUtf8("Интервал пинга:"), &ping_interval_, {"500", "1000", "2000", "5000"}, 1);
-
-        scrollLayout->addWidget(createSection(QString::fromUtf8("ПОДКЛЮЧЕНИЕ"), connLayout, this));
-    }
-
-    {
         auto* advLayout = new QVBoxLayout();
         advLayout->setSpacing(10);
         verbose_log_ = createCheckBox(QString::fromUtf8("Подробные логи"), false, this);
-        auto_update_ = createCheckBox(QString::fromUtf8("Автообновление"), true, this);
         dev_mode_ = createCheckBox(QString::fromUtf8("Режим разработчика"), false, this);
         advLayout->addWidget(verbose_log_);
-        advLayout->addWidget(auto_update_);
         advLayout->addWidget(dev_mode_);
 
         scrollLayout->addWidget(createSection(QString::fromUtf8("ДОПОЛНИТЕЛЬНО"), advLayout, this));
@@ -152,7 +125,7 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
         auto* aboutLayout = new QVBoxLayout();
         aboutLayout->setSpacing(6);
 
-        auto* appName = new QLabel(QString::fromUtf8("E2E4 Soft — Оптимизатор игровой сети"), this);
+        auto* appName = new QLabel(QString::fromUtf8("E2E4 Soft — диагностика игровых маршрутов"), this);
         QFont appFont = appName->font();
         appFont.setBold(true);
         appFont.setPointSize(13);
@@ -160,21 +133,18 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
         aboutLayout->addWidget(appName);
 
         aboutLayout->addWidget(new QLabel(QString::fromUtf8("Версия 1.2.0"), this));
-        aboutLayout->addWidget(new QLabel(QString::fromUtf8("Собрано на Qt 6.11.1 + MinGW GCC 16.1.0"), this));
+        aboutLayout->addWidget(new QLabel(QString::fromUtf8("Собрано на Qt 6"), this));
         aboutLayout->addWidget(new QLabel(QString::fromUtf8("Лицензия: MIT"), this));
 
         auto* descLabel = new QLabel(
             QString::fromUtf8(
-                "E2E4 Soft — программа для снижения пинга и повышения FPS в играх.\n"
+                "E2E4 Soft — приложение для наблюдения за качеством игровых маршрутов.\n"
                 "Что умеет:\n"
                 "• Мониторинг сети в реальном времени: пинг, джиттер, потери пакетов\n"
-                "• Авто-обнаружение установленных игр (Steam / Epic / GOG)\n"
-                "• Профили оптимизации для каждой игры с автоприменением\n"
-                "• Ускорение FPS: отключение Game DVR, план питания, приоритет процесса\n"
-                "• Спидтест и бенчмарк DNS-серверов с применением лучшего\n"
-                "• Мультимаршрутное соединение и автовыбор маршрута\n"
-                "• Монитор процессов: блокировка и завершение программ-пожирателей трафика\n"
-                "• История сессий и карта серверов по всему миру"),
+                "• Обнаружение установленных игр (Steam / Epic / GOG)\n"
+                "• Диагностические замеры доступности серверов и DNS\n"
+                "• История сетевых показателей игровых сессий\n"
+                "Приложение не изменяет DNS, маршруты или системные настройки."),
             this);
         descLabel->setObjectName("sectionSubtitle");
         descLabel->setWordWrap(true);
@@ -195,7 +165,7 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
 
     auto* btnRow = new QHBoxLayout();
     btnRow->setContentsMargins(0, 4, 0, 0);
-    auto* resetBtn = new QPushButton(QString::fromUtf8("Сбросить настройки"), this);
+    auto* resetBtn = new QPushButton(QString::fromUtf8("Сбросить настройки приложения"), this);
     resetBtn->setObjectName("boostButton");
     resetBtn->setFixedWidth(200);
     btnRow->addWidget(resetBtn);
@@ -206,18 +176,11 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
 }
 
 void SettingsPageWidget::onResetDefaults() {
-    start_windows_->setChecked(false);
     minimize_tray_->setChecked(true);
     show_notifications_->setChecked(true);
     language_->setCurrentIndex(0);
     theme_->setCurrentIndex(0);
 
-    protocol_->setCurrentIndex(0);
-    region_->setCurrentIndex(0);
-    max_routes_->setCurrentIndex(2);
-    ping_interval_->setCurrentIndex(1);
-
     verbose_log_->setChecked(false);
-    auto_update_->setChecked(true);
     dev_mode_->setChecked(false);
 }

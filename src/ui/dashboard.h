@@ -4,7 +4,6 @@
 #include <QVector>
 #include <QTimer>
 #include <QLabel>
-#include <QPushButton>
 
 #include "../monitoring/ping_monitor.h"
 
@@ -30,14 +29,6 @@ public:
     explicit DashboardWidget(QWidget* parent = nullptr);
     ~DashboardWidget() override;
 
-    void setConnected(bool connected);
-
-signals:
-    void boostToggled(bool active);
-
-private slots:
-    void onBoostClicked();
-
 private:
     void onPingResult(const gno::ICMPResult& result);
     void startMonitoring();
@@ -48,9 +39,6 @@ private:
     QLabel* loss_value_;
     QLabel* route_value_;
     QLabel* status_value_;
-    QPushButton* boost_btn_;
-    bool boosting_ = false;
-
     gno::PingMonitor ping_monitor_;
     QVector<double> jitter_history_;
     QVector<double> loss_history_;

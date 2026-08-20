@@ -10,7 +10,7 @@ SystemTray::SystemTray(QObject* parent)
     : QObject(parent)
 {
     m_trayIcon = new QSystemTrayIcon(this);
-    m_trayIcon->setToolTip(QString::fromUtf8("E2E4 Soft — Оптимизатор игровой сети"));
+    m_trayIcon->setToolTip(QString::fromUtf8("E2E4 Soft — диагностика игровых маршрутов"));
 
     buildMenu();
     m_trayIcon->setContextMenu(m_menu);
@@ -28,16 +28,6 @@ void SystemTray::buildMenu()
 
     m_showAction = m_menu->addAction(QString::fromUtf8("Показать E2E4 Soft"));
     connect(m_showAction, &QAction::triggered, this, &SystemTray::showRequested);
-
-    m_boostAction = m_menu->addAction(QString::fromUtf8("ОПТИМИЗАЦИЯ: ВЫКЛ"));
-    m_boostAction->setCheckable(true);
-    connect(m_boostAction, &QAction::triggered, this, [this](bool checked) {
-        m_boostOn = checked;
-        m_boostAction->setText(checked ? QString::fromUtf8("ОПТИМИЗАЦИЯ: ВКЛ") : QString::fromUtf8("ОПТИМИЗАЦИЯ: ВЫКЛ"));
-        emit boostToggled(checked);
-    });
-
-    m_menu->addSeparator();
 
     m_quitAction = m_menu->addAction(QString::fromUtf8("Выход"));
     connect(m_quitAction, &QAction::triggered, this, &SystemTray::quitRequested);
@@ -104,14 +94,12 @@ void SystemTray::updateIcon()
 
     m_trayIcon->setIcon(QIcon(pixmap));
 
-    QString tooltip = QString::fromUtf8("E2E4 Soft — Оптимизатор игровой сети\n"
+    QString tooltip = QString::fromUtf8("E2E4 Soft — диагностика игровых маршрутов\n"
                               "Пинг: %1 мс | Джиттер: %2 мс\n"
-                              "Потери пакетов: %3%\n"
-                              "Оптимизация: %4")
+                              "Потери пакетов: %3%")
                           .arg(m_ping)
                           .arg(m_jitter)
-                          .arg(m_packetLoss, 0, 'f', 1)
-                          .arg(m_boostOn ? QString::fromUtf8("ВКЛ") : QString::fromUtf8("ВЫКЛ"));
+                          .arg(m_packetLoss, 0, 'f', 1);
     m_trayIcon->setToolTip(tooltip);
 }
 

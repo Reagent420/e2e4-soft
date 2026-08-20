@@ -6,7 +6,6 @@
 #include <vector>
 #include <algorithm>
 #include "core/route_analyzer.h"
-#include "core/multipath_engine.h"
 #include "core/game_detector.h"
 #include "core/network_utils.h"
 #include "core/game_profiles.h"
@@ -19,7 +18,6 @@
 #include "monitoring/ping_monitor.h"
 #include "monitoring/packet_loss_monitor.h"
 #include "monitoring/jitter_calculator.h"
-#include "optimization/fps_optimizer.h"
 #include "monitoring/stats_collector.h"
 
 void printHeader(const std::string& title) {
@@ -34,7 +32,7 @@ void printSeparator() {
 
 void printHelp() {
     std::cout << R"(
-E2E4 Soft - Game Network Optimizer v1.2.0
+E2E4 Soft - Game Route Diagnostics v1.2.0
 
 Usage: E2E4-console [OPTIONS]
 
@@ -45,12 +43,10 @@ Network Testing:
   --dns <server>        Test specific DNS server
   --dns-benchmark       Benchmark all DNS presets
 
-Game Optimization:
-  --boost               Apply FPS boost optimizations
-  --game <name>         Apply profile for specific game
+Games:
   --list-games          List all supported games
   --list-installed      List installed games
-  --watch               Start game watcher (auto-apply profiles)
+  --watch               Start observational game detection
 
 System:
   --processes           Show top processes by memory
@@ -61,17 +57,12 @@ Profiles:
   --export-profile <file>  Export game profiles to JSON
   --import-profile <file>  Import game profiles from JSON
 
-DNS:
-  --dns <server>        Test specific DNS server latency
-  --dns-apply <primary> [secondary]  Apply DNS settings
-
 General:
   -h, --help            Show this help
   -v, --version         Show version
 
 Examples:
   E2E4-console --target 1.1.1.1 --ping 10
-  E2E4-console --boost --game "Counter-Strike 2"
   E2E4-console --speedtest
   E2E4-console --dns-benchmark
   E2E4-console --watch
@@ -86,8 +77,6 @@ int main(int argc, char* argv[]) {
     bool run_speedtest = false;
     bool run_dns_benchmark = false;
     std::string dns_server;
-    bool run_boost = false;
-    std::string game_name;
     bool list_games = false;
     bool list_installed = false;
     bool run_watch = false;
@@ -96,8 +85,6 @@ int main(int argc, char* argv[]) {
     bool clear_history = false;
     std::string export_profile;
     std::string import_profile;
-    std::string dns_primary, dns_secondary;
-    bool apply_dns = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -105,7 +92,7 @@ int main(int argc, char* argv[]) {
             printHelp();
             return 0;
         } else if (arg == "-v" || arg == "--version") {
-            std::cout << "GNO-console v1.0.0\n";
+            std::cout << "E2E4-console v1.2.0\n";
             return 0;
         } else if (arg == "--target" && i + 1 < argc) {
             target = argv[++i];
@@ -124,12 +111,6 @@ int main(int argc, char* argv[]) {
             run_tests = false;
         } else if (arg == "--dns" && i + 1 < argc) {
             dns_server = argv[++i];
-            run_tests = false;
-        } else if (arg == "--boost") {
-            run_boost = true;
-            run_tests = false;
-        } else if (arg == "--game" && i + 1 < argc) {
-            game_name = argv[++i];
             run_tests = false;
         } else if (arg == "--list-games") {
             list_games = true;
@@ -154,13 +135,6 @@ int main(int argc, char* argv[]) {
             run_tests = false;
         } else if (arg == "--import-profile" && i + 1 < argc) {
             import_profile = argv[++i];
-            run_tests = false;
-        } else if (arg == "--dns-apply" && i + 1 < argc) {
-            dns_primary = argv[++i];
-            if (i + 1 < argc && argv[i + 1][0] != '-') {
-                dns_secondary = argv[++i];
-            }
-            apply_dns = true;
             run_tests = false;
         } else if (arg[0] == '-') {
             std::cerr << "Unknown option: " << arg << "\n";
@@ -218,8 +192,7 @@ int main(int argc, char* argv[]) {
             std::cout << "  " << r.start_time_str << " - " << r.game_name
                       << " | Ping: " << r.avg_ping_ms << "ms"
                       << " | Jitter: " << r.avg_jitter_ms << "ms"
-                      << " | Loss: " << r.avg_packet_loss << "%"
-                      << " | Boost: " << (r.boost_was_active ? "ON" : "OFF") << "\n";
+                      << " | Loss: " << r.avg_packet_loss << "%\n";
         }
         return 0;
     }
@@ -242,18 +215,6 @@ int main(int argc, char* argv[]) {
         } else {
             std::cerr << "Failed to import profiles\n";
             return 1;
-        }
-        return 0;
-    }
-
-    if (apply_dns) {
-        gno::DNSManager dm;
-        if (dm.applyDNS(dns_primary, dns_secondary)) {
-            std::cout << "DNS applied: " << dns_primary;
-            if (!dns_secondary.empty()) std::cout << ", " << dns_secondary;
-            std::cout << "\n";
-        } else {
-            std::cout << "Failed to apply DNS\n";
         }
         return 0;
     }
@@ -310,99 +271,17 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (run_boost) {
-        gno::FPSOptimizer fpsOpt;
-        gno::FPSBoostConfig config;
-        config.disable_game_dvr = true;
-        config.disable_fullscreen_optimizations = true;
-        config.disable_mouse_acceleration = true;
-        config.optimize_power_plan = true;
-        auto result = fpsOpt.applyConfig(config);
-        if (result.success) {
-            std::cout << "FPS Boost applied:\n";
-            for (const auto& c : result.applied_changes) {
-                std::cout << "  - " << c << "\n";
-            }
-        } else {
-            std::cout << "FPS Boost failed: " << result.message << "\n";
-        }
-        return 0;
-    }
-
-    if (!game_name.empty()) {
-        gno::GameProfiles profiles;
-        gno::GameDetector detector;
-        detector.scanInstalledGames();
-        
-        auto games = detector.getInstalledGames();
-        bool found = false;
-        for (const auto& g : games) {
-            if (g.name == game_name) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            std::cerr << "Game not found or not installed: " << game_name << "\n";
-            return 1;
-        }
-        
-        gno::GameProfile profile = profiles.get(game_name);
-        if (profile.game_name.empty()) {
-            profile.game_name = game_name;
-            profile.process_name = "";
-            for (const auto& g : games) {
-                if (g.name == game_name) {
-                    profile.process_name = g.process_name;
-                    break;
-                }
-            }
-            profile.multipath_enabled = true;
-            profile.fps_boost_enabled = true;
-            profile.network_optimization = true;
-            profile.max_routes = 3;
-            profile.auto_apply = true;
-        }
-        
-        if (!profiles.set(profile)) {
-            std::cerr << "Failed to save profile for " << game_name << "\n";
-            return 2;
-        }
-        std::cout << "Profile applied for " << game_name << "\n";
-        
-        // Apply FPS boost
-        gno::FPSOptimizer fpsOpt;
-        gno::FPSBoostConfig config;
-        config.disable_game_dvr = profile.fps_boost_enabled;
-        config.disable_fullscreen_optimizations = profile.fps_boost_enabled;
-        config.disable_mouse_acceleration = profile.fps_boost_enabled;
-        config.optimize_power_plan = profile.network_optimization;
-        fpsOpt.applyConfig(config);
-        std::cout << "Optimizations applied.\n";
-        return 0;
-    }
-
     if (run_watch) {
         gno::GameWatcher watcher;
         gno::GameWatcherConfig config;
         config.enabled = true;
         config.check_interval_ms = 2000;
-        config.auto_apply_profiles = true;
+        config.auto_apply_profiles = false;
         config.notify_on_game_start = true;
         config.notify_on_game_end = true;
         
-        gno::GameProfiles profiles;
-        gno::GameDetector detector;
-        
         watcher.setGameStartCallback([&](const std::string& game_name, const std::string&, uint32_t pid) {
             std::cout << "[GAME START] " << game_name << " (PID: " << pid << ")\n";
-            if (config.auto_apply_profiles) {
-                auto p = profiles.get(game_name);
-                if (!p.game_name.empty()) {
-                    std::cout << "  Auto-applying profile for " << game_name << "\n";
-                    // Apply profile logic here
-                }
-            }
         });
         
         watcher.setGameEndCallback([&](const std::string& game_name, const std::string&) {
@@ -410,7 +289,7 @@ int main(int argc, char* argv[]) {
         });
         
         watcher.start(config);
-        std::cout << "Game watcher started. Press Ctrl+C to stop.\n";
+        std::cout << "Observational game detection started. Press Ctrl+C to stop.\n";
         
         // Keep running
         while (true) {
@@ -421,7 +300,7 @@ int main(int argc, char* argv[]) {
     // Default: run all tests
     if (run_tests) {
         std::cout << "========================================\n";
-        std::cout << "  GNO - Game Network Optimizer v1.0.0\n";
+        std::cout << "  E2E4 - Game Route Diagnostics v1.2.0\n";
         std::cout << "========================================\n";
 
         // Test 1: Network Utils
@@ -499,18 +378,9 @@ int main(int argc, char* argv[]) {
         std::cout << "  Current jitter: " << std::fixed << std::setprecision(2) << jStats.current_jitter_ms << " ms\n";
         std::cout << "  Average jitter: " << jStats.average_jitter_ms << " ms\n";
 
-        // Test 7: FPS Optimizer (read-only)
+        // Test 7: Stats Collector
         std::cout << "----------------------------------------\n";
-        std::cout << "[TEST 7] FPS Optimizer\n";
-        gno::FPSOptimizer fpsOpt;
-        auto fpsConfig = fpsOpt.getCurrentConfig();
-        std::cout << "  Game DVR disable: " << (fpsConfig.disable_game_dvr ? "YES" : "NO") << "\n";
-        std::cout << "  Fullscreen opt: " << (fpsConfig.disable_fullscreen_optimizations ? "YES" : "NO") << "\n";
-        std::cout << "  Mouse accel: " << (fpsConfig.disable_mouse_acceleration ? "YES" : "NO") << "\n";
-
-        // Test 8: Stats Collector
-        std::cout << "----------------------------------------\n";
-        std::cout << "[TEST 8] Stats Collector\n";
+        std::cout << "[TEST 7] Stats Collector\n";
         gno::StatsCollector stats;
         stats.start("test_session");
         for (const auto& r : results) {

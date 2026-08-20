@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -25,12 +26,13 @@ public:
 
     std::vector<DNSPreset> getPresets() const;
     DNSPreset getCurrentDNS() const;
-    bool applyDNS(const std::string& primary, const std::string& secondary = "");
-    bool resetToDHCP();
 
-    std::vector<DNSBenchmarkResult> benchmarkAll();
+    std::vector<DNSBenchmarkResult> benchmarkAll(
+        const std::atomic<bool>* cancellation = nullptr);
     std::vector<DNSBenchmarkResult> getResults() const;
-    DNSBenchmarkResult benchmarkServer(const std::string& server_ip);
+    DNSBenchmarkResult benchmarkServer(
+        const std::string& server_ip,
+        const std::atomic<bool>* cancellation = nullptr);
     DNSBenchmarkResult getFastestServer() const;
 
 private:

@@ -175,33 +175,4 @@ std::string NetworkUtils::getNetworkInterfaceName() {
     return "default";
 }
 
-bool NetworkUtils::setDNS(const std::string& interface_name, const std::string& primary_dns, const std::string& secondary_dns) {
-#ifdef PLATFORM_WINDOWS
-    PIP_ADAPTER_ADDRESSES adapter_addresses = nullptr;
-    ULONG size = 0;
-    
-    GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, nullptr, &size);
-    adapter_addresses = (PIP_ADAPTER_ADDRESSES)malloc(size);
-    
-    if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapter_addresses, &size) == NO_ERROR) {
-        for (PIP_ADAPTER_ADDRESSES adapter = adapter_addresses; adapter; adapter = adapter->Next) {
-            if (adapter->OperStatus == IfOperStatusUp) {
-                PIP_ADAPTER_DNS_SERVER_ADDRESS dns = adapter->FirstDnsServerAddress;
-                if (dns) {
-                    free(adapter_addresses);
-                    return true;
-                }
-            }
-        }
-    }
-    
-    free(adapter_addresses);
-#endif
-    return false;
-}
-
-bool NetworkUtils::resetDNS(const std::string& interface_name) {
-    return setDNS(interface_name, "auto", "auto");
-}
-
 } // namespace gno

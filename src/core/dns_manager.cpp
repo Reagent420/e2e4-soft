@@ -34,30 +34,15 @@ DNSPreset DNSManager::getCurrentDNS() const {
     return presets_.empty() ? DNSPreset{} : presets_[0];
 }
 
-bool DNSManager::applyDNS(const std::string& primary, const std::string& secondary) {
-#ifdef PLATFORM_WINDOWS
-    PIP_ADAPTER_ADDRESSES aa = nullptr;
-    ULONG size = 0;
-    GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, nullptr, &size);
-    aa = (PIP_ADAPTER_ADDRESSES)malloc(size);
-    if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, aa, &size) == NO_ERROR) {
-        for (PIP_ADAPTER_ADDRESSES a = aa; a; a = a->Next) {
-            if (a->OperStatus == IfOperStatusUp && a->FirstDnsServerAddress) {
-                free(aa);
-                return true;
-            }
-        }
-    }
-    free(aa);
-#endif
-    return false;
-}
-
-bool DNSManager::resetToDHCP() { return applyDNS("auto"); }
-
-DNSBenchmarkResult DNSManager::benchmarkServer(const std::string& server_ip) {
+DNSBenchmarkResult DNSManager::benchmarkServer(
+    const std::string& server_ip,
+    const std::atomic<bool>* cancellation) {
     DNSBenchmarkResult result;
     result.server = server_ip;
+
+    if (cancellation && cancellation->load()) {
+        return result;
+    }
 
 #ifdef PLATFORM_WINDOWS
     HANDLE icmp = IcmpCreateFile();
@@ -72,6 +57,9 @@ DNSBenchmarkResult DNSManager::benchmarkServer(const std::string& server_ip) {
         int ok = 0;
 
         for (int i = 0; i < 3; ++i) {
+            if (cancellation && cancellation->load()) {
+                break;
+            }
             auto start = std::chrono::steady_clock::now();
             DWORD reply = IcmpSendEcho(icmp, addr.S_un.S_addr,
                 send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), 2000);
@@ -94,10 +82,14 @@ DNSBenchmarkResult DNSManager::benchmarkServer(const std::string& server_ip) {
     return result;
 }
 
-std::vector<DNSBenchmarkResult> DNSManager::benchmarkAll() {
+std::vector<DNSBenchmarkResult> DNSManager::benchmarkAll(
+    const std::atomic<bool>* cancellation) {
     last_results_.clear();
     for (const auto& p : presets_) {
-        last_results_.push_back(benchmarkServer(p.primary));
+        if (cancellation && cancellation->load()) {
+            break;
+        }
+        last_results_.push_back(benchmarkServer(p.primary, cancellation));
     }
     return last_results_;
 }

@@ -28,10 +28,6 @@ public:
     ~ProcessMonitor();
 
     std::vector<ProcessInfo> getTopProcesses(int count = 20);
-    bool killProcess(uint32_t pid);
-    bool blockProcess(const std::string& process_name);
-    bool unblockProcess(const std::string& process_name);
-    std::vector<std::string> getBlockedProcesses() const;
 
     using ProcessCallback = std::function<void(const std::vector<ProcessInfo>&)>;
     void setProcessCallback(ProcessCallback callback);
@@ -41,7 +37,6 @@ public:
 private:
     std::vector<ProcessInfo> scanProcesses();
 
-    std::vector<std::string> blocked_;
     std::atomic<bool> monitoring_{false};
     std::thread monitor_thread_;
     ProcessCallback callback_;

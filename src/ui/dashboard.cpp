@@ -7,8 +7,8 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QLinearGradient>
-#include <QStyle>
 #include <QFont>
+#include <QPointer>
 
 namespace gno {
 
@@ -94,12 +94,6 @@ void PingGraphWidget::paintEvent(QPaintEvent*) {
 // DashboardWidget helpers
 // ---------------------------------------------------------------------------
 
-static QLabel* makeSmallLabel(const QString& text, const QColor& color = QColor(255, 255, 255, 100)) {
-    auto* l = new QLabel(text);
-    l->setStyleSheet(QString("color:%1; font-size:10px; background:transparent;").arg(color.name()));
-    return l;
-}
-
 QWidget* DashboardWidget::createMetricCard(const QString& label, QLabel** valueOut, QLabel** deltaOut, const QString& deltaColor) {
     auto* card = new QWidget;
     card->setObjectName("metricCard");
@@ -184,14 +178,6 @@ DashboardWidget::DashboardWidget(QWidget* parent)
     graph_ = new PingGraphWidget;
     root->addWidget(graph_);
 
-    // boost button
-    boost_btn_ = new QPushButton("⚡  ВКЛЮЧИТЬ ОПТИМИЗАЦИЮ");
-    boost_btn_->setObjectName("boostButton");
-    boost_btn_->setFixedHeight(52);
-    boost_btn_->setCursor(Qt::PointingHandCursor);
-    connect(boost_btn_, &QPushButton::clicked, this, &DashboardWidget::onBoostClicked);
-    root->addWidget(boost_btn_);
-
     // info bar
     auto* info = new QLabel("Измерение пинга к 1.1.1.1 (Cloudflare) каждую секунду. График обновляется автоматически.");
     info->setStyleSheet("color:rgba(255,255,255,0.35); font-size:11px; background:transparent;");
@@ -207,8 +193,16 @@ DashboardWidget::~DashboardWidget() {
 }
 
 void DashboardWidget::startMonitoring() {
-    ping_monitor_.setPingCallback([this](const ICMPResult& result) {
-        onPingResult(result);
+    QPointer<DashboardWidget> owner(this);
+    ping_monitor_.setPingCallback([owner](const ICMPResult& result) {
+        if (!owner) {
+            return;
+        }
+        QMetaObject::invokeMethod(owner.data(), [owner, result]() {
+            if (owner) {
+                owner->onPingResult(result);
+            }
+        }, Qt::QueuedConnection);
     });
     ping_monitor_.start("1.1.1.1", 1000);
 }
@@ -251,24 +245,6 @@ void DashboardWidget::onPingResult(const ICMPResult& result) {
     for (double v : loss_history_) lossSum += v;
     double lossPercent = lossSum / qMax(1, loss_history_.size()) * 100.0;
     loss_value_->setText(QString::number(lossPercent, 'f', 1));
-}
-
-void DashboardWidget::setConnected(bool connected) {
-    boost_btn_->setEnabled(connected);
-}
-
-void DashboardWidget::onBoostClicked() {
-    boosting_ = !boosting_;
-    if (boosting_) {
-        boost_btn_->setObjectName("boostButtonActive");
-        boost_btn_->setText("■  ОТКЛЮЧИТЬ ОПТИМИЗАЦИЮ");
-    } else {
-        boost_btn_->setObjectName("boostButton");
-        boost_btn_->setText("⚡  ВКЛЮЧИТЬ ОПТИМИЗАЦИЮ");
-    }
-    boost_btn_->style()->unpolish(boost_btn_);
-    boost_btn_->style()->polish(boost_btn_);
-    emit boostToggled(boosting_);
 }
 
 } // namespace gno
