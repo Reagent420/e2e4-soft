@@ -16,8 +16,8 @@ Plan: `docs/superpowers/plans/2026-08-20-safe-remediation-actions.md`
 
 | Task | Status | Base | Head | Review |
 |---|---|---|---|---|
-| 1. Foundation safety prerequisites | Complete | `8c2f52f` | `e81bc3b` | Self-reviewed |
-| 2. Remediation domain and transaction engine | Pending | — | — | — |
+| 1. Foundation safety prerequisites | Complete | `8c2f52f` | `8ec1c30` | Approved; no Critical/Important/Minor issues |
+| 2. Remediation domain and transaction engine | In progress | `8ec1c30` | — | — |
 | 3. Durable transaction backups | Pending | — | — | — |
 | 4. Allowlisted Windows actions | Pending | — | — | — |
 | 5. Elevated UUID-only Windows helper | Pending | — | — | — |
