@@ -1,7 +1,5 @@
 #include "process_monitor.h"
 #include <algorithm>
-#include <thread>
-#include <chrono>
 
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
@@ -32,7 +30,7 @@ static std::wstring toWide(const std::string& value) {
 #endif
 
 ProcessMonitor::ProcessMonitor() = default;
-ProcessMonitor::~ProcessMonitor() { stopMonitoring(); }
+ProcessMonitor::~ProcessMonitor() = default;
 
 std::vector<ProcessInfo> ProcessMonitor::scanProcesses() {
     std::vector<ProcessInfo> processes;
@@ -108,25 +106,6 @@ std::vector<ProcessInfo> ProcessMonitor::getTopProcesses(int count) {
         all.resize(count);
     }
     return all;
-}
-
-void ProcessMonitor::setProcessCallback(ProcessCallback callback) { callback_ = std::move(callback); }
-
-void ProcessMonitor::startMonitoring(uint32_t interval_ms) {
-    if (monitoring_) return;
-    monitoring_ = true;
-    monitor_thread_ = std::thread([this, interval_ms]() {
-        while (monitoring_) {
-            auto procs = scanProcesses();
-            if (callback_) callback_(procs);
-            std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
-        }
-    });
-}
-
-void ProcessMonitor::stopMonitoring() {
-    monitoring_ = false;
-    if (monitor_thread_.joinable()) monitor_thread_.join();
 }
 
 } // namespace gno

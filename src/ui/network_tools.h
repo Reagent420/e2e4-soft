@@ -8,6 +8,8 @@
 #include <atomic>
 #include <thread>
 
+#include "diagnostics/diagnostic_types.h"
+
 namespace gno {
 
 class SpeedTest;
@@ -40,6 +42,7 @@ private:
     std::thread m_dnsWorker;
     std::atomic<bool> m_stopping{false};
     std::atomic<bool> m_dnsRunning{false};
+    CancellationSource m_dnsCancellation;
 };
 
 } // namespace gno

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.24)
 project(GNO VERSION 1.2.0 LANGUAGES CXX)
 
 include(CTest)
@@ -241,13 +241,13 @@ if(GNO_TESTS)
     endif()
     
     add_test(NAME GNO-UnitTests COMMAND ${PROJECT_NAME}-tests)
+    set_tests_properties(GNO-UnitTests PROPERTIES TIMEOUT 5)
 
-    add_test(NAME GNO-RejectBoost COMMAND $<TARGET_FILE:${PROJECT_NAME}-console> --boost)
-    add_test(NAME GNO-RejectGame COMMAND $<TARGET_FILE:${PROJECT_NAME}-console> --game test-game)
-    add_test(NAME GNO-RejectDnsApply COMMAND $<TARGET_FILE:${PROJECT_NAME}-console> --dns-apply 1.1.1.1)
-    set_tests_properties(
-        GNO-RejectBoost
-        GNO-RejectGame
-        GNO-RejectDnsApply
-        PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME GNO-RejectBoost
+        COMMAND ${CMAKE_COMMAND}
+            -DEXECUTABLE=$<TARGET_FILE:${PROJECT_NAME}-console>
+            -DARGUMENT=--boost
+            -DEXPECTED_EXIT=1
+            -DEXPECTED_TEXT=Unknown\ option:\ --boost
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/assert_cli_rejection.cmake)
 endif()

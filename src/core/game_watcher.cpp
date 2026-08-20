@@ -1,5 +1,6 @@
 #include "game_watcher.h"
 #include "game_detector.h"
+#include <algorithm>
 #include <chrono>
 
 #ifdef PLATFORM_WINDOWS
@@ -19,6 +20,7 @@ void GameWatcher::start(const GameWatcherConfig& config) {
     if (running_) return;
     
     config_ = config;
+    config_.check_interval_ms = std::clamp(config_.check_interval_ms, 10u, 60000u);
     running_ = true;
     known_game_pids_.clear();
     pid_to_game_name_.clear();
@@ -31,7 +33,8 @@ void GameWatcher::start(const GameWatcherConfig& config) {
 
 void GameWatcher::stop() {
     running_ = false;
-    if (watch_thread_.joinable()) {
+    wait_cv_.notify_all();
+    if (watch_thread_.joinable() && watch_thread_.get_id() != std::this_thread::get_id()) {
         watch_thread_.join();
     }
 }
@@ -53,7 +56,10 @@ void GameWatcher::setGameEndCallback(GameEndCallback callback) {
 void GameWatcher::watchLoop() {
     while (running_) {
         checkProcesses();
-        std::this_thread::sleep_for(std::chrono::milliseconds(config_.check_interval_ms));
+        std::unique_lock<std::mutex> lock(wait_mutex_);
+        wait_cv_.wait_for(lock, std::chrono::milliseconds(config_.check_interval_ms), [this] {
+            return !running_;
+        });
     }
 }
 

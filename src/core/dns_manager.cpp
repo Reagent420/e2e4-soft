@@ -28,6 +28,14 @@ DNSManager::DNSManager() {
 
 DNSManager::~DNSManager() = default;
 
+bool DNSManager::isSupported() noexcept {
+#ifdef PLATFORM_WINDOWS
+    return true;
+#else
+    return false;
+#endif
+}
+
 std::vector<DNSPreset> DNSManager::getPresets() const { return presets_; }
 
 DNSPreset DNSManager::getCurrentDNS() const {
@@ -36,11 +44,21 @@ DNSPreset DNSManager::getCurrentDNS() const {
 
 DNSBenchmarkResult DNSManager::benchmarkServer(
     const std::string& server_ip,
-    const std::atomic<bool>* cancellation) {
+    const CancellationToken& cancellation) {
     DNSBenchmarkResult result;
     result.server = server_ip;
 
-    if (cancellation && cancellation->load()) {
+    const auto address = Ipv4Address::parse(server_ip);
+    if (!address) {
+        result.error = DiagnosticError::MalformedResponse;
+        return result;
+    }
+    if (cancellation.isCancelled()) {
+        result.error = DiagnosticError::Cancelled;
+        return result;
+    }
+    if (!isSupported()) {
+        result.error = DiagnosticError::UnsupportedCapability;
         return result;
     }
 
@@ -48,7 +66,12 @@ DNSBenchmarkResult DNSManager::benchmarkServer(
     HANDLE icmp = IcmpCreateFile();
     if (icmp != INVALID_HANDLE_VALUE) {
         struct in_addr addr;
-        inet_pton(AF_INET, server_ip.c_str(), &addr);
+        const auto& bytes = address->bytes();
+        const auto destination = (static_cast<unsigned long>(bytes[0]) << 24U) |
+                                 (static_cast<unsigned long>(bytes[1]) << 16U) |
+                                 (static_cast<unsigned long>(bytes[2]) << 8U) |
+                                 static_cast<unsigned long>(bytes[3]);
+        addr.S_un.S_addr = htonl(destination);
 
         char send[] = "GNO";
         char recv_buf[1024] = {};
@@ -57,7 +80,8 @@ DNSBenchmarkResult DNSManager::benchmarkServer(
         int ok = 0;
 
         for (int i = 0; i < 3; ++i) {
-            if (cancellation && cancellation->load()) {
+            if (cancellation.isCancelled()) {
+                result.error = DiagnosticError::Cancelled;
                 break;
             }
             auto start = std::chrono::steady_clock::now();
@@ -74,6 +98,7 @@ DNSBenchmarkResult DNSManager::benchmarkServer(
         if (ok > 0) {
             result.latency_ms = total / ok;
             result.success = true;
+            result.error = DiagnosticError::None;
         }
         IcmpCloseHandle(icmp);
     }
@@ -83,10 +108,10 @@ DNSBenchmarkResult DNSManager::benchmarkServer(
 }
 
 std::vector<DNSBenchmarkResult> DNSManager::benchmarkAll(
-    const std::atomic<bool>* cancellation) {
+    const CancellationToken& cancellation) {
     last_results_.clear();
     for (const auto& p : presets_) {
-        if (cancellation && cancellation->load()) {
+        if (cancellation.isCancelled()) {
             break;
         }
         last_results_.push_back(benchmarkServer(p.primary, cancellation));

@@ -7,6 +7,8 @@
 #include <atomic>
 #include <mutex>
 
+#include "diagnostics/diagnostic_types.h"
+
 namespace gno {
 
 struct ServerNode {
@@ -23,12 +25,15 @@ struct PingResult {
     std::string server_ip;
     double latency_ms = 0.0;
     bool success = false;
+    DiagnosticError error = DiagnosticError::InternalFailure;
 };
 
 class SpeedTest {
 public:
     SpeedTest();
     ~SpeedTest();
+
+    static bool isSupported() noexcept;
 
     std::vector<ServerNode> getServers() const;
     void runBenchmark(const std::string& target_ip = "");

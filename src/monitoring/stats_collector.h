@@ -51,8 +51,6 @@ public:
     std::vector<SessionStats> getPastSessions() const;
 
     bool saveSession(const std::string& filepath) const;
-    bool loadSession(const std::string& filepath);
-
     void setMaxSnapshots(uint32_t max);
     uint32_t getSnapshotCount() const;
 

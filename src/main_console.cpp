@@ -30,6 +30,10 @@ void printSeparator() {
     std::cout << "----------------------------------------\n";
 }
 
+void printUnsupportedCapability() {
+    std::cerr << "UnsupportedCapability\n";
+}
+
 void printHelp() {
     std::cout << R"(
 E2E4 Soft - Game Route Diagnostics v1.2.0
@@ -220,6 +224,14 @@ int main(int argc, char* argv[]) {
     }
 
     if (!dns_server.empty()) {
+        if (!gno::Ipv4Address::parse(dns_server)) {
+            std::cerr << "Invalid IPv4 address: " << dns_server << "\n";
+            return 2;
+        }
+        if (!gno::DNSManager::isSupported()) {
+            printUnsupportedCapability();
+            return 3;
+        }
         gno::DNSManager dm;
         auto result = dm.benchmarkServer(dns_server);
         if (result.success) {
@@ -231,6 +243,10 @@ int main(int argc, char* argv[]) {
     }
 
     if (run_dns_benchmark) {
+        if (!gno::DNSManager::isSupported()) {
+            printUnsupportedCapability();
+            return 3;
+        }
         gno::DNSManager dm;
         std::cout << "Benchmarking DNS servers...\n";
         auto results = dm.benchmarkAll();
@@ -249,6 +265,10 @@ int main(int argc, char* argv[]) {
     }
 
     if (run_speedtest) {
+        if (!gno::SpeedTest::isSupported()) {
+            printUnsupportedCapability();
+            return 3;
+        }
         gno::SpeedTest st;
         std::cout << "Running speedtest...\n";
         st.runBenchmark();
@@ -346,7 +366,12 @@ int main(int argc, char* argv[]) {
         std::cout << "----------------------------------------\n";
         std::cout << "[TEST 4] Ping Monitor -> " << target << "\n";
         gno::PingMonitor pinger;
-        auto results = pinger.pingBatch(target, static_cast<uint32_t>(ping_count), 3000);
+        std::vector<gno::ICMPResult> results;
+        if (!gno::PingMonitor::isSupported()) {
+            printUnsupportedCapability();
+        } else {
+            results = pinger.pingBatch(target, static_cast<uint32_t>(ping_count), 3000);
+        }
         int success = 0;
         double total_lat = 0;
         for (const auto& r : results) {
@@ -362,9 +387,13 @@ int main(int argc, char* argv[]) {
         std::cout << "[TEST 5] Packet Loss -> " << target << "\n";
         gno::PacketLossMonitor plm;
         auto plResult = plm.measure(target, 10, 3000);
-        std::cout << "  Sent: " << plResult.packets_sent
-                  << ", Received: " << plResult.packets_received
-                  << ", Loss: " << std::fixed << std::setprecision(1) << plResult.loss_percent << "%\n";
+        if (plResult.error == gno::DiagnosticError::UnsupportedCapability) {
+            printUnsupportedCapability();
+        } else {
+            std::cout << "  Sent: " << plResult.packets_sent
+                      << ", Received: " << plResult.packets_received
+                      << ", Loss: " << std::fixed << std::setprecision(1) << plResult.loss_percent << "%\n";
+        }
 
         // Test 6: Jitter Calculator
         std::cout << "----------------------------------------\n";
@@ -401,7 +430,7 @@ int main(int argc, char* argv[]) {
 
         std::cout << "----------------------------------------\n";
         std::cout << "========================================\n";
-        std::cout << "  ALL TESTS PASSED\n";
+        std::cout << "  DIAGNOSTIC RUN COMPLETE\n";
         std::cout << "========================================\n";
     }
 

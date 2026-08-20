@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "diagnostics/diagnostic_types.h"
+
 namespace gno {
 
 struct DNSPreset {
@@ -17,6 +19,7 @@ struct DNSBenchmarkResult {
     std::string server;
     double latency_ms = 0.0;
     bool success = false;
+    DiagnosticError error = DiagnosticError::InternalFailure;
 };
 
 class DNSManager {
@@ -24,15 +27,17 @@ public:
     DNSManager();
     ~DNSManager();
 
+    static bool isSupported() noexcept;
+
     std::vector<DNSPreset> getPresets() const;
     DNSPreset getCurrentDNS() const;
 
     std::vector<DNSBenchmarkResult> benchmarkAll(
-        const std::atomic<bool>* cancellation = nullptr);
+        const CancellationToken& cancellation = {});
     std::vector<DNSBenchmarkResult> getResults() const;
     DNSBenchmarkResult benchmarkServer(
         const std::string& server_ip,
-        const std::atomic<bool>* cancellation = nullptr);
+        const CancellationToken& cancellation = {});
     DNSBenchmarkResult getFastestServer() const;
 
 private:

@@ -1,6 +1,6 @@
 #include "stats_collector.h"
+#include <algorithm>
 #include <fstream>
-#include <sstream>
 #include <iomanip>
 
 namespace gno {
@@ -18,14 +18,20 @@ void StatsCollector::start(const std::string& session_name) {
 }
 
 void StatsCollector::stop() {
-    std::lock_guard<std::mutex> lock(session_mutex_);
-    
-    current_session_.end_time = std::chrono::steady_clock::now();
-    past_sessions_.push_back(current_session_);
-    recording_ = false;
-    
-    if (session_callback_) {
-        session_callback_(current_session_);
+    SessionCallback callback;
+    SessionStats completed;
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        if (!recording_) return;
+
+        current_session_.end_time = std::chrono::steady_clock::now();
+        past_sessions_.push_back(current_session_);
+        recording_ = false;
+        completed = current_session_;
+        callback = session_callback_;
+    }
+    if (callback) {
+        callback(completed);
     }
 }
 
@@ -111,33 +117,9 @@ bool StatsCollector::saveSession(const std::string& filepath) const {
     return true;
 }
 
-bool StatsCollector::loadSession(const std::string& filepath) {
-    std::ifstream file(filepath);
-    if (!file.is_open()) return false;
-    
-    std::string line;
-    std::getline(file, line);
-    
-    while (std::getline(file, line)) {
-        std::stringstream ss(line);
-        std::string token;
-        
-        NetworkSnapshot snap;
-        std::getline(ss, token, ',');
-        snap.ping_ms = std::stod(token);
-        std::getline(ss, token, ',');
-        snap.jitter_ms = std::stod(token);
-        std::getline(ss, token, ',');
-        snap.packet_loss_percent = std::stod(token);
-        
-        current_session_.snapshots.push_back(snap);
-    }
-    
-    return true;
-}
-
 void StatsCollector::setMaxSnapshots(uint32_t max) {
-    max_snapshots_ = max;
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    max_snapshots_ = std::clamp(max, 1u, 10000u);
 }
 
 uint32_t StatsCollector::getSnapshotCount() const {
@@ -146,6 +128,7 @@ uint32_t StatsCollector::getSnapshotCount() const {
 }
 
 void StatsCollector::setSessionCallback(SessionCallback callback) {
+    std::lock_guard<std::mutex> lock(session_mutex_);
     session_callback_ = std::move(callback);
 }
 

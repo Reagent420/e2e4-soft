@@ -3,6 +3,8 @@
 #include "ui/main_window.h"
 #include "ui/monitoring.h"
 #include "ui/sidebar.h"
+#include "ui/dashboard.h"
+#include "ui/network_tools.h"
 
 #include <QApplication>
 #include <QButtonGroup>
@@ -84,6 +86,26 @@ TEST_CASE("monitoring widget tears down without background monitoring") {
     delete widget;
     CHECK(owner.isNull());
 }
+
+#ifndef PLATFORM_WINDOWS
+TEST_CASE("unsupported diagnostic controls explain the platform limitation") {
+    gno::DashboardWidget dashboard(nullptr, false);
+    gno::NetworkToolsWidget tools;
+
+    const auto unavailable = QString::fromUtf8("Недоступно на этой платформе");
+    bool dashboard_label_found = false;
+    for (const auto* label : dashboard.findChildren<QLabel*>()) {
+        dashboard_label_found = dashboard_label_found || label->text().contains(unavailable);
+    }
+    bool tools_label_found = false;
+    for (const auto* label : tools.findChildren<QLabel*>()) {
+        tools_label_found = tools_label_found || label->text().contains(unavailable);
+    }
+
+    CHECK(dashboard_label_found);
+    CHECK(tools_label_found);
+}
+#endif
 
 #ifndef PLATFORM_WINDOWS
 TEST_CASE("monitoring widget joins its worker and drops queued updates on destruction") {

@@ -36,9 +36,12 @@ NetworkToolsWidget::~NetworkToolsWidget()
 void NetworkToolsWidget::stopDnsWorker()
 {
     m_stopping = true;
+    m_dnsCancellation.cancel();
     if (m_dnsWorker.joinable()) {
         m_dnsWorker.join();
     }
+
+    m_dnsCancellation = CancellationSource{};
 }
 
 void NetworkToolsWidget::setupUI()
@@ -77,6 +80,10 @@ void NetworkToolsWidget::setupUI()
     speedBtn->setObjectName("boostButton");
     speedBtn->setFixedWidth(180);
     connect(speedBtn, &QPushButton::clicked, this, &NetworkToolsWidget::runSpeedTest);
+#ifndef PLATFORM_WINDOWS
+    speedBtn->setEnabled(false);
+    m_speedResultLabel->setText(QString::fromUtf8("Недоступно на этой платформе"));
+#endif
     speedLayout->addWidget(speedBtn);
 
     m_serverGrid = new QWidget(speedGroup);
@@ -99,6 +106,10 @@ void NetworkToolsWidget::setupUI()
     dnsBenchBtn->setObjectName("boostButton");
     dnsBenchBtn->setFixedWidth(180);
     connect(dnsBenchBtn, &QPushButton::clicked, this, &NetworkToolsWidget::runDNSBenchmark);
+#ifndef PLATFORM_WINDOWS
+    dnsBenchBtn->setEnabled(false);
+    m_dnsResultLabel->setText(QString::fromUtf8("Недоступно на этой платформе"));
+#endif
     dnsBtnRow->addWidget(dnsBenchBtn);
 
     dnsBtnRow->addStretch();
@@ -117,6 +128,10 @@ void NetworkToolsWidget::setupUI()
 
 void NetworkToolsWidget::runSpeedTest()
 {
+    if (!SpeedTest::isSupported()) {
+        m_speedResultLabel->setText(QString::fromUtf8("Недоступно на этой платформе"));
+        return;
+    }
     m_speedResultLabel->setText(QString::fromUtf8("Запуск спидтеста…"));
     m_speedTest->runBenchmark();
     m_pollTimer->start(500);
@@ -197,6 +212,10 @@ void NetworkToolsWidget::onSpeedTestResult()
 
 void NetworkToolsWidget::runDNSBenchmark()
 {
+    if (!DNSManager::isSupported()) {
+        m_dnsResultLabel->setText(QString::fromUtf8("Недоступно на этой платформе"));
+        return;
+    }
     if (m_stopping || m_dnsRunning.exchange(true)) {
         return;
     }
@@ -207,7 +226,7 @@ void NetworkToolsWidget::runDNSBenchmark()
     m_dnsResultLabel->setText(QString::fromUtf8("Тестируем DNS-серверы…"));
 
     QPointer<NetworkToolsWidget> owner(this);
-    const std::atomic<bool>* cancellation = &m_stopping;
+    const auto cancellation = m_dnsCancellation.token();
     m_dnsWorker = std::thread([this, owner, cancellation]() {
         struct RunningGuard {
             std::atomic<bool>& running;

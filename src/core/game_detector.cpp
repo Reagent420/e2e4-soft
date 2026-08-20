@@ -1,6 +1,5 @@
 #include "game_detector.h"
 #include <fstream>
-#include <sstream>
 #include <algorithm>
 #include <filesystem>
 #include <map>
@@ -65,14 +64,6 @@ GameDetector::GameDetector() {
 }
 
 GameDetector::~GameDetector() = default;
-
-void GameDetector::loadGameDatabase(const std::string& json_path) {
-    std::ifstream file(json_path);
-    if (!file.is_open()) return;
-    
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-}
 
 void GameDetector::detectRunningGames() {
     running_games_.clear();

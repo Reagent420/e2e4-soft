@@ -6,6 +6,7 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <unordered_set>
 
 namespace gno {
@@ -43,6 +44,8 @@ private:
     GameWatcherConfig config_;
     std::atomic<bool> running_{false};
     std::thread watch_thread_;
+    std::mutex wait_mutex_;
+    std::condition_variable wait_cv_;
     mutable std::mutex callback_mutex_;
     
     GameStartCallback start_callback_;

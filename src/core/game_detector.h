@@ -50,7 +50,6 @@ public:
     GameDetector();
     ~GameDetector();
 
-    void loadGameDatabase(const std::string& json_path);
     void scanInstalledGames();
     void detectRunningGames();
     

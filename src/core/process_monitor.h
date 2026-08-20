@@ -3,10 +3,6 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include <functional>
-#include <thread>
-#include <atomic>
-#include <mutex>
 
 namespace gno {
 
@@ -29,17 +25,8 @@ public:
 
     std::vector<ProcessInfo> getTopProcesses(int count = 20);
 
-    using ProcessCallback = std::function<void(const std::vector<ProcessInfo>&)>;
-    void setProcessCallback(ProcessCallback callback);
-    void startMonitoring(uint32_t interval_ms = 2000);
-    void stopMonitoring();
-
 private:
     std::vector<ProcessInfo> scanProcesses();
-
-    std::atomic<bool> monitoring_{false};
-    std::thread monitor_thread_;
-    ProcessCallback callback_;
 };
 
 } // namespace gno

@@ -184,6 +184,10 @@ DashboardWidget::DashboardWidget(QWidget* parent, bool startMonitoring)
     info->setAlignment(Qt::AlignCenter);
     root->addWidget(info);
 
+#ifndef PLATFORM_WINDOWS
+    info->setText(QString::fromUtf8("Недоступно на этой платформе"));
+#endif
+
     if (startMonitoring) {
         this->startMonitoring();
     }
@@ -194,6 +198,9 @@ DashboardWidget::~DashboardWidget() {
 }
 
 void DashboardWidget::startMonitoring() {
+    if (!PingMonitor::isSupported()) {
+        return;
+    }
     QPointer<DashboardWidget> owner(this);
     ping_monitor_.setPingCallback([owner](const ICMPResult& result) {
         if (!owner) {

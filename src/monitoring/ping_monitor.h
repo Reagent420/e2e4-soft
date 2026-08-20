@@ -8,6 +8,9 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
+
+#include "diagnostics/diagnostic_types.h"
 
 namespace gno {
 
@@ -17,6 +20,7 @@ struct ICMPResult {
     uint32_t ttl = 0;
     uint32_t bytes = 0;
     std::chrono::steady_clock::time_point timestamp;
+    DiagnosticError error = DiagnosticError::InternalFailure;
 };
 
 struct PingStats {
@@ -36,6 +40,8 @@ class PingMonitor {
 public:
     PingMonitor();
     ~PingMonitor();
+
+    static bool isSupported() noexcept;
 
     void start(const std::string& target_ip, uint32_t interval_ms = 1000);
     void stop();
@@ -60,8 +66,12 @@ private:
     std::string target_ip_;
     std::atomic<bool> running_{false};
     std::thread monitor_thread_;
+    uint32_t interval_ms_ = 1000;
+    std::mutex wait_mutex_;
+    std::condition_variable wait_cv_;
     
     mutable std::mutex stats_mutex_;
+    mutable std::mutex callback_mutex_;
     PingStats stats_;
     
     PingCallback ping_callback_;

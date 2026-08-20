@@ -32,6 +32,14 @@ SpeedTest::SpeedTest() {
 
 SpeedTest::~SpeedTest() { stop(); }
 
+bool SpeedTest::isSupported() noexcept {
+#ifdef PLATFORM_WINDOWS
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool SpeedTest::isRunning() const { return running_; }
 
 std::vector<ServerNode> SpeedTest::getServers() const { return servers_; }
@@ -40,12 +48,26 @@ PingResult SpeedTest::benchmarkServer(const std::string& server_ip) {
     PingResult result;
     result.server_name = "Custom";
     result.server_ip = server_ip;
+    const auto address = Ipv4Address::parse(server_ip);
+    if (!address) {
+        result.error = DiagnosticError::MalformedResponse;
+        return result;
+    }
+    if (!isSupported()) {
+        result.error = DiagnosticError::UnsupportedCapability;
+        return result;
+    }
 
 #ifdef PLATFORM_WINDOWS
     HANDLE icmp = IcmpCreateFile();
     if (icmp != INVALID_HANDLE_VALUE) {
         struct in_addr addr;
-        inet_pton(AF_INET, server_ip.c_str(), &addr);
+        const auto& bytes = address->bytes();
+        const auto destination = (static_cast<unsigned long>(bytes[0]) << 24U) |
+                                 (static_cast<unsigned long>(bytes[1]) << 16U) |
+                                 (static_cast<unsigned long>(bytes[2]) << 8U) |
+                                 static_cast<unsigned long>(bytes[3]);
+        addr.S_un.S_addr = htonl(destination);
 
         char send[] = "GNO";
         char recv_buf[1024] = {};
@@ -69,6 +91,7 @@ PingResult SpeedTest::benchmarkServer(const std::string& server_ip) {
         if (ok > 0) {
             result.latency_ms = total / ok;
             result.success = true;
+            result.error = DiagnosticError::None;
         }
         IcmpCloseHandle(icmp);
     }
@@ -89,6 +112,9 @@ void SpeedTest::runBenchmark(const std::string& target_ip) {
         std::lock_guard<std::mutex> results_lock(results_mutex_);
         results_.clear();
     }
+    if (!isSupported()) {
+        return;
+    }
     running_ = true;
 
     try {
@@ -97,12 +123,21 @@ void SpeedTest::runBenchmark(const std::string& target_ip) {
                 PingResult r;
                 r.server_name = "Custom";
                 r.server_ip = target_ip;
+                const auto address = Ipv4Address::parse(target_ip);
+                if (!address) {
+                    r.error = DiagnosticError::MalformedResponse;
+                }
 
 #ifdef PLATFORM_WINDOWS
-                HANDLE icmp = IcmpCreateFile();
+                HANDLE icmp = address ? IcmpCreateFile() : INVALID_HANDLE_VALUE;
                 if (icmp != INVALID_HANDLE_VALUE) {
                     struct in_addr addr;
-                    inet_pton(AF_INET, target_ip.c_str(), &addr);
+                    const auto& bytes = address->bytes();
+                    const auto destination = (static_cast<unsigned long>(bytes[0]) << 24U) |
+                                             (static_cast<unsigned long>(bytes[1]) << 16U) |
+                                             (static_cast<unsigned long>(bytes[2]) << 8U) |
+                                             static_cast<unsigned long>(bytes[3]);
+                    addr.S_un.S_addr = htonl(destination);
 
                     char send[] = "GNO";
                     char recv_buf[1024] = {};
@@ -115,6 +150,7 @@ void SpeedTest::runBenchmark(const std::string& target_ip) {
                     if (reply > 0) {
                         r.latency_ms = std::chrono::duration<double, std::milli>(end - start).count();
                         r.success = true;
+                        r.error = DiagnosticError::None;
                     }
                     IcmpCloseHandle(icmp);
                 }
@@ -148,12 +184,21 @@ void SpeedTest::benchmarkThread() {
         PingResult result;
         result.server_name = server.name;
         result.server_ip = server.ip;
+        const auto address = Ipv4Address::parse(server.ip);
+        if (!address) {
+            result.error = DiagnosticError::MalformedResponse;
+        }
 
 #ifdef PLATFORM_WINDOWS
-        HANDLE icmp = IcmpCreateFile();
+        HANDLE icmp = address ? IcmpCreateFile() : INVALID_HANDLE_VALUE;
         if (icmp != INVALID_HANDLE_VALUE) {
             struct in_addr addr;
-            inet_pton(AF_INET, server.ip.c_str(), &addr);
+            const auto& bytes = address->bytes();
+            const auto destination = (static_cast<unsigned long>(bytes[0]) << 24U) |
+                                     (static_cast<unsigned long>(bytes[1]) << 16U) |
+                                     (static_cast<unsigned long>(bytes[2]) << 8U) |
+                                     static_cast<unsigned long>(bytes[3]);
+            addr.S_un.S_addr = htonl(destination);
 
             char send[] = "GNO";
             char recv_buf[1024] = {};
@@ -178,11 +223,12 @@ void SpeedTest::benchmarkThread() {
             if (success_count > 0) {
                 result.latency_ms = total / success_count;
                 result.success = true;
+                result.error = DiagnosticError::None;
             }
             IcmpCloseHandle(icmp);
         }
 #else
-        result.success = false;
+        result.error = DiagnosticError::UnsupportedCapability;
 #endif
 
         {

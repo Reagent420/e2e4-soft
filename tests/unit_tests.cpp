@@ -6,9 +6,12 @@
 #include "core/speed_test.h"
 #include "core/dns_manager.h"
 #include "core/process_monitor.h"
+#include "core/game_watcher.h"
 #include "monitoring/jitter_calculator.h"
 #include "monitoring/packet_loss_monitor.h"
 #include "monitoring/stats_collector.h"
+#include "monitoring/ping_monitor.h"
+#include "diagnostics/diagnostic_types.h"
 
 #include <chrono>
 #include <filesystem>
@@ -28,6 +31,34 @@ struct HasBenchmarkCallbackSetter : std::false_type {};
 
 template <typename T>
 struct HasBenchmarkCallbackSetter<T, std::void_t<decltype(&T::setBenchmarkCallback)>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasMeasurementError : std::false_type {};
+
+template <typename T>
+struct HasMeasurementError<T, std::void_t<decltype(std::declval<T>().error)>> : std::true_type {};
+
+template <typename T>
+gno::DiagnosticError measurementError(const T& result) {
+    if constexpr (HasMeasurementError<T>::value) {
+        return result.error;
+    }
+    return gno::DiagnosticError::InternalFailure;
+}
+
+template <typename T, typename = void>
+struct HasSupportQuery : std::false_type {};
+
+template <typename T>
+struct HasSupportQuery<T, std::void_t<decltype(T::isSupported())>> : std::true_type {};
+
+template <typename T>
+bool isMeasurementSupported() {
+    if constexpr (HasSupportQuery<T>::value) {
+        return T::isSupported();
+    }
+    return true;
+}
 
 } // namespace
 
@@ -109,24 +140,12 @@ TEST_CASE("SpeedTest exposes no worker-thread callback API") {
 }
 
 #ifndef PLATFORM_WINDOWS
-TEST_CASE("SpeedTest restarts after a completed benchmark") {
+TEST_CASE("SpeedTest does not start unavailable measurements") {
     SpeedTest st;
     st.runBenchmark("127.0.0.1");
-    for (int i = 0; i < 1000 && st.isRunning(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
     REQUIRE_FALSE(st.isRunning());
-
-    st.runBenchmark("127.0.0.1");
-    for (int i = 0; i < 1000 && st.isRunning(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    REQUIRE_FALSE(st.isRunning());
-    st.stop();
-
-    const auto results = st.getResults();
-    REQUIRE(results.size() == 1);
-    CHECK(results.front().server_ip == "127.0.0.1");
+    CHECK(st.getResults().empty());
+    CHECK(st.benchmarkServer("127.0.0.1").error == DiagnosticError::UnsupportedCapability);
 }
 #endif
 
@@ -139,6 +158,30 @@ TEST_CASE("DNSManager::presets") {
         if (p.name == "Cloudflare") hasCF = true;
     }
     REQUIRE(hasCF);
+}
+
+TEST_CASE("DNSManager rejects malformed addresses before measurement") {
+    DNSManager manager;
+    const auto result = manager.benchmarkServer("not-an-ip-address");
+
+    CHECK_FALSE(result.success);
+    CHECK(measurementError(result) == DiagnosticError::MalformedResponse);
+}
+
+TEST_CASE("diagnostic measurements explicitly report their platform support") {
+#ifdef PLATFORM_WINDOWS
+    CHECK(isMeasurementSupported<PingMonitor>());
+    CHECK(isMeasurementSupported<DNSManager>());
+    CHECK(isMeasurementSupported<SpeedTest>());
+#else
+    CHECK_FALSE(isMeasurementSupported<PingMonitor>());
+    CHECK_FALSE(isMeasurementSupported<DNSManager>());
+    CHECK_FALSE(isMeasurementSupported<SpeedTest>());
+
+    DNSManager manager;
+    CHECK(measurementError(manager.benchmarkServer("1.1.1.1")) ==
+          DiagnosticError::UnsupportedCapability);
+#endif
 }
 
 TEST_CASE("ProcessMonitor::getTopProcesses") {
@@ -191,4 +234,31 @@ TEST_CASE("StatsCollector::session") {
     auto session = sc.getCurrentSession();
     REQUIRE(session.total_samples == 1);
     REQUIRE(session.total_ping_ms == 30.0);
+}
+
+TEST_CASE("StatsCollector callbacks can inspect the completed session") {
+    StatsCollector collector;
+    bool callback_called = false;
+    collector.start("callback session");
+    collector.setSessionCallback([&](const SessionStats& completed) {
+        callback_called = true;
+        CHECK(collector.getCurrentSession().total_samples == completed.total_samples);
+    });
+
+    collector.stop();
+
+    CHECK(callback_called);
+}
+
+TEST_CASE("GameWatcher stop interrupts a long configured wait") {
+    GameWatcher watcher;
+    GameWatcherConfig config;
+    config.check_interval_ms = 60000;
+    watcher.start(config);
+
+    const auto started = std::chrono::steady_clock::now();
+    watcher.stop();
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    CHECK(elapsed < std::chrono::milliseconds(250));
 }
