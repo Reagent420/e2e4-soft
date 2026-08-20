@@ -2,9 +2,14 @@
 #include "remediation/backup_store.h"
 #include "remediation/fix_action.h"
 #include "remediation/fix_transaction.h"
+#include "remediation/json_backup_store.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -57,6 +62,135 @@ ActionValue proposedValue(ActionId id) {
     default:
         return std::monostate{};
     }
+}
+
+class TemporaryBackupRoot {
+public:
+    explicit TemporaryBackupRoot(const std::string& name)
+        : path_(std::filesystem::temp_directory_path() / name) {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+        std::filesystem::create_directories(path_, error);
+        REQUIRE_FALSE(error);
+    }
+
+    ~TemporaryBackupRoot() {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+    }
+
+    const std::filesystem::path& path() const { return path_; }
+
+private:
+    std::filesystem::path path_;
+};
+
+std::string transactionId(unsigned int value) {
+    char suffix[13]{};
+    std::snprintf(suffix, sizeof(suffix), "%012x", value);
+    return std::string("00000000-0000-4000-8000-") + suffix;
+}
+
+Ipv4Address parsedAddress(const char* value) {
+    const auto parsed = Ipv4Address::parse(value);
+    REQUIRE(parsed);
+    return *parsed;
+}
+
+ActionValue persistedValue(std::size_t index) {
+    switch (index % 13) {
+    case 0:
+        return std::monostate{};
+    case 1:
+        return DnsValue{false, {parsedAddress("1.1.1.1"), parsedAddress("8.8.8.8")}};
+    case 2:
+        return MtuValue{1450};
+    case 3:
+        return TcpValue{{TcpSetting{TcpParameter::AutoTuningLevel, true, 1},
+                         TcpSetting{TcpParameter::CongestionProvider, false, 2}}};
+    case 4:
+        return PowerPlanValue{"381b4222-f694-41f0-9685-ff5bb260df2e"};
+    case 5:
+        return EnergyValue{EnergyMode::HighPower};
+    case 6:
+        return RegistryValue{false, std::monostate{}};
+    case 7:
+        return RegistryValue{true, uint32_t{7}};
+    case 8:
+        return RegistryValue{true, int64_t{-9}};
+    case 9:
+        return RegistryValue{true, std::string("registry value")};
+    case 10:
+        return FullscreenValue{true, "~ DISABLEDXMAXIMIZEDWINDOWEDMODE"};
+    case 11:
+        return PriorityValue::AboveNormal;
+    default:
+        return NiceValue{-5};
+    }
+}
+
+ActionTarget persistedTarget(std::size_t index) {
+    switch (index % 4) {
+    case 0:
+        return std::monostate{};
+    case 1:
+        return InterfaceId{"{01234567-89ab-cdef-0123-456789abcdef}"};
+    case 2:
+        return ExecutableIdentity{"C:/Games/example.exe"};
+    default:
+        return ProcessIdentity{1234, 5678, "C:/Games/example.exe"};
+    }
+}
+
+TransactionRecord persistedRecord(std::string id, TransactionStatus status = TransactionStatus::Applied) {
+    TransactionRecord record;
+    record.transaction_id = std::move(id);
+    record.status = status;
+    record.detail = "transaction detail";
+    for (std::size_t index = 0; index < kMaxTransactionActions; ++index) {
+        const auto action_id = static_cast<ActionId>(index);
+        PreparedAction action;
+        action.id = action_id;
+        action.target = persistedTarget(index);
+        action.before = ActionState{action_id, ActionStatus::Recommended,
+                                    persistedValue(index), "before detail"};
+        action.proposed = ActionState{action_id, ActionStatus::Applied,
+                                      persistedValue(index + 8), "proposed detail"};
+        action.rollback_supported = true;
+        record.prepared_actions.push_back(std::move(action));
+
+        ActionOutcome outcome;
+        outcome.id = action_id;
+        outcome.status = status == TransactionStatus::Reverted ? ActionStatus::Reverted
+                                                                : ActionStatus::Applied;
+        outcome.attempted = true;
+        outcome.state = ActionState{action_id, outcome.status, persistedValue(index + 3),
+                                    "outcome detail"};
+        outcome.detail = "apply detail";
+        outcome.rollback_detail = "rollback detail";
+        record.outcomes.push_back(std::move(outcome));
+        record.action_order.push_back(action_id);
+        record.applied_action_order.push_back(action_id);
+    }
+    return record;
+}
+
+std::filesystem::path backupPath(const TemporaryBackupRoot& root, const std::string& id) {
+    return root.path() / "GNO" / "remediation" / "transactions" / (id + ".json");
+}
+
+std::string readText(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    REQUIRE(input);
+    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+}
+
+void writeText(const std::filesystem::path& path, const std::string& content) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    REQUIRE(output);
+    output << content;
+    REQUIRE(output);
 }
 
 template <typename T>
@@ -822,6 +956,131 @@ TEST_CASE("preflight rejects oversized domain inputs without calling actions") {
     CHECK(result.error == gno::RemediationError::InvalidTarget);
     CHECK(result.detail.size() <= gno::kMaxDetailLength);
     CHECK(log.empty());
+}
+
+TEST_CASE("JSON backups round-trip all typed remediation values") {
+    TemporaryBackupRoot root("gno-json-backup-round-trip");
+    JsonBackupStore store(root.path());
+    const auto record = persistedRecord(transactionId(1));
+
+    REQUIRE(store.save(record).ok());
+    const auto loaded = store.load(record.transaction_id);
+
+    REQUIRE(loaded.ok());
+    CHECK(loaded.value.transaction_id == record.transaction_id);
+    CHECK(loaded.value.status == record.status);
+    CHECK(loaded.value.prepared_actions.size() == record.prepared_actions.size());
+    CHECK(loaded.value.outcomes.size() == record.outcomes.size());
+    for (std::size_t index = 0; index < record.prepared_actions.size(); ++index) {
+        CHECK(loaded.value.prepared_actions[index].target == record.prepared_actions[index].target);
+        CHECK(loaded.value.prepared_actions[index].before == record.prepared_actions[index].before);
+        CHECK(loaded.value.prepared_actions[index].proposed == record.prepared_actions[index].proposed);
+        CHECK(loaded.value.outcomes[index].state == record.outcomes[index].state);
+    }
+}
+
+TEST_CASE("JSON backups reject unsafe identifiers and files beyond the transaction bound") {
+    TemporaryBackupRoot root("gno-json-backup-bounds");
+    JsonBackupStore store(root.path());
+    auto invalid = persistedRecord("not-a-uuid");
+
+    CHECK_FALSE(store.save(invalid).ok());
+    CHECK_FALSE(store.load("../escape").ok());
+
+    auto invalid_status = persistedRecord(transactionId(7));
+    invalid_status.status = static_cast<TransactionStatus>(99);
+    CHECK_FALSE(store.save(invalid_status).ok());
+
+    auto unsafe_proposal = persistedRecord(transactionId(8));
+    unsafe_proposal.prepared_actions.front().proposed.value = PriorityValue::Realtime;
+    CHECK_FALSE(store.save(unsafe_proposal).ok());
+
+    const auto id = transactionId(2);
+    const auto path = backupPath(root, id);
+    writeText(path, std::string(256 * 1024 + 1, 'x'));
+    CHECK_FALSE(store.load(id).ok());
+}
+
+TEST_CASE("JSON backups leave malformed future and foreign records intact") {
+    TemporaryBackupRoot root("gno-json-backup-untrusted");
+    JsonBackupStore store(root.path());
+
+    const auto malformed_id = transactionId(3);
+    const auto malformed_path = backupPath(root, malformed_id);
+    const std::string malformed = "{not json";
+    writeText(malformed_path, malformed);
+    CHECK_FALSE(store.load(malformed_id).ok());
+    CHECK(readText(malformed_path) == malformed);
+    CHECK_FALSE(store.save(persistedRecord(malformed_id)).ok());
+    CHECK(readText(malformed_path) == malformed);
+
+    const auto future_id = transactionId(4);
+    const auto future_path = backupPath(root, future_id);
+    const std::string future =
+        "{\"version\":2,\"producer\":\"E2E4 Soft\",\"transaction\":{}}";
+    writeText(future_path, future);
+    CHECK_FALSE(store.load(future_id).ok());
+    CHECK(readText(future_path) == future);
+    CHECK_FALSE(store.save(persistedRecord(future_id)).ok());
+    CHECK(readText(future_path) == future);
+
+    const auto foreign_id = transactionId(5);
+    const auto foreign_path = backupPath(root, foreign_id);
+    const std::string foreign =
+        "{\"version\":1,\"producer\":\"Other application\",\"transaction\":{}}";
+    writeText(foreign_path, foreign);
+    CHECK_FALSE(store.load(foreign_id).ok());
+    CHECK(readText(foreign_path) == foreign);
+    CHECK_FALSE(store.save(persistedRecord(foreign_id)).ok());
+    CHECK(readText(foreign_path) == foreign);
+}
+
+TEST_CASE("JSON backup save preserves the previous record when temporary output fails") {
+    TemporaryBackupRoot root("gno-json-backup-atomic");
+    JsonBackupStore store(root.path());
+    const auto id = transactionId(6);
+    const auto original = persistedRecord(id);
+    REQUIRE(store.save(original).ok());
+    const auto path = backupPath(root, id);
+    const auto valid_before_failed_save = readText(path);
+
+    const auto temporary = path.string() + ".tmp";
+    std::filesystem::create_directory(temporary);
+    auto changed = original;
+    changed.detail = "must not replace prior transaction";
+    CHECK_FALSE(store.save(changed).ok());
+    CHECK(readText(path) == valid_before_failed_save);
+}
+
+TEST_CASE("JSON backup retention keeps unresolved records and bounds only resolved records") {
+    TemporaryBackupRoot root("gno-json-backup-retention");
+    JsonBackupStore store(root.path());
+    const auto unresolved_id = transactionId(1000);
+    auto unresolved = persistedRecord(unresolved_id);
+    unresolved.status = TransactionStatus::Prepared;
+    for (auto& outcome : unresolved.outcomes) {
+        outcome.status = ActionStatus::NotChecked;
+        outcome.attempted = false;
+        outcome.state.status = ActionStatus::NotChecked;
+    }
+    REQUIRE(store.save(unresolved).ok());
+
+    const auto timestamp = std::filesystem::file_time_type::clock::now();
+    for (unsigned int index = 1; index <= 101; ++index) {
+        const auto id = transactionId(1000 + index);
+        REQUIRE(store.save(persistedRecord(id, TransactionStatus::Reverted)).ok());
+        std::error_code error;
+        std::filesystem::last_write_time(
+            backupPath(root, id), timestamp + std::chrono::seconds(index), error);
+        REQUIRE_FALSE(error);
+    }
+
+    CHECK(store.load(unresolved_id).ok());
+    CHECK_FALSE(store.load(transactionId(1001)).ok());
+    CHECK(store.load(transactionId(1101)).ok());
+    const auto summaries = store.list();
+    REQUIRE(summaries.ok());
+    CHECK(summaries.value.size() == 101);
 }
 
 TEST_SUITE_END();

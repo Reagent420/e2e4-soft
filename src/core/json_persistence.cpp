@@ -64,8 +64,8 @@ bool atomicWriteText(const std::filesystem::path& path, const std::string& conte
         if (!file) return false;
         file.write(content.data(), static_cast<std::streamsize>(content.size()));
         file.flush();
+        file.close();
         if (!file) {
-            file.close();
             std::filesystem::remove(temporary, error);
             return false;
         }

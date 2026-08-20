@@ -70,6 +70,7 @@ set(CORE_SOURCES
     src/core/json_persistence.cpp
     src/diagnostics/diagnostic_types.cpp
     src/remediation/fix_transaction.cpp
+    src/remediation/json_backup_store.cpp
 )
 
 set(MON_SOURCES
