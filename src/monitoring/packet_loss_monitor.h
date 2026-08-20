@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include <mutex>
+#include <functional>
 
 #include "diagnostics/diagnostic_types.h"
 
@@ -21,11 +21,16 @@ struct PacketLossResult {
 
 class PacketLossMonitor {
 public:
-    PacketLossMonitor() = default;
+    using Probe = std::function<bool(const Ipv4Address&, uint32_t timeout_ms)>;
+
+    explicit PacketLossMonitor(Probe probe = {});
     ~PacketLossMonitor() = default;
 
     PacketLossResult measure(const std::string& target_ip, uint32_t count = 50, uint32_t timeout_ms = 3000);
-    
+
+private:
+    Probe probe_;
+
 };
 
 } // namespace gno

@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <functional>
 
 namespace gno {
 
@@ -20,13 +21,17 @@ struct ProcessInfo {
 
 class ProcessMonitor {
 public:
-    ProcessMonitor();
+    using Scanner = std::function<std::vector<ProcessInfo>()>;
+
+    explicit ProcessMonitor(Scanner scanner = {});
     ~ProcessMonitor();
 
     std::vector<ProcessInfo> getTopProcesses(int count = 20);
 
 private:
     std::vector<ProcessInfo> scanProcesses();
+
+    Scanner scanner_;
 };
 
 } // namespace gno

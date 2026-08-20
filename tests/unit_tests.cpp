@@ -14,7 +14,9 @@
 #include "diagnostics/diagnostic_types.h"
 
 #include <chrono>
+#include <atomic>
 #include <filesystem>
+#include <functional>
 #include <thread>
 #include <type_traits>
 
@@ -58,6 +60,15 @@ bool isMeasurementSupported() {
         return T::isSupported();
     }
     return true;
+}
+
+template <typename Predicate>
+bool waitUntil(Predicate&& predicate, std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!predicate() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return predicate();
 }
 
 } // namespace
@@ -168,6 +179,22 @@ TEST_CASE("DNSManager rejects malformed addresses before measurement") {
     CHECK(measurementError(result) == DiagnosticError::MalformedResponse);
 }
 
+TEST_CASE("DNSManager preserves cancellation after a successful probe") {
+    CancellationSource source;
+    int probe_calls = 0;
+    DNSManager manager([&](const Ipv4Address&, uint32_t) {
+        ++probe_calls;
+        source.cancel();
+        return true;
+    });
+
+    const auto result = manager.benchmarkServer("1.1.1.1", source.token());
+
+    CHECK(probe_calls == 1);
+    CHECK_FALSE(result.success);
+    CHECK(result.error == DiagnosticError::Cancelled);
+}
+
 TEST_CASE("diagnostic measurements explicitly report their platform support") {
 #ifdef PLATFORM_WINDOWS
     CHECK(isMeasurementSupported<PingMonitor>());
@@ -195,6 +222,14 @@ TEST_CASE("ProcessMonitor::getTopProcesses") {
 #endif
 }
 
+TEST_CASE("ProcessMonitor rejects negative and caps oversized result counts") {
+    std::vector<ProcessInfo> processes(200);
+    ProcessMonitor monitor([processes] { return processes; });
+
+    CHECK(monitor.getTopProcesses(-1).empty());
+    CHECK(monitor.getTopProcesses(10000).size() == 100);
+}
+
 TEST_CASE("JitterCalculator::basic") {
     JitterCalculator jc;
     jc.addSample(10.0);
@@ -206,15 +241,18 @@ TEST_CASE("JitterCalculator::basic") {
     REQUIRE(stats.average_jitter_ms == 1.5);
 }
 
-TEST_CASE("PacketLossMonitor::measure") {
-    PacketLossMonitor plm;
-    auto result = plm.measure("8.8.8.8", 10, 1000);
-#ifdef PLATFORM_WINDOWS
-    REQUIRE(result.packets_sent == 10);
-    REQUIRE(result.loss_percent >= 0.0);
-#else
-    REQUIRE(result.packets_sent == 0);
-#endif
+TEST_CASE("PacketLossMonitor measures through an injected probe") {
+    int probe_calls = 0;
+    PacketLossMonitor monitor([&](const Ipv4Address&, uint32_t) {
+        return ++probe_calls != 2;
+    });
+
+    const auto result = monitor.measure("8.8.8.8", 3, 1);
+
+    CHECK(result.packets_sent == 3);
+    CHECK(result.packets_received == 2);
+    CHECK(result.packets_lost == 1);
+    CHECK(result.error == DiagnosticError::None);
 }
 
 TEST_CASE("StatsCollector::session") {
@@ -250,15 +288,50 @@ TEST_CASE("StatsCollector callbacks can inspect the completed session") {
     CHECK(callback_called);
 }
 
-TEST_CASE("GameWatcher stop interrupts a long configured wait") {
-    GameWatcher watcher;
+TEST_CASE("GameWatcher stop interrupts a confirmed long wait") {
+    GameWatcher watcher([] { return std::vector<GameWatcher::ObservedGame>{}; });
     GameWatcherConfig config;
     config.check_interval_ms = 60000;
     watcher.start(config);
+    REQUIRE(waitUntil([&] { return watcher.isWaiting(); }, std::chrono::milliseconds(250)));
 
     const auto started = std::chrono::steady_clock::now();
     watcher.stop();
     const auto elapsed = std::chrono::steady_clock::now() - started;
 
     CHECK(elapsed < std::chrono::milliseconds(250));
+}
+
+TEST_CASE("GameWatcher reaps a worker stopped by its callback before restart") {
+    std::atomic<int> callback_count{0};
+    GameWatcher watcher([] {
+        return std::vector<GameWatcher::ObservedGame>{{"Test game", "test.exe", 42}};
+    });
+    watcher.setGameStartCallback([&](const std::string&, const std::string&, uint32_t) {
+        ++callback_count;
+        watcher.stop();
+    });
+
+    watcher.start();
+    REQUIRE(waitUntil([&] { return callback_count == 1 && !watcher.isRunning(); },
+                      std::chrono::milliseconds(250)));
+    watcher.start();
+    CHECK(waitUntil([&] { return callback_count == 2 && !watcher.isRunning(); },
+                    std::chrono::milliseconds(250)));
+}
+
+TEST_CASE("PingMonitor reaps a worker stopped by its callback before restart") {
+    std::atomic<int> callback_count{0};
+    PingMonitor monitor;
+    monitor.setPingCallback([&](const ICMPResult&) {
+        ++callback_count;
+        monitor.stop();
+    });
+
+    monitor.start("1.1.1.1", 60000);
+    REQUIRE(waitUntil([&] { return callback_count == 1 && !monitor.isRunning(); },
+                      std::chrono::milliseconds(250)));
+    monitor.start("1.1.1.1", 60000);
+    CHECK(waitUntil([&] { return callback_count == 2 && !monitor.isRunning(); },
+                    std::chrono::milliseconds(250)));
 }

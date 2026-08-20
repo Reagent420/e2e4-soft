@@ -1,7 +1,5 @@
 #include "dns_manager.h"
-#include <thread>
 #include <chrono>
-#include <algorithm>
 
 #ifdef PLATFORM_WINDOWS
 #include <winsock2.h>
@@ -14,7 +12,7 @@
 
 namespace gno {
 
-DNSManager::DNSManager() {
+DNSManager::DNSManager(Probe probe) : probe_(std::move(probe)) {
     presets_ = {
         {"Cloudflare", "1.1.1.1", "1.0.0.1", "Fastest DNS by Cloudflare"},
         {"Cloudflare (Family)", "1.1.1.2", "1.0.0.2", "Cloudflare with malware blocking"},
@@ -57,14 +55,37 @@ DNSBenchmarkResult DNSManager::benchmarkServer(
         result.error = DiagnosticError::Cancelled;
         return result;
     }
-    if (!isSupported()) {
+    if (!probe_ && !isSupported()) {
         result.error = DiagnosticError::UnsupportedCapability;
         return result;
     }
 
+    constexpr uint32_t timeout_ms = 2000;
+    int successful_probes = 0;
+
+    if (probe_) {
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            if (cancellation.isCancelled()) {
+                result.error = DiagnosticError::Cancelled;
+                return result;
+            }
+            if (probe_(*address, timeout_ms)) {
+                ++successful_probes;
+            }
+            if (cancellation.isCancelled()) {
+                result.error = DiagnosticError::Cancelled;
+                return result;
+            }
+        }
+    } else {
+
 #ifdef PLATFORM_WINDOWS
     HANDLE icmp = IcmpCreateFile();
-    if (icmp != INVALID_HANDLE_VALUE) {
+    if (icmp == INVALID_HANDLE_VALUE) {
+        result.error = DiagnosticError::ProbeUnavailable;
+        return result;
+    }
+    {
         struct in_addr addr;
         const auto& bytes = address->bytes();
         const auto destination = (static_cast<unsigned long>(bytes[0]) << 24U) |
@@ -76,33 +97,47 @@ DNSBenchmarkResult DNSManager::benchmarkServer(
         char send[] = "GNO";
         char recv_buf[1024] = {};
 
-        double total = 0;
-        int ok = 0;
+        double total = 0.0;
 
         for (int i = 0; i < 3; ++i) {
             if (cancellation.isCancelled()) {
                 result.error = DiagnosticError::Cancelled;
-                break;
+                IcmpCloseHandle(icmp);
+                return result;
             }
             auto start = std::chrono::steady_clock::now();
             DWORD reply = IcmpSendEcho(icmp, addr.S_un.S_addr,
-                send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), 2000);
+                send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), timeout_ms);
             auto end = std::chrono::steady_clock::now();
 
             if (reply > 0) {
                 total += std::chrono::duration<double, std::milli>(end - start).count();
-                ok++;
+                ++successful_probes;
             }
         }
 
-        if (ok > 0) {
-            result.latency_ms = total / ok;
-            result.success = true;
-            result.error = DiagnosticError::None;
-        }
         IcmpCloseHandle(icmp);
+        if (cancellation.isCancelled()) {
+            result.error = DiagnosticError::Cancelled;
+            return result;
+        }
+        if (successful_probes > 0) {
+            result.latency_ms = total / successful_probes;
+        }
     }
 #endif
+    }
+
+    if (cancellation.isCancelled()) {
+        result.error = DiagnosticError::Cancelled;
+        return result;
+    }
+    if (successful_probes > 0) {
+        result.success = true;
+        result.error = DiagnosticError::None;
+    } else {
+        result.error = DiagnosticError::Timeout;
+    }
 
     return result;
 }

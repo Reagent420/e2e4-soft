@@ -15,6 +15,8 @@
 
 namespace gno {
 
+PacketLossMonitor::PacketLossMonitor(Probe probe) : probe_(std::move(probe)) {}
+
 PacketLossResult PacketLossMonitor::measure(const std::string& target_ip, uint32_t count, uint32_t timeout_ms) {
     PacketLossResult result;
     result.target_ip = target_ip;
@@ -25,6 +27,20 @@ PacketLossResult PacketLossMonitor::measure(const std::string& target_ip, uint32
     }
     count = std::clamp(count, 1u, 100u);
     timeout_ms = std::clamp(timeout_ms, 1u, 10000u);
+
+    if (probe_) {
+        for (uint32_t i = 0; i < count; ++i) {
+            ++result.packets_sent;
+            if (probe_(*address, timeout_ms)) {
+                ++result.packets_received;
+            } else {
+                ++result.packets_lost;
+            }
+        }
+        result.loss_percent = static_cast<double>(result.packets_lost) / result.packets_sent * 100.0;
+        result.error = DiagnosticError::None;
+        return result;
+    }
     
 #ifdef PLATFORM_WINDOWS
     HANDLE icmp_handle = IcmpCreateFile();

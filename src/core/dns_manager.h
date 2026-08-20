@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -24,7 +25,9 @@ struct DNSBenchmarkResult {
 
 class DNSManager {
 public:
-    DNSManager();
+    using Probe = std::function<bool(const Ipv4Address&, uint32_t timeout_ms)>;
+
+    explicit DNSManager(Probe probe = {});
     ~DNSManager();
 
     static bool isSupported() noexcept;
@@ -43,6 +46,7 @@ public:
 private:
     std::vector<DNSPreset> presets_;
     std::vector<DNSBenchmarkResult> last_results_;
+    Probe probe_;
 };
 
 } // namespace gno

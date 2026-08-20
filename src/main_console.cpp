@@ -147,6 +147,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    if (!gno::Ipv4Address::parse(target)) {
+        std::cerr << "Invalid IPv4 address: " << target << "\n";
+        return 2;
+    }
+
     if (clear_history) {
         gno::SessionHistory sh;
         sh.clear();
@@ -367,7 +372,8 @@ int main(int argc, char* argv[]) {
         std::cout << "[TEST 4] Ping Monitor -> " << target << "\n";
         gno::PingMonitor pinger;
         std::vector<gno::ICMPResult> results;
-        if (!gno::PingMonitor::isSupported()) {
+        const bool ping_measured = gno::PingMonitor::isSupported();
+        if (!ping_measured) {
             printUnsupportedCapability();
         } else {
             results = pinger.pingBatch(target, static_cast<uint32_t>(ping_count), 3000);
@@ -377,9 +383,13 @@ int main(int argc, char* argv[]) {
         for (const auto& r : results) {
             if (r.success) { success++; total_lat += r.latency_ms; }
         }
-        std::cout << "  Sent: " << ping_count << ", Received: " << success << ", Loss: " << (ping_count - success) << "\n";
-        if (success > 0) {
-            std::cout << "  Avg latency: " << std::fixed << std::setprecision(1) << (total_lat / success) << " ms\n";
+        if (ping_measured) {
+            std::cout << "  Sent: " << results.size() << ", Received: " << success
+                      << ", Loss: " << (results.size() - static_cast<std::size_t>(success)) << "\n";
+            if (success > 0) {
+                std::cout << "  Avg latency: " << std::fixed << std::setprecision(1)
+                          << (total_lat / success) << " ms\n";
+            }
         }
 
         // Test 5: Packet Loss
@@ -387,7 +397,8 @@ int main(int argc, char* argv[]) {
         std::cout << "[TEST 5] Packet Loss -> " << target << "\n";
         gno::PacketLossMonitor plm;
         auto plResult = plm.measure(target, 10, 3000);
-        if (plResult.error == gno::DiagnosticError::UnsupportedCapability) {
+        const bool packet_loss_measured = plResult.error == gno::DiagnosticError::None;
+        if (!packet_loss_measured) {
             printUnsupportedCapability();
         } else {
             std::cout << "  Sent: " << plResult.packets_sent
@@ -398,35 +409,44 @@ int main(int argc, char* argv[]) {
         // Test 6: Jitter Calculator
         std::cout << "----------------------------------------\n";
         std::cout << "[TEST 6] Jitter Calculator\n";
-        gno::JitterCalculator jitter;
-        for (const auto& r : results) {
-            if (r.success) jitter.addSample(r.latency_ms);
+        if (!ping_measured) {
+            printUnsupportedCapability();
+        } else {
+            gno::JitterCalculator jitter;
+            for (const auto& r : results) {
+                if (r.success) jitter.addSample(r.latency_ms);
+            }
+            auto jStats = jitter.getStats();
+            std::cout << "  Samples: " << jStats.sample_count << "\n";
+            std::cout << "  Current jitter: " << std::fixed << std::setprecision(2)
+                      << jStats.current_jitter_ms << " ms\n";
+            std::cout << "  Average jitter: " << jStats.average_jitter_ms << " ms\n";
         }
-        auto jStats = jitter.getStats();
-        std::cout << "  Samples: " << jStats.sample_count << "\n";
-        std::cout << "  Current jitter: " << std::fixed << std::setprecision(2) << jStats.current_jitter_ms << " ms\n";
-        std::cout << "  Average jitter: " << jStats.average_jitter_ms << " ms\n";
 
         // Test 7: Stats Collector
         std::cout << "----------------------------------------\n";
         std::cout << "[TEST 7] Stats Collector\n";
-        gno::StatsCollector stats;
-        stats.start("test_session");
-        for (const auto& r : results) {
-            if (r.success) {
-                gno::NetworkSnapshot snap;
-                snap.ping_ms = r.latency_ms;
-                snap.jitter_ms = 0;
-                snap.packet_loss_percent = 0;
-                snap.timestamp = r.timestamp;
-                stats.recordSnapshot(snap);
+        if (!ping_measured) {
+            printUnsupportedCapability();
+        } else {
+            gno::StatsCollector stats;
+            stats.start("test_session");
+            for (const auto& r : results) {
+                if (r.success) {
+                    gno::NetworkSnapshot snap;
+                    snap.ping_ms = r.latency_ms;
+                    snap.jitter_ms = 0;
+                    snap.packet_loss_percent = 0;
+                    snap.timestamp = r.timestamp;
+                    stats.recordSnapshot(snap);
+                }
             }
+            auto session = stats.getCurrentSession();
+            std::cout << "  Snapshots recorded: " << session.total_samples << "\n";
+            std::cout << "  Session active: " << (stats.isRecording() ? "YES" : "NO") << "\n";
+            stats.stop();
+            std::cout << "  Session stopped: " << (!stats.isRecording() ? "YES" : "NO") << "\n";
         }
-        auto session = stats.getCurrentSession();
-        std::cout << "  Snapshots recorded: " << session.total_samples << "\n";
-        std::cout << "  Session active: " << (stats.isRecording() ? "YES" : "NO") << "\n";
-        stats.stop();
-        std::cout << "  Session stopped: " << (!stats.isRecording() ? "YES" : "NO") << "\n";
 
         std::cout << "----------------------------------------\n";
         std::cout << "========================================\n";

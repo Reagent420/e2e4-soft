@@ -241,7 +241,12 @@ if(GNO_TESTS)
     endif()
     
     add_test(NAME GNO-UnitTests COMMAND ${PROJECT_NAME}-tests)
-    set_tests_properties(GNO-UnitTests PROPERTIES TIMEOUT 5)
+    add_test(NAME GNO-GameWatcherLifecycle
+        COMMAND ${PROJECT_NAME}-tests --test-case="GameWatcher stop interrupts a confirmed long wait")
+    set_tests_properties(GNO-GameWatcherLifecycle PROPERTIES TIMEOUT 5)
+    add_test(NAME GNO-PingMonitorLifecycle
+        COMMAND ${PROJECT_NAME}-tests --test-case="PingMonitor reaps a worker stopped by its callback before restart")
+    set_tests_properties(GNO-PingMonitorLifecycle PROPERTIES TIMEOUT 5)
 
     add_test(NAME GNO-RejectBoost
         COMMAND ${CMAKE_COMMAND}
@@ -249,5 +254,13 @@ if(GNO_TESTS)
             -DARGUMENT=--boost
             -DEXPECTED_EXIT=1
             -DEXPECTED_TEXT=Unknown\ option:\ --boost
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/assert_cli_rejection.cmake)
+    add_test(NAME GNO-RejectMalformedTarget
+        COMMAND ${CMAKE_COMMAND}
+            "-DEXECUTABLE=$<TARGET_FILE:${PROJECT_NAME}-console>"
+            "-DARGUMENTS=--target;invalid-address"
+            -DEXPECTED_EXIT=2
+            "-DEXPECTED_TEXT=Invalid IPv4 address: invalid-address"
+            "-DFORBIDDEN_TEXT=Sent:"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/assert_cli_rejection.cmake)
 endif()

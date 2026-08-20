@@ -66,6 +66,7 @@ private:
     std::string target_ip_;
     std::atomic<bool> running_{false};
     std::thread monitor_thread_;
+    std::mutex lifecycle_mutex_;
     uint32_t interval_ms_ = 1000;
     std::mutex wait_mutex_;
     std::condition_variable wait_cv_;

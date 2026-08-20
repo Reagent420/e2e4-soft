@@ -29,10 +29,13 @@ static std::wstring toWide(const std::string& value) {
 }
 #endif
 
-ProcessMonitor::ProcessMonitor() = default;
+ProcessMonitor::ProcessMonitor(Scanner scanner) : scanner_(std::move(scanner)) {}
 ProcessMonitor::~ProcessMonitor() = default;
 
 std::vector<ProcessInfo> ProcessMonitor::scanProcesses() {
+    if (scanner_) {
+        return scanner_();
+    }
     std::vector<ProcessInfo> processes;
 
 #ifdef PLATFORM_WINDOWS
@@ -101,9 +104,14 @@ std::vector<ProcessInfo> ProcessMonitor::scanProcesses() {
 }
 
 std::vector<ProcessInfo> ProcessMonitor::getTopProcesses(int count) {
+    if (count <= 0) {
+        return {};
+    }
     auto all = scanProcesses();
-    if (static_cast<int>(all.size()) > count) {
-        all.resize(count);
+    constexpr int max_count = 100;
+    const auto bounded_count = std::min(count, max_count);
+    if (all.size() > static_cast<std::size_t>(bounded_count)) {
+        all.resize(static_cast<std::size_t>(bounded_count));
     }
     return all;
 }

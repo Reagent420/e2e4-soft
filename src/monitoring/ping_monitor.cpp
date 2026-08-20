@@ -27,8 +27,27 @@ bool PingMonitor::isSupported() noexcept {
 }
 
 void PingMonitor::start(const std::string& target_ip, uint32_t interval_ms) {
-    if (!isSupported() || !Ipv4Address::parse(target_ip) || running_) return;
+    if (!Ipv4Address::parse(target_ip)) return;
 
+    std::thread completed_worker;
+    {
+        std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+        if (running_ || (monitor_thread_.joinable() &&
+                         monitor_thread_.get_id() == std::this_thread::get_id())) {
+            return;
+        }
+        if (monitor_thread_.joinable()) {
+            completed_worker = std::move(monitor_thread_);
+        }
+    }
+    if (completed_worker.joinable()) {
+        completed_worker.join();
+    }
+
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    if (running_) {
+        return;
+    }
     target_ip_ = target_ip;
     interval_ms_ = std::clamp(interval_ms, 10u, 60000u);
     running_ = true;
@@ -38,6 +57,7 @@ void PingMonitor::start(const std::string& target_ip, uint32_t interval_ms) {
 void PingMonitor::stop() {
     running_ = false;
     wait_cv_.notify_all();
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
     if (monitor_thread_.joinable() && monitor_thread_.get_id() != std::this_thread::get_id()) {
         monitor_thread_.join();
     }
