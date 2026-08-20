@@ -364,7 +364,10 @@ int main(int argc, char* argv[]) {
             profile.auto_apply = true;
         }
         
-        profiles.set(profile);
+        if (!profiles.set(profile)) {
+            std::cerr << "Failed to save profile for " << game_name << "\n";
+            return 2;
+        }
         std::cout << "Profile applied for " << game_name << "\n";
         
         // Apply FPS boost

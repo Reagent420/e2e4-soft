@@ -180,7 +180,10 @@ void GameProfilesWidget::onSaveProfile()
     p.auto_apply = m_autoApplyCb->isChecked();
     p.max_routes = m_maxRoutesSpin->value();
 
-    m_profiles->set(p);
+    if (!m_profiles->set(p)) {
+        m_statusLabel->setText(QString::fromUtf8("Не удалось сохранить профиль"));
+        return;
+    }
     m_statusLabel->setText(QString("Сохранено: %1").arg(QString::fromStdString(gameName)));
     refreshProfileList();
 }

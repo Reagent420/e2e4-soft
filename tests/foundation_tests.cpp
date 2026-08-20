@@ -61,6 +61,24 @@ TEST_CASE("bounded file reader rejects oversized input") {
     std::remove(path.c_str());
 }
 
+TEST_CASE("bounded file reader accepts empty and exact-limit input") {
+    const std::string empty_path = "foundation-empty.tmp";
+    const std::string exact_path = "foundation-exact.tmp";
+    { std::ofstream out(empty_path, std::ios::binary); }
+    { std::ofstream out(exact_path, std::ios::binary); out << std::string(64, 'x'); }
+
+    const auto empty = gno::readBoundedFile(empty_path, 64);
+    REQUIRE(empty);
+    CHECK(empty->empty());
+
+    const auto exact = gno::readBoundedFile(exact_path, 64);
+    REQUIRE(exact);
+    CHECK(*exact == std::string(64, 'x'));
+
+    std::remove(empty_path.c_str());
+    std::remove(exact_path.c_str());
+}
+
 TEST_CASE("profile import rejects malformed JSON") {
     const std::string path = "foundation-malformed.json";
     { std::ofstream out(path); out << "{not-json"; }
