@@ -2,6 +2,15 @@ cmake_minimum_required(VERSION 3.20)
 project(GNO VERSION 1.2.0 LANGUAGES CXX)
 
 include(CTest)
+include(FetchContent)
+
+FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
+)
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(nlohmann_json)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -53,6 +62,7 @@ set(CORE_SOURCES
     src/core/session_history.cpp
     src/core/game_watcher.cpp
     src/core/connection_grader.cpp
+    src/core/input_validation.cpp
 )
 
 set(OPT_SOURCES
@@ -83,7 +93,7 @@ set(UI_SOURCES
     src/ui/geo_map.cpp
 )
 
-set(COMMON_LIBS Threads::Threads)
+set(COMMON_LIBS Threads::Threads nlohmann_json::nlohmann_json)
 
 if(WIN32)
     list(APPEND COMMON_LIBS ws2_32 iphlpapi winmm)
@@ -175,6 +185,7 @@ if(GNO_TESTS)
     
     add_executable(${PROJECT_NAME}-tests
         tests/unit_tests.cpp
+        tests/foundation_tests.cpp
         ${CORE_SOURCES}
         ${OPT_SOURCES}
         ${MON_SOURCES}

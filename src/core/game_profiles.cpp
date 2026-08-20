@@ -1,14 +1,80 @@
 #include "game_profiles.h"
-#include <fstream>
-#include <sstream>
+
+#include "input_validation.h"
+
 #include <algorithm>
-#include <cstdlib>
-#include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
+#include <stdexcept>
 
 #ifdef PLATFORM_WINDOWS
-#include <windows.h>
 #include <shlobj.h>
+#include <windows.h>
 #endif
+
+namespace {
+
+constexpr std::size_t kMaxProfileBytes = 1024 * 1024;
+constexpr std::size_t kMaxProfiles = 256;
+
+gno::GameProfile profileFromJson(const nlohmann::json& value) {
+    gno::GameProfile profile;
+    profile.game_name = value.at("game_name").get<std::string>();
+    profile.process_name = value.at("process_name").get<std::string>();
+    profile.multipath_enabled = value.value("multipath_enabled", false);
+    profile.fps_boost_enabled = value.value("fps_boost_enabled", false);
+    profile.network_optimization = value.value("network_optimization", false);
+    profile.max_routes = std::clamp(value.value("max_routes", 1), 1, 5);
+    profile.preferred_region = value.value("preferred_region", std::string{"auto"});
+    profile.priority_class = std::clamp(value.value("priority_class", 0), 0, 10);
+    profile.auto_apply = value.value("auto_apply", false);
+    if (profile.game_name.size() > 128 || profile.process_name.size() > 260 ||
+        profile.preferred_region.size() > 64) {
+        throw std::runtime_error("profile string too long");
+    }
+    if (value.contains("custom_routes") &&
+        (!value.at("custom_routes").is_array() || !value.at("custom_routes").empty())) {
+        throw std::runtime_error("imported custom routes are not permitted");
+    }
+    return profile;
+}
+
+nlohmann::json profileToJson(const gno::GameProfile& profile) {
+    return {{"game_name", profile.game_name},
+            {"process_name", profile.process_name},
+            {"multipath_enabled", profile.multipath_enabled},
+            {"fps_boost_enabled", profile.fps_boost_enabled},
+            {"network_optimization", profile.network_optimization},
+            {"max_routes", profile.max_routes},
+            {"preferred_region", profile.preferred_region},
+            {"priority_class", profile.priority_class},
+            {"auto_apply", profile.auto_apply}};
+}
+
+std::optional<std::vector<gno::GameProfile>> parseProfilesDocument(const std::string& content) {
+    try {
+        const auto root = nlohmann::json::parse(content);
+        const nlohmann::json* items = nullptr;
+        if (root.is_array()) items = &root;
+        if (root.is_object() && root.contains("profiles") && root.at("profiles").is_array()) {
+            items = &root.at("profiles");
+        }
+        if (!items || items->size() > kMaxProfiles) return std::nullopt;
+
+        std::vector<gno::GameProfile> result;
+        result.reserve(items->size());
+        for (const auto& item : *items) {
+            auto profile = profileFromJson(item);
+            if (profile.game_name.empty()) return std::nullopt;
+            result.push_back(std::move(profile));
+        }
+        return result;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+} // namespace
 
 namespace gno {
 
@@ -35,220 +101,75 @@ std::string GameProfiles::getSavePath() const {
 }
 
 void GameProfiles::load() {
-    profiles_.clear();
+    const auto content = readBoundedFile(getSavePath(), kMaxProfileBytes);
+    if (!content) return;
 
-    std::ifstream file(getSavePath());
-    if (!file.is_open()) return;
-
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    if (content.empty()) return;
-
-    // Simple JSON parsing
-    std::string trimmed = content;
-    trimmed.erase(0, trimmed.find_first_not_of(" \t\r\n["));
-    trimmed.erase(trimmed.find_last_not_of(" \t\r\n]") + 1);
-    
-    size_t pos = 0;
-    while (pos < trimmed.size()) {
-        // Find next object
-        size_t objStart = trimmed.find('{', pos);
-        if (objStart == std::string::npos) break;
-        size_t objEnd = trimmed.find('}', objStart);
-        if (objEnd == std::string::npos) break;
-        
-        std::string obj = trimmed.substr(objStart, objEnd - objStart + 1);
-        GameProfile p = parseProfile(obj);
-        if (!p.game_name.empty()) {
-            profiles_.push_back(p);
-        }
-        pos = objEnd + 1;
-    }
+    auto parsed = parseProfilesDocument(*content);
+    if (parsed) profiles_ = std::move(*parsed);
 }
 
-GameProfile GameProfiles::parseProfile(const std::string& json) {
-    GameProfile p;
-    auto extractString = [&](const std::string& key) -> std::string {
-        std::string search = "\"" + key + "\"";
-        size_t pos = json.find(search);
-        if (pos == std::string::npos) return "";
-        pos = json.find(':', pos);
-        if (pos == std::string::npos) return "";
-        pos = json.find('"', pos);
-        if (pos == std::string::npos) return "";
-        size_t end = json.find('"', pos + 1);
-        if (end == std::string::npos) return "";
-        return json.substr(pos + 1, end - pos - 1);
-    };
-    
-    auto extractBool = [&](const std::string& key) -> bool {
-        std::string search = "\"" + key + "\"";
-        size_t pos = json.find(search);
-        if (pos == std::string::npos) return false;
-        pos = json.find(':', pos);
-        if (pos == std::string::npos) return false;
-        std::string val = json.substr(pos + 1, 5);
-        return val.find("true") != std::string::npos;
-    };
-    
-    auto extractInt = [&](const std::string& key) -> int {
-        std::string search = "\"" + key + "\"";
-        size_t pos = json.find(search);
-        if (pos == std::string::npos) return 0;
-        pos = json.find(':', pos);
-        if (pos == std::string::npos) return 0;
-        size_t end = json.find_first_of(",}", pos);
-        if (end == std::string::npos) return 0;
-        std::string val = json.substr(pos + 1, end - pos - 1);
-        try { return std::stoi(val); } catch (...) { return 0; }
-    };
-    
-    p.game_name = extractString("game_name");
-    p.process_name = extractString("process_name");
-    p.multipath_enabled = extractBool("multipath_enabled");
-    p.fps_boost_enabled = extractBool("fps_boost_enabled");
-    p.network_optimization = extractBool("network_optimization");
-    p.max_routes = extractInt("max_routes");
-    p.auto_apply = extractBool("auto_apply");
-    return p;
-}
-
-void GameProfiles::save() {
-    std::string path = getSavePath();
-
-    std::string dir = path.substr(0, path.find_last_of("\\/"));
+bool GameProfiles::save() {
+    const std::string path = getSavePath();
+    const std::string dir = path.substr(0, path.find_last_of("\\/"));
 #ifdef PLATFORM_WINDOWS
     CreateDirectoryA(dir.c_str(), nullptr);
 #endif
 
+    nlohmann::json items = nlohmann::json::array();
+    for (const auto& profile : profiles_) items.push_back(profileToJson(profile));
+
     std::ofstream file(path);
-    if (!file.is_open()) return;
-
-    file << "[\n";
-    for (size_t i = 0; i < profiles_.size(); ++i) {
-        const auto& p = profiles_[i];
-        file << "  {\n";
-        file << "    \"game_name\": \"" << GameProfiles::escapeJson(p.game_name) << "\",\n";
-        file << "    \"process_name\": \"" << GameProfiles::escapeJson(p.process_name) << "\",\n";
-        file << "    \"multipath_enabled\": " << (p.multipath_enabled ? "true" : "false") << ",\n";
-        file << "    \"fps_boost_enabled\": " << (p.fps_boost_enabled ? "true" : "false") << ",\n";
-        file << "    \"network_optimization\": " << (p.network_optimization ? "true" : "false") << ",\n";
-        file << "    \"max_routes\": " << p.max_routes << ",\n";
-        file << "    \"auto_apply\": " << (p.auto_apply ? "true" : "false") << "\n";
-        file << "  }";
-        if (i < profiles_.size() - 1) file << ",";
-        file << "\n";
-    }
-    file << "]\n";
-}
-
-std::string GameProfiles::escapeJson(const std::string& s) {
-    std::string result;
-    for (char c : s) {
-        switch (c) {
-            case '"': result += "\\\""; break;
-            case '\\': result += "\\\\"; break;
-            case '\n': result += "\\n"; break;
-            case '\r': result += "\\r"; break;
-            case '\t': result += "\\t"; break;
-            default: result += c; break;
-        }
-    }
-    return result;
+    if (!file.is_open()) return false;
+    file << items.dump(2);
+    return static_cast<bool>(file);
 }
 
 bool GameProfiles::exportToFile(const std::string& path) const {
-    std::string dir = path.substr(0, path.find_last_of("\\/"));
+    const std::string dir = path.substr(0, path.find_last_of("\\/"));
 #ifdef PLATFORM_WINDOWS
     CreateDirectoryA(dir.c_str(), nullptr);
 #endif
 
+    nlohmann::json items = nlohmann::json::array();
+    for (const auto& profile : profiles_) items.push_back(profileToJson(profile));
+
     std::ofstream file(path);
     if (!file.is_open()) return false;
-
-    file << "{\n";
-    file << "  \"version\": 1,\n";
-    file << "  \"profiles\": [\n";
-    for (size_t i = 0; i < profiles_.size(); ++i) {
-        const auto& p = profiles_[i];
-        file << "    {\n";
-        file << "      \"game_name\": \"" << GameProfiles::escapeJson(p.game_name) << "\",\n";
-        file << "      \"process_name\": \"" << GameProfiles::escapeJson(p.process_name) << "\",\n";
-        file << "      \"multipath_enabled\": " << (p.multipath_enabled ? "true" : "false") << ",\n";
-        file << "      \"fps_boost_enabled\": " << (p.fps_boost_enabled ? "true" : "false") << ",\n";
-        file << "      \"network_optimization\": " << (p.network_optimization ? "true" : "false") << ",\n";
-        file << "      \"max_routes\": " << p.max_routes << ",\n";
-        file << "      \"auto_apply\": " << (p.auto_apply ? "true" : "false") << "\n";
-        file << "    }";
-        if (i < profiles_.size() - 1) file << ",";
-        file << "\n";
-    }
-    file << "  ]\n";
-    file << "}\n";
-    return true;
+    file << nlohmann::json{{"version", 1}, {"profiles", items}}.dump(2);
+    return static_cast<bool>(file);
 }
 
 bool GameProfiles::importFromFile(const std::string& path) {
-    std::ifstream file(path);
-    if (!file.is_open()) return false;
-    
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    if (content.empty()) return false;
-    
-    // Parse the JSON (supports both old array format and new object format)
-    std::string trimmed = content;
-    trimmed.erase(0, trimmed.find_first_not_of(" \t\r\n[{"));
-    trimmed.erase(trimmed.find_last_not_of(" \t\r\n}]") + 1);
-    
-    // Remove outer object wrapper if present
-    if (trimmed.find("\"profiles\"") != std::string::npos) {
-        size_t arrStart = trimmed.find("[");
-        size_t arrEnd = trimmed.rfind("]");
-        if (arrStart != std::string::npos && arrEnd != std::string::npos) {
-            trimmed = trimmed.substr(arrStart, arrEnd - arrStart + 1);
-        }
-    }
-    
-    profiles_.clear();
-    
-    size_t pos = 0;
-    while (pos < trimmed.size()) {
-        size_t objStart = trimmed.find('{', pos);
-        if (objStart == std::string::npos) break;
-        size_t objEnd = trimmed.find('}', objStart);
-        if (objEnd == std::string::npos) break;
-        
-        std::string obj = trimmed.substr(objStart, objEnd - objStart + 1);
-        GameProfile p = parseProfile(obj);
-        if (!p.game_name.empty()) {
-            profiles_.push_back(p);
-        }
-        pos = objEnd + 1;
-    }
-    
-    save();
-    return !profiles_.empty();
+    const auto content = readBoundedFile(path, kMaxProfileBytes);
+    if (!content) return false;
+
+    auto parsed = parseProfilesDocument(*content);
+    if (!parsed) return false;
+
+    profiles_ = std::move(*parsed);
+    return save();
 }
 
 std::vector<GameProfile> GameProfiles::getAll() const { return profiles_; }
 
 GameProfile GameProfiles::get(const std::string& game_name) const {
-    for (const auto& p : profiles_) {
-        if (p.game_name == game_name) return p;
+    for (const auto& profile : profiles_) {
+        if (profile.game_name == game_name) return profile;
     }
     return GameProfile{};
 }
 
 bool GameProfiles::has(const std::string& game_name) const {
-    for (const auto& p : profiles_) {
-        if (p.game_name == game_name) return true;
+    for (const auto& profile : profiles_) {
+        if (profile.game_name == game_name) return true;
     }
     return false;
 }
 
 void GameProfiles::set(const GameProfile& profile) {
-    for (auto& p : profiles_) {
-        if (p.game_name == profile.game_name) {
-            p = profile;
+    for (auto& existing : profiles_) {
+        if (existing.game_name == profile.game_name) {
+            existing = profile;
             save();
             return;
         }
@@ -260,14 +181,14 @@ void GameProfiles::set(const GameProfile& profile) {
 void GameProfiles::remove(const std::string& game_name) {
     profiles_.erase(
         std::remove_if(profiles_.begin(), profiles_.end(),
-                       [&game_name](const GameProfile& p) { return p.game_name == game_name; }),
+                       [&game_name](const GameProfile& profile) { return profile.game_name == game_name; }),
         profiles_.end());
     save();
 }
 
 GameProfile GameProfiles::detectForProcess(const std::string& process_name) const {
-    for (const auto& p : profiles_) {
-        if (p.process_name == process_name) return p;
+    for (const auto& profile : profiles_) {
+        if (profile.process_name == process_name) return profile;
     }
     return GameProfile{};
 }

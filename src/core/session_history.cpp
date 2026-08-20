@@ -1,23 +1,57 @@
 #include "session_history.h"
-#include <fstream>
-#include <sstream>
-#include <iomanip>
-#include <algorithm>
+
+#include "input_validation.h"
+
 #include <ctime>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 #ifdef PLATFORM_WINDOWS
-#include <windows.h>
 #include <shlobj.h>
+#include <windows.h>
 #endif
 
-namespace gno {
+namespace {
 
-static std::string currentTimeStr() {
-    auto now = std::time(nullptr);
-    char buf[64];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
-    return buf;
+constexpr std::size_t kMaxHistoryBytes = 4 * 1024 * 1024;
+constexpr std::size_t kMaxHistoryRecords = 500;
+
+nlohmann::json recordToJson(const gno::SessionRecord& record) {
+    return {{"game", record.game_name},
+            {"start", record.start_time_str},
+            {"end", record.end_time_str},
+            {"avg_ping", record.avg_ping_ms},
+            {"avg_jitter", record.avg_jitter_ms},
+            {"avg_loss", record.avg_packet_loss},
+            {"max_ping", record.max_ping_ms},
+            {"duration", record.duration_seconds},
+            {"boost", record.boost_was_active}};
 }
+
+gno::SessionRecord recordFromJson(const nlohmann::json& value) {
+    gno::SessionRecord record;
+    record.game_name = value.value("game", std::string{});
+    record.start_time_str = value.value("start", std::string{});
+    record.end_time_str = value.value("end", std::string{});
+    record.avg_ping_ms = value.value("avg_ping", 0.0);
+    record.avg_jitter_ms = value.value("avg_jitter", 0.0);
+    record.avg_packet_loss = value.value("avg_loss", 0.0);
+    record.max_ping_ms = value.value("max_ping", 0.0);
+    record.duration_seconds = value.value("duration", uint32_t{0});
+    record.boost_was_active = value.value("boost", false);
+    return record;
+}
+
+std::string currentTimeStr() {
+    const auto now = std::time(nullptr);
+    char buffer[64];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
+    return buffer;
+}
+
+} // namespace
+
+namespace gno {
 
 SessionHistory::SessionHistory() {
     loadFromFile();
@@ -59,18 +93,12 @@ void SessionHistory::recordEnd(double avg_ping, double avg_jitter, double loss, 
     current_.avg_jitter_ms = avg_jitter;
     current_.avg_packet_loss = loss;
     current_.max_ping_ms = max_ping;
-
-    auto start = std::chrono::system_clock::now();
     current_.duration_seconds = 0;
-
     records_.push_back(current_);
     recording_ = false;
 
-    if (records_.size() > 500) {
-        records_.erase(records_.begin());
-    }
-
-    saveToFile();
+    if (records_.size() > kMaxHistoryRecords) records_.erase(records_.begin());
+    saveToFileUnlocked(getSavePath());
 }
 
 std::vector<SessionRecord> SessionHistory::getAll() const {
@@ -87,14 +115,14 @@ std::vector<SessionRecord> SessionHistory::getLast(int count) const {
 void SessionHistory::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     records_.clear();
-    saveToFile();
+    saveToFileUnlocked(getSavePath());
 }
 
 double SessionHistory::getAveragePing() const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (records_.empty()) return 0.0;
     double sum = 0;
-    for (const auto& r : records_) sum += r.avg_ping_ms;
+    for (const auto& record : records_) sum += record.avg_ping_ms;
     return sum / records_.size();
 }
 
@@ -102,97 +130,48 @@ double SessionHistory::getAverageJitter() const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (records_.empty()) return 0.0;
     double sum = 0;
-    for (const auto& r : records_) sum += r.avg_jitter_ms;
+    for (const auto& record : records_) sum += record.avg_jitter_ms;
     return sum / records_.size();
 }
 
 bool SessionHistory::saveToFile(const std::string& path) const {
-    std::string p = path.empty() ? getSavePath() : path;
-    std::string dir = p.substr(0, p.find_last_of("\\/"));
+    std::lock_guard<std::mutex> lock(mutex_);
+    return saveToFileUnlocked(path.empty() ? getSavePath() : path);
+}
+
+bool SessionHistory::saveToFileUnlocked(const std::string& path) const {
+    const std::string dir = path.substr(0, path.find_last_of("\\/"));
 #ifdef PLATFORM_WINDOWS
     CreateDirectoryA(dir.c_str(), nullptr);
 #endif
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::ofstream file(p);
-    if (!file.is_open()) return false;
+    nlohmann::json records = nlohmann::json::array();
+    for (const auto& record : records_) records.push_back(recordToJson(record));
 
-    file << "[\n";
-    for (size_t i = 0; i < records_.size(); ++i) {
-        const auto& r = records_[i];
-        file << "  {\n";
-        file << "    \"game\": \"" << r.game_name << "\",\n";
-        file << "    \"start\": \"" << r.start_time_str << "\",\n";
-        file << "    \"end\": \"" << r.end_time_str << "\",\n";
-        file << "    \"avg_ping\": " << r.avg_ping_ms << ",\n";
-        file << "    \"avg_jitter\": " << r.avg_jitter_ms << ",\n";
-        file << "    \"avg_loss\": " << r.avg_packet_loss << ",\n";
-        file << "    \"max_ping\": " << r.max_ping_ms << ",\n";
-        file << "    \"duration\": " << r.duration_seconds << ",\n";
-        file << "    \"boost\": " << (r.boost_was_active ? "true" : "false") << "\n";
-        file << "  }";
-        if (i < records_.size() - 1) file << ",";
-        file << "\n";
-    }
-    file << "]\n";
-    return true;
+    std::ofstream file(path);
+    if (!file.is_open()) return false;
+    file << records.dump(2);
+    return static_cast<bool>(file);
 }
 
 bool SessionHistory::loadFromFile(const std::string& path) {
-    std::string p = path.empty() ? getSavePath() : path;
-    std::ifstream file(p);
-    if (!file.is_open()) return false;
+    const auto content = readBoundedFile(path.empty() ? getSavePath() : path, kMaxHistoryBytes);
+    if (!content) return false;
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    records_.clear();
+    try {
+        const auto root = nlohmann::json::parse(*content);
+        if (!root.is_array() || root.size() > kMaxHistoryRecords) return false;
 
-    std::string line;
-    SessionRecord current;
-    bool inRecord = false;
+        std::vector<SessionRecord> parsed;
+        parsed.reserve(root.size());
+        for (const auto& item : root) parsed.push_back(recordFromJson(item));
 
-    while (std::getline(file, line)) {
-        auto trim = [](std::string& s) {
-            s.erase(0, s.find_first_not_of(" \t\r\n{"));
-            s.erase(s.find_last_not_of(" \t\r\n},") + 1);
-        };
-
-        if (line.find("\"game\"") != std::string::npos) {
-            if (inRecord && !current.game_name.empty()) records_.push_back(current);
-            current = SessionRecord{};
-            inRecord = true;
-            auto pos = line.find(':');
-            if (pos != std::string::npos) {
-                current.game_name = line.substr(pos + 1);
-                trim(current.game_name);
-                current.game_name.erase(
-                    std::remove(current.game_name.begin(), current.game_name.end(), '"'),
-                    current.game_name.end());
-            }
-        } else if (line.find("\"start\"") != std::string::npos) {
-            auto pos = line.find(':');
-            if (pos != std::string::npos) {
-                current.start_time_str = line.substr(pos + 1);
-                trim(current.start_time_str);
-                current.start_time_str.erase(
-                    std::remove(current.start_time_str.begin(), current.start_time_str.end(), '"'),
-                    current.start_time_str.end());
-            }
-        } else if (line.find("\"avg_ping\"") != std::string::npos) {
-            auto pos = line.find(':');
-            if (pos != std::string::npos) current.avg_ping_ms = std::stod(line.substr(pos + 1));
-        } else if (line.find("\"avg_jitter\"") != std::string::npos) {
-            auto pos = line.find(':');
-            if (pos != std::string::npos) current.avg_jitter_ms = std::stod(line.substr(pos + 1));
-        } else if (line.find("\"avg_loss\"") != std::string::npos) {
-            auto pos = line.find(':');
-            if (pos != std::string::npos) current.avg_packet_loss = std::stod(line.substr(pos + 1));
-        } else if (line.find("\"boost\"") != std::string::npos) {
-            current.boost_was_active = line.find("true") != std::string::npos;
-        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        records_ = std::move(parsed);
+        return true;
+    } catch (const std::exception&) {
+        return false;
     }
-
-    if (inRecord && !current.game_name.empty()) records_.push_back(current);
-    return true;
 }
 
 } // namespace gno

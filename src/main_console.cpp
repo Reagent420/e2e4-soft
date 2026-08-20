@@ -10,6 +10,7 @@
 #include "core/game_detector.h"
 #include "core/network_utils.h"
 #include "core/game_profiles.h"
+#include "core/input_validation.h"
 #include "core/speed_test.h"
 #include "core/dns_manager.h"
 #include "core/process_monitor.h"
@@ -109,7 +110,12 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--target" && i + 1 < argc) {
             target = argv[++i];
         } else if (arg == "--ping" && i + 1 < argc) {
-            ping_count = std::stoi(argv[++i]);
+            const auto parsed = gno::parseBoundedInt(argv[++i], 1, 100);
+            if (!parsed) {
+                std::cerr << "--ping must be an integer from 1 to 100\n";
+                return 2;
+            }
+            ping_count = *parsed;
         } else if (arg == "--speedtest") {
             run_speedtest = true;
             run_tests = false;
@@ -458,7 +464,7 @@ int main(int argc, char* argv[]) {
         std::cout << "----------------------------------------\n";
         std::cout << "[TEST 4] Ping Monitor -> " << target << "\n";
         gno::PingMonitor pinger;
-        auto results = pinger.pingBatch(target, ping_count, 3000);
+        auto results = pinger.pingBatch(target, static_cast<uint32_t>(ping_count), 3000);
         int success = 0;
         double total_lat = 0;
         for (const auto& r : results) {

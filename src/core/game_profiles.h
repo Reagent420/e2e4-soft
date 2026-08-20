@@ -25,7 +25,7 @@ public:
     ~GameProfiles();
 
     void load();
-    void save();
+    bool save();
 
     std::vector<GameProfile> getAll() const;
     GameProfile get(const std::string& game_name) const;
@@ -44,8 +44,6 @@ public:
 
 private:
     static std::string getAppDataPath();
-    GameProfile parseProfile(const std::string& json);
-    static std::string escapeJson(const std::string& s);
 
     std::vector<GameProfile> profiles_;
 };

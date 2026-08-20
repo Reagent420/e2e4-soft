@@ -41,6 +41,7 @@ public:
 
 private:
     std::string getAppDataPath() const;
+    bool saveToFileUnlocked(const std::string& path) const;
 
     mutable std::mutex mutex_;
     std::vector<SessionRecord> records_;
