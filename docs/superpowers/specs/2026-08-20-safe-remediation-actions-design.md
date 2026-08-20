@@ -18,7 +18,7 @@ The first Windows remediation release includes all currently requested actions:
 - Windows fullscreen optimizations;
 - priority of a selected running game process.
 
-The following macOS phase reuses the same transaction engine, backup format, and UI model for the five defensible equivalents: DNS, interface MTU, an allowlisted subset of TCP parameters, energy mode, and selected-process priority. Game DVR and Windows fullscreen optimizations have no direct macOS equivalent and are omitted rather than replaced with unrelated tweaks.
+macOS remediation is deferred and is not part of the current delivery. The future design may reuse the same transaction engine for DNS, interface MTU, an allowlisted subset of TCP parameters, energy mode, and selected-process priority. No macOS helper, mutation adapter, packaging, or remediation UI is built while this scope is deferred.
 
 VPN and traffic tunnelling are explicitly outside this feature. They must not be included in **Fix all** and remain a separate project stage.
 
@@ -151,7 +151,9 @@ Operate only on an explicitly selected executable. Canonicalize and validate the
 
 Operate only on a currently running process explicitly selected by the user. Bind the preview to both PID and process creation identity to prevent PID-reuse errors. Capture its current priority class, apply an allowlisted non-realtime target, and verify immediately. Rollback is available only while the same process instance remains alive. Realtime priority is never offered.
 
-## macOS Action Semantics
+## Deferred macOS Action Semantics
+
+This section records future design intent only. It is not an acceptance requirement for the current Windows delivery.
 
 ### DNS and MTU
 
@@ -216,7 +218,6 @@ Unit tests use fake observers and runners; normal tests never modify the host sy
 - backup size, schema-version, atomicity, corruption, and retention limits;
 - callback reentrancy and bounded shutdown;
 - explicit unsupported behavior on macOS.
-- macOS helper request validation, fixed-tool allowlists, service/interface identity changes, runtime-only TCP disclosure, energy-source rollback, PID reuse, helper refusal, and bounded shutdown.
 
 Platform integration tests run only in isolated disposable Windows test environments with known fixtures. They must restore the observed initial state during cleanup and cannot be required on a developer's normal workstation.
 
@@ -236,7 +237,6 @@ The reusable candidates are the capability presentation, action descriptions, re
 - Every applied action is independently verified.
 - All reversible actions restore their captured original state; limitations are shown before confirmation.
 - macOS actions unavailable on the running OS, or blocked by helper/signing state, are disabled with an explicit reason rather than reported as timeout or success.
-- The macOS phase provides verified DNS, MTU, audited TCP, energy-mode, and selected-process-priority actions through a separate helper; Windows-only concepts are omitted.
 - No arbitrary command execution or user-controlled shell interpolation exists.
 - Partial failure produces a durable, accurate transaction state and supports verified reverse rollback.
 - VPN/tunnel behavior is absent from the remediation transaction.

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add seven explicit Windows remediation actions followed by five native macOS equivalents, with individual Fix/Revert controls and a confirmed transactional **Fix all** flow using durable backups, verification, and rollback.
+**Goal:** Add seven explicit Windows remediation actions with individual Fix/Revert controls and a confirmed transactional **Fix all** flow using durable backups, verification, and rollback.
 
-**Architecture:** A platform-neutral remediation domain owns typed plans and transactions. Separate Windows and macOS privileged helpers perform closed sets of structured operations; the GUI never executes shell text. A durable JSON store records the plan and original values before mutation, and every action is re-observed before it is reported as applied or reverted.
+**Architecture:** A platform-neutral remediation domain owns typed plans and transactions. A Windows privileged helper performs a closed set of structured operations; the GUI never executes shell text. A durable JSON store records the plan and original values before mutation, and every action is re-observed before it is reported as applied or reverted.
 
 **Tech Stack:** C++17, CMake 3.24+, Qt 6 Widgets, nlohmann/json 3.12.0, Win32 IP Helper/Power/Registry/Process APIs, doctest, CTest.
 
@@ -12,13 +12,13 @@
 
 - Diagnostics never invoke remediation automatically on startup, scan completion, monitoring, profile import, timer, or game detection.
 - The first Windows release includes DNS, MTU, allowlisted TCP parameters, power plan, Game DVR, per-executable fullscreen optimizations, and selected-process priority.
-- The following macOS phase includes DNS, MTU, audited TCP parameters, energy mode, and selected-process priority under `src/remediation/macos/`; Game DVR and Windows fullscreen optimizations are omitted because they have no direct macOS equivalent.
+- macOS remediation, helper, UI, packaging, and platform mutation tests are deferred and must not be implemented in the current delivery.
 - VPN and traffic tunnelling are absent from remediation and **Fix all**.
 - **Fix all** requires full preflight, a persisted backup, a human-readable preview, and explicit user confirmation.
 - Only one transaction executes at a time; operations are bounded, cancellable between mutations, verified after application, and rolled back in reverse order.
 - The helper accepts a generated transaction UUID only. It never accepts arbitrary commands, registry paths, executable paths, or network values on its command line.
 - Windows mutations use allowlisted Windows APIs. Do not add `system()`, `cmd.exe /c`, `ShellExecute` of a user-built command, detached threads, legacy `applyFix`, or auto-apply paths.
-- Before the macOS phase lands, macOS exposes mutation actions as typed `Unsupported`. Afterward it exposes only the five verified native equivalents; Linux remains `Unsupported`.
+- macOS and Linux expose mutation actions as typed `Unsupported` in the current delivery.
 - Durable state uses bounded, versioned JSON and sibling-temp atomic replacement. Unknown schema versions are preserved and not executed.
 - Normal unit/UI tests use fakes and do not alter the developer machine. Real mutation tests run only in disposable Windows CI environments explicitly enabled for integration testing.
 - All shell commands in this repository are prefixed with `rtk`.
@@ -44,7 +44,7 @@
 - Create `src/remediation/windows/privilege_runner.h/.cpp`: starts the signed project helper with `runas` and a UUID only, then reads its bounded result.
 - Create `src/remediation/windows/helper_main.cpp`: validates and executes one persisted prepared transaction.
 
-**macOS boundary (implemented after the Windows feature is complete)**
+**Deferred macOS boundary (not implemented by the current plan)**
 
 - Create `src/remediation/macos/macos_state_api.h/.mm`: narrow injectable interface and production SystemConfiguration, interface, sysctl, power, and process operations.
 - Create `src/remediation/macos/macos_fix_action.h/.cpp`: five macOS `FixAction` implementations.
@@ -563,7 +563,9 @@ rtk git commit -m "ci: gate safe remediation releases"
 
 ---
 
-### Task 8: Implement Five Native macOS Remediation Actions
+### Deferred Appendix A: Native macOS Remediation Actions
+
+> Do not execute this appendix in the current Windows-only delivery.
 
 **Files:**
 - Create: `src/remediation/macos/macos_state_api.h`
@@ -659,7 +661,9 @@ rtk git commit -m "feat: add native macOS remediation actions"
 
 ---
 
-### Task 9: Integrate macOS UI, Packaging, and Platform Gates
+### Deferred Appendix B: macOS UI, Packaging, and Platform Gates
+
+> Do not execute this appendix in the current Windows-only delivery.
 
 **Files:**
 - Modify: `src/ui/remediation_widget.h`
@@ -724,6 +728,6 @@ rtk git commit -m "feat: integrate macOS remediation experience"
 - Confirm every apply and rollback is independently re-observed and verified.
 - Confirm partial failure stops the transaction and reverse rollback is offered.
 - Confirm no arbitrary command, shell interpolation, detached worker, auto-fix path, or VPN behavior is linked.
-- Confirm macOS provides only the five verified equivalents and shows accurate helper/signing/authorization states; Linux remains typed Unsupported.
+- Confirm macOS and Linux remain typed Unsupported and no macOS helper or mutation adapter is built.
 - Confirm ordinary tests never mutate the host and Windows integration mutation remains explicitly opt-in in a disposable environment.
 - Run a whole-branch security review against the accepted specification before merge.
