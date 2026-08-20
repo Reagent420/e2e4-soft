@@ -2,13 +2,53 @@
 #include "core/game_profiles.h"
 #include "core/input_validation.h"
 #include "core/session_history.h"
+#include "diagnostics/diagnostic_types.h"
+#include "diagnostics/endpoint_observer.h"
+#include "diagnostics/network_sampler.h"
+#include "diagnostics/probe_client.h"
 
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <type_traits>
 
 namespace {
+
+class FakeEndpointObserver final : public gno::IEndpointObserver {
+public:
+    std::vector<gno::ObservedEndpoint> observe(
+        uint32_t, std::chrono::milliseconds, gno::DiagnosticError& error) override {
+        error = gno::DiagnosticError::None;
+        return {};
+    }
+};
+
+class FakeNetworkSampler final : public gno::INetworkSampler {
+public:
+    gno::MetricSummary sample(const gno::SampleTarget&, const gno::SamplePlan&,
+                              const gno::CancellationToken&, gno::DiagnosticError& error) override {
+        error = gno::DiagnosticError::None;
+        return {};
+    }
+};
+
+class FakeProbeClient final : public gno::IProbeClient {
+public:
+    gno::ProbeMeasurement measure(const gno::ProbeRequest&,
+                                  const gno::CancellationToken&) override {
+        return {};
+    }
+};
+
+static_assert(gno::DiagnosticReport::network_settings_changed == false,
+              "diagnostic reports must never change network settings");
+static_assert(std::is_same<decltype(gno::DiagnosticReport::network_settings_changed),
+                           const bool>::value,
+              "network settings invariant must be immutable");
+static_assert(std::has_virtual_destructor<gno::IEndpointObserver>::value);
+static_assert(std::has_virtual_destructor<gno::INetworkSampler>::value);
+static_assert(std::has_virtual_destructor<gno::IProbeClient>::value);
 
 class RestoredGameProfiles {
 public:
@@ -42,6 +82,77 @@ private:
 };
 
 } // namespace
+
+TEST_CASE("diagnostic defaults are safe") {
+    gno::DiagnosticReport report;
+    CHECK(report.outcome == gno::DiagnosticOutcome::InsufficientData);
+    CHECK(report.confidence == gno::ConfidenceLevel::Low);
+    CHECK(report.network_settings_changed == false);
+}
+
+TEST_CASE("IPv4 parser accepts decimal address boundaries") {
+    const auto unspecified = gno::Ipv4Address::parse("0.0.0.0");
+    REQUIRE(unspecified);
+    CHECK(unspecified->isUnspecified());
+    CHECK(unspecified->toString() == "0.0.0.0");
+
+    const auto maximum = gno::Ipv4Address::parse("255.255.255.255");
+    REQUIRE(maximum);
+    CHECK_FALSE(maximum->isUnspecified());
+    CHECK(maximum->toString() == "255.255.255.255");
+}
+
+TEST_CASE("IPv4 parser rejects malformed non-decimal input") {
+    const std::vector<std::string_view> invalid = {
+        "", "1.2.3", "1.2.3.4.5", "1..2.3", "1.2.3.256", "-1.2.3.4",
+        "+1.2.3.4", " 1.2.3.4", "1.2.3.4 ", "1.2.3.4x", "x1.2.3.4",
+        "game.example.com", "https://155.133.226.10"
+    };
+    for (const auto value : invalid) {
+        CHECK_FALSE(gno::Ipv4Address::parse(value));
+    }
+}
+
+TEST_CASE("IPv4 address formatting round-trips parsed octets") {
+    const auto address = gno::Ipv4Address::parse("155.133.226.10");
+    REQUIRE(address);
+    CHECK(address->toString() == "155.133.226.10");
+    CHECK(gno::Ipv4Address::parse(address->toString()) == address);
+}
+
+TEST_CASE("probe request contains no hostname or URL") {
+    const auto endpoint = gno::Ipv4Address::parse("155.133.226.10");
+    REQUIRE(endpoint);
+    gno::ProbeRequest request{"counter-strike-2", *endpoint, 27015,
+                              gno::TransportProtocol::Udp, 30};
+    CHECK(request.game_id == "counter-strike-2");
+    CHECK(request.duration_seconds == 30);
+    CHECK_FALSE(gno::Ipv4Address::parse("game.example.com"));
+    CHECK_FALSE(gno::Ipv4Address::parse("https://155.133.226.10"));
+}
+
+TEST_CASE("cancellation token observes cancellation after source destruction") {
+    gno::CancellationToken token;
+    {
+        gno::CancellationSource source;
+        token = source.token();
+        source.cancel();
+        CHECK(token.isCancelled());
+    }
+    CHECK(token.isCancelled());
+}
+
+TEST_CASE("diagnostic service interfaces admit platform-neutral implementations") {
+    FakeEndpointObserver observer;
+    FakeNetworkSampler sampler;
+    FakeProbeClient probe;
+    gno::DiagnosticError error = gno::DiagnosticError::InternalFailure;
+    CHECK(observer.observe(42, std::chrono::milliseconds(10), error).empty());
+    CHECK(error == gno::DiagnosticError::None);
+    CHECK(sampler.sample({}, {}, {}, error).sent == 0);
+    CHECK(error == gno::DiagnosticError::None);
+    CHECK(probe.measure({}, {}).error == gno::DiagnosticError::None);
+}
 
 TEST_CASE("bounded integer validation") {
     CHECK(gno::parseBoundedInt("1", 1, 100) == 1);

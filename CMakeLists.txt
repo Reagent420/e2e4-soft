@@ -58,6 +58,7 @@ set(CORE_SOURCES
     src/core/game_watcher.cpp
     src/core/connection_grader.cpp
     src/core/input_validation.cpp
+    src/diagnostics/diagnostic_types.cpp
 )
 
 set(MON_SOURCES
@@ -98,6 +99,7 @@ target_include_directories(${PROJECT_NAME}-console PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
     ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/diagnostics
 )
 
 target_link_libraries(${PROJECT_NAME}-console PRIVATE ${COMMON_LIBS})
@@ -136,6 +138,7 @@ if(NOT GNO_CONSOLE)
             ${CMAKE_CURRENT_SOURCE_DIR}/src
             ${CMAKE_CURRENT_SOURCE_DIR}/src/core
             ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/diagnostics
             ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
         )
 
@@ -165,6 +168,7 @@ if(NOT GNO_CONSOLE)
                 ${CMAKE_CURRENT_SOURCE_DIR}/src
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/core
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/diagnostics
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
                 ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
             target_link_libraries(${PROJECT_NAME}-ui-tests PRIVATE ${COMMON_LIBS} Qt6::Widgets Qt6::Charts)
@@ -194,6 +198,7 @@ if(GNO_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/core
         ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/diagnostics
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
     )
     
