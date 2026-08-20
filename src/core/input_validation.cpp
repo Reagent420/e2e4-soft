@@ -1,11 +1,13 @@
 #include "input_validation.h"
 
 #include <charconv>
+#include <cerrno>
 #include <cstdint>
 #include <fstream>
 #include <limits>
 #include <new>
 #include <stdexcept>
+#include <utility>
 
 #ifndef _WIN32
 #include <fcntl.h>
@@ -41,7 +43,20 @@ std::optional<std::string> readBoundedRegularFile(const std::filesystem::path& p
     std::string result(info.nFileSizeLow, '\0');
     DWORD offset = 0;
     while (offset < result.size()) { DWORD count = 0; if (!ReadFile(handle, result.data()+offset, static_cast<DWORD>(result.size()-offset), &count, nullptr) || count == 0) { CloseHandle(handle); return std::nullopt; } offset += count; }
-    CloseHandle(handle); return result;
+    char extra = 0;
+    DWORD extra_count = 0;
+    BY_HANDLE_FILE_INFORMATION after{};
+    const bool unchanged = ReadFile(handle, &extra, 1, &extra_count, nullptr) != 0 &&
+                           extra_count == 0 &&
+                           GetFileInformationByHandle(handle, &after) != 0 &&
+                           after.dwVolumeSerialNumber == info.dwVolumeSerialNumber &&
+                           after.nFileIndexHigh == info.nFileIndexHigh &&
+                           after.nFileIndexLow == info.nFileIndexLow &&
+                           after.nFileSizeHigh == info.nFileSizeHigh &&
+                           after.nFileSizeLow == info.nFileSizeLow;
+    const bool closed = CloseHandle(handle) != 0;
+    return unchanged && closed ? std::optional<std::string>{std::move(result)}
+                               : std::nullopt;
 #else
     struct stat before{};
     if (lstat(path.c_str(), &before) != 0 || !S_ISREG(before.st_mode)) return std::nullopt;
@@ -53,8 +68,24 @@ std::optional<std::string> readBoundedRegularFile(const std::filesystem::path& p
         static_cast<std::uintmax_t>(info.st_size) > max_bytes) { close(descriptor); return std::nullopt; }
     std::string result(static_cast<std::size_t>(info.st_size), '\0');
     std::size_t offset = 0;
-    while (offset < result.size()) { const auto count = read(descriptor, result.data()+offset, result.size()-offset); if (count <= 0) { close(descriptor); return std::nullopt; } offset += static_cast<std::size_t>(count); }
-    close(descriptor); return result;
+    while (offset < result.size()) {
+        const auto count = read(descriptor, result.data()+offset, result.size()-offset);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) { close(descriptor); return std::nullopt; }
+        offset += static_cast<std::size_t>(count);
+    }
+    char extra = 0;
+    ssize_t extra_count = -1;
+    do {
+        extra_count = read(descriptor, &extra, 1);
+    } while (extra_count < 0 && errno == EINTR);
+    struct stat after{};
+    const bool unchanged = extra_count == 0 && fstat(descriptor, &after) == 0 &&
+                           S_ISREG(after.st_mode) && after.st_dev == info.st_dev &&
+                           after.st_ino == info.st_ino && after.st_size == info.st_size;
+    const bool closed = close(descriptor) == 0;
+    return unchanged && closed ? std::optional<std::string>{std::move(result)}
+                               : std::nullopt;
 #endif
 }
 

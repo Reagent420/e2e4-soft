@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 
 namespace gno {
 
@@ -22,7 +23,11 @@ struct GameProfile {
 
 class GameProfiles {
 public:
-    explicit GameProfiles(std::filesystem::path storage_root = {});
+    using TextWriter = std::function<bool(
+        const std::filesystem::path&, const std::string&)>;
+
+    explicit GameProfiles(
+        std::filesystem::path storage_root = {}, TextWriter writer = {});
     ~GameProfiles() = default;
 
     bool load();
@@ -47,6 +52,7 @@ private:
     bool saveProfiles(const std::vector<GameProfile>& profiles, const std::string& path) const;
 
     std::filesystem::path storage_root_;
+    TextWriter writer_;
     std::vector<GameProfile> profiles_;
 };
 

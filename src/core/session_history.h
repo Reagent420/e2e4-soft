@@ -6,6 +6,7 @@
 #include <chrono>
 #include <mutex>
 #include <filesystem>
+#include <functional>
 
 namespace gno {
 
@@ -23,7 +24,11 @@ struct SessionRecord {
 
 class SessionHistory {
 public:
-    explicit SessionHistory(std::filesystem::path storage_root = {});
+    using TextWriter = std::function<bool(
+        const std::filesystem::path&, const std::string&)>;
+
+    explicit SessionHistory(
+        std::filesystem::path storage_root = {}, TextWriter writer = {});
     ~SessionHistory() = default;
 
     void recordStart(const std::string& game_name, bool boost);
@@ -45,6 +50,7 @@ private:
     bool saveToFileUnlocked(const std::string& path) const;
 
     std::filesystem::path storage_root_;
+    TextWriter writer_;
     mutable std::mutex mutex_;
     std::vector<SessionRecord> records_;
     SessionRecord current_;

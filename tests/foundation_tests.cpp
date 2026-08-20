@@ -1,6 +1,7 @@
 #include "doctest.h"
 #include "core/game_profiles.h"
 #include "core/input_validation.h"
+#include "core/json_persistence.h"
 #include "core/game_watcher.h"
 #include "core/session_history.h"
 #include "optimization/fps_optimizer.h"
@@ -376,7 +377,13 @@ TEST_CASE("profile persistence rejects invalid documents without replacing valid
 
 TEST_CASE("profile persistence rolls back memory and preserves prior file when temp write fails") {
     TemporaryStorageRoot storage("gno-profile-write-rollback");
-    gno::GameProfiles profiles(storage.path());
+    std::size_t writes = 0;
+    gno::GameProfiles profiles(
+        storage.path(),
+        [&](const std::filesystem::path& path, const std::string& content) {
+            if (++writes == 2) return false;
+            return gno::persistence::atomicWriteText(path, content);
+        });
     gno::GameProfile stable;
     stable.game_name = "stable";
     stable.process_name = "stable.exe";
@@ -384,8 +391,6 @@ TEST_CASE("profile persistence rolls back memory and preserves prior file when t
 
     const auto path = std::filesystem::path(profiles.getSavePath());
     const auto before = *gno::readBoundedFile(path.string(), 1024 * 1024);
-    REQUIRE(std::filesystem::create_directory(path.string() + ".tmp"));
-
     gno::GameProfile rejected;
     rejected.game_name = "rejected";
     rejected.process_name = "rejected.exe";
@@ -421,13 +426,17 @@ TEST_CASE("session persistence rejects invalid documents and negative history co
 
 TEST_CASE("session persistence leaves state and prior file intact when temp write fails") {
     TemporaryStorageRoot storage("gno-history-write-rollback");
-    gno::SessionHistory history(storage.path());
+    std::size_t writes = 0;
+    gno::SessionHistory history(
+        storage.path(),
+        [&](const std::filesystem::path& path, const std::string& content) {
+            if (++writes == 2) return false;
+            return gno::persistence::atomicWriteText(path, content);
+        });
     history.recordStart("stable", false);
     history.recordEnd(10.0, 1.0, 0.0, 12.0);
     const auto path = std::filesystem::path(history.getSavePath());
     const auto before = *gno::readBoundedFile(path.string(), 4 * 1024 * 1024);
-    REQUIRE(std::filesystem::create_directory(path.string() + ".tmp"));
-
     history.recordStart("rejected", false);
     history.recordEnd(20.0, 2.0, 0.0, 22.0);
     CHECK(history.getAll().size() == 1);

@@ -291,6 +291,7 @@ inline bool isBounded(const ActionTarget& target) noexcept {
                        value.canonical_path.size() <= kMaxExecutablePathLength;
             } else if constexpr (std::is_same<Value, ProcessIdentity>::value) {
                 return value.pid != 0 && value.creation_time != 0 &&
+                       !value.executable_path.empty() &&
                        value.executable_path.size() <= kMaxExecutablePathLength;
             } else {
                 return true;

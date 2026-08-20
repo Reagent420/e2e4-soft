@@ -77,8 +77,9 @@ std::string currentTimeStr() {
 
 namespace gno {
 
-SessionHistory::SessionHistory(std::filesystem::path storage_root)
-    : storage_root_(std::move(storage_root)) {
+SessionHistory::SessionHistory(std::filesystem::path storage_root, TextWriter writer)
+    : storage_root_(std::move(storage_root)), writer_(std::move(writer)) {
+    if (!writer_) writer_ = persistence::atomicWriteText;
     loadFromFile();
 }
 
@@ -157,7 +158,7 @@ bool SessionHistory::saveToFile(const std::string& path) const {
 
 bool SessionHistory::saveRecords(const std::vector<SessionRecord>& records, const std::string& path) const {
     if (records.size() > kMaxHistoryRecords) return false;
-    return persistence::atomicWriteText(path, historyDocument(records).dump(2));
+    return writer_(path, historyDocument(records).dump(2));
 }
 
 bool SessionHistory::saveToFileUnlocked(const std::string& path) const {

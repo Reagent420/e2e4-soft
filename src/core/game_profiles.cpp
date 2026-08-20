@@ -79,8 +79,9 @@ nlohmann::json profilesDocument(const std::vector<gno::GameProfile>& profiles) {
 
 namespace gno {
 
-GameProfiles::GameProfiles(std::filesystem::path storage_root)
-    : storage_root_(std::move(storage_root)) {
+GameProfiles::GameProfiles(std::filesystem::path storage_root, TextWriter writer)
+    : storage_root_(std::move(storage_root)), writer_(std::move(writer)) {
+    if (!writer_) writer_ = persistence::atomicWriteText;
     load();
 }
 
@@ -99,7 +100,7 @@ bool GameProfiles::load() {
 
 bool GameProfiles::saveProfiles(const std::vector<GameProfile>& profiles, const std::string& path) const {
     if (profiles.size() > kMaxProfiles) return false;
-    return persistence::atomicWriteText(path, profilesDocument(profiles).dump(2));
+    return writer_(path, profilesDocument(profiles).dump(2));
 }
 
 bool GameProfiles::save() {

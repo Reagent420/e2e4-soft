@@ -52,13 +52,6 @@ bool atomicWriteText(const std::filesystem::path& path, const std::string& conte
         std::filesystem::create_directories(parent, error);
         if (error) return false;
     }
-    // Preserve the established fault-injection sentinel without opening or following it.
-    auto legacy_temporary = path;
-    legacy_temporary += ".tmp";
-    const auto legacy_status = std::filesystem::symlink_status(legacy_temporary, error);
-    if (error == std::errc::no_such_file_or_directory) error.clear();
-    if (error || legacy_status.type() != std::filesystem::file_type::not_found) return false;
-
 #ifdef _WIN32
     static std::atomic<unsigned long> sequence{0};
     std::filesystem::path temporary;
@@ -72,7 +65,9 @@ bool atomicWriteText(const std::filesystem::path& path, const std::string& conte
     if (handle == INVALID_HANDLE_VALUE) return false;
     bool ok = true; std::size_t offset = 0;
     while (ok && offset < content.size()) { DWORD written = 0; const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(content.size()-offset, 1u << 20)); ok = WriteFile(handle, content.data()+offset, chunk, &written, nullptr) != 0 && written != 0; offset += written; }
-    ok = ok && FlushFileBuffers(handle) != 0 && CloseHandle(handle) != 0;
+    if (ok) ok = FlushFileBuffers(handle) != 0;
+    const bool closed = CloseHandle(handle) != 0;
+    ok = ok && closed;
     if (ok) ok = MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
     if (!ok) DeleteFileW(temporary.c_str());
     return ok;
@@ -87,7 +82,9 @@ bool atomicWriteText(const std::filesystem::path& path, const std::string& conte
     if (descriptor < 0) return false;
     bool ok = true; std::size_t offset = 0;
     while (ok && offset < content.size()) { const auto written = write(descriptor, content.data()+offset, content.size()-offset); ok = written > 0; if (ok) offset += static_cast<std::size_t>(written); }
-    ok = ok && fsync(descriptor) == 0 && close(descriptor) == 0;
+    if (ok) ok = fsync(descriptor) == 0;
+    const bool closed = close(descriptor) == 0;
+    ok = ok && closed;
     if (ok) ok = rename(temporary.c_str(), path.c_str()) == 0;
     const auto durable_parent = parent.empty() ? std::filesystem::path(".") : parent;
     const int directory = ok ? open(durable_parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC) : -1;
