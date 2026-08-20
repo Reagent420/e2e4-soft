@@ -11,8 +11,9 @@ class IEndpointObserver {
 public:
     virtual ~IEndpointObserver() = default;
 
-    virtual std::vector<ObservedEndpoint> observe(
-        uint32_t pid, std::chrono::milliseconds window, DiagnosticError& error) = 0;
+    virtual DiagnosticResult<std::vector<ObservedEndpoint>> observe(
+        uint32_t pid, std::chrono::milliseconds window,
+        const CancellationToken& cancellation) = 0;
 };
 
 } // namespace gno

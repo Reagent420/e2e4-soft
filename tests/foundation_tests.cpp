@@ -12,32 +12,31 @@
 #include <fstream>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 namespace {
 
 class FakeEndpointObserver final : public gno::IEndpointObserver {
 public:
-    std::vector<gno::ObservedEndpoint> observe(
-        uint32_t, std::chrono::milliseconds, gno::DiagnosticError& error) override {
-        error = gno::DiagnosticError::None;
-        return {};
+    gno::DiagnosticResult<std::vector<gno::ObservedEndpoint>> observe(
+        uint32_t, std::chrono::milliseconds, const gno::CancellationToken&) override {
+        return {{}, gno::DiagnosticError::None};
     }
 };
 
 class FakeNetworkSampler final : public gno::INetworkSampler {
 public:
-    gno::MetricSummary sample(const gno::SampleTarget&, const gno::SamplePlan&,
-                              const gno::CancellationToken&, gno::DiagnosticError& error) override {
-        error = gno::DiagnosticError::None;
-        return {};
+    gno::DiagnosticResult<gno::MetricSummary> sample(
+        const gno::SampleTarget&, const gno::SamplePlan&, const gno::CancellationToken&) override {
+        return {{}, gno::DiagnosticError::PermissionDenied};
     }
 };
 
 class FakeProbeClient final : public gno::IProbeClient {
 public:
-    gno::ProbeMeasurement measure(const gno::ProbeRequest&,
-                                  const gno::CancellationToken&) override {
-        return {};
+    gno::DiagnosticResult<gno::ProbeMeasurement> measure(
+        const gno::ProbeRequest&, const gno::CancellationToken&) override {
+        return {{}, gno::DiagnosticError::Cancelled};
     }
 };
 
@@ -142,16 +141,46 @@ TEST_CASE("cancellation token observes cancellation after source destruction") {
     CHECK(token.isCancelled());
 }
 
+TEST_CASE("moved cancellation sources are inert and preserve moved-to cancellation") {
+    gno::CancellationSource original;
+    gno::CancellationSource moved_to(std::move(original));
+    const auto token = moved_to.token();
+
+    CHECK_FALSE(token.isCancelled());
+    CHECK_FALSE(original.token().isCancelled());
+    original.cancel();
+    CHECK_FALSE(token.isCancelled());
+
+    moved_to.cancel();
+    CHECK(token.isCancelled());
+}
+
 TEST_CASE("diagnostic service interfaces admit platform-neutral implementations") {
     FakeEndpointObserver observer;
     FakeNetworkSampler sampler;
     FakeProbeClient probe;
-    gno::DiagnosticError error = gno::DiagnosticError::InternalFailure;
-    CHECK(observer.observe(42, std::chrono::milliseconds(10), error).empty());
-    CHECK(error == gno::DiagnosticError::None);
-    CHECK(sampler.sample({}, {}, {}, error).sent == 0);
-    CHECK(error == gno::DiagnosticError::None);
-    CHECK(probe.measure({}, {}).error == gno::DiagnosticError::None);
+    const gno::CancellationToken cancellation;
+
+    const auto observed = observer.observe(42, std::chrono::milliseconds(10), cancellation);
+    CHECK(observed.ok());
+    CHECK(observed.error == gno::DiagnosticError::None);
+    CHECK(observed.value.empty());
+
+    const auto sampled = sampler.sample({}, {}, cancellation);
+    CHECK_FALSE(sampled.ok());
+    CHECK(sampled.error == gno::DiagnosticError::PermissionDenied);
+    CHECK(sampled.value.sent == 0);
+
+    const auto measured = probe.measure({}, cancellation);
+    CHECK_FALSE(measured.ok());
+    CHECK(measured.error == gno::DiagnosticError::Cancelled);
+    CHECK(measured.value.probe_region.empty());
+}
+
+TEST_CASE("diagnostic results default to a non-success error") {
+    gno::DiagnosticResult<gno::MetricSummary> result;
+    CHECK_FALSE(result.ok());
+    CHECK(result.error == gno::DiagnosticError::InternalFailure);
 }
 
 TEST_CASE("bounded integer validation") {

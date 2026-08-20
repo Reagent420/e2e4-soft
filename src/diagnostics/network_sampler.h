@@ -8,9 +8,9 @@ class INetworkSampler {
 public:
     virtual ~INetworkSampler() = default;
 
-    virtual MetricSummary sample(const SampleTarget& target, const SamplePlan& plan,
-                                 const CancellationToken& cancellation,
-                                 DiagnosticError& error) = 0;
+    virtual DiagnosticResult<MetricSummary> sample(const SampleTarget& target,
+                                                    const SamplePlan& plan,
+                                                    const CancellationToken& cancellation) = 0;
 };
 
 } // namespace gno

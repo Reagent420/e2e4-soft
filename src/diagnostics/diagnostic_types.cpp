@@ -1,5 +1,7 @@
 #include "diagnostics/diagnostic_types.h"
 
+#include <utility>
+
 namespace gno {
 
 CancellationToken::CancellationToken(std::shared_ptr<const std::atomic<bool>> state)
@@ -13,11 +15,11 @@ CancellationSource::CancellationSource()
     : state_(std::make_shared<std::atomic<bool>>(false)) {}
 
 CancellationToken CancellationSource::token() const {
-    return CancellationToken(state_);
+    return state_ ? CancellationToken(state_) : CancellationToken{};
 }
 
 void CancellationSource::cancel() noexcept {
-    state_->store(true, std::memory_order_relaxed);
+    if (state_) state_->store(true, std::memory_order_relaxed);
 }
 
 std::optional<Ipv4Address> Ipv4Address::parse(std::string_view text) noexcept {

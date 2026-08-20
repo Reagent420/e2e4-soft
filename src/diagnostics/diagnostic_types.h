@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace gno {
@@ -21,6 +22,7 @@ enum class DiagnosticError {
     EndpointNotAllowlisted,
     ProbeUnavailable,
     Timeout,
+    Cancelled,
     InsufficientResponses,
     MalformedResponse,
     InternalFailure
@@ -35,6 +37,14 @@ enum class DiagnosticOutcome {
 
 enum class ConfidenceLevel { Low, Medium, High };
 enum class TransportProtocol { Tcp, Udp };
+
+template <typename T>
+struct DiagnosticResult {
+    T value{};
+    DiagnosticError error = DiagnosticError::InternalFailure;
+
+    bool ok() const noexcept { return error == DiagnosticError::None; }
+};
 
 class CancellationToken {
 public:
@@ -53,6 +63,13 @@ private:
 class CancellationSource {
 public:
     CancellationSource();
+
+    // Copies share cancellation state. Moves transfer it; a moved-from source
+    // is inert, returning an uncancelled token and ignoring cancel().
+    CancellationSource(const CancellationSource&) = default;
+    CancellationSource& operator=(const CancellationSource&) = default;
+    CancellationSource(CancellationSource&&) noexcept = default;
+    CancellationSource& operator=(CancellationSource&&) noexcept = default;
 
     CancellationToken token() const;
     void cancel() noexcept;
@@ -127,7 +144,6 @@ struct ProbeMeasurement {
     std::string probe_region;
     MetricSummary client_to_probe;
     MetricSummary probe_to_game;
-    DiagnosticError error = DiagnosticError::None;
 };
 
 struct DiagnosticReport {
