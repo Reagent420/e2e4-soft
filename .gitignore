@@ -1,5 +1,6 @@
 # Build
 build/
+.worktrees/
 *.o
 *.obj
 
