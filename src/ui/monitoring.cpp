@@ -481,6 +481,10 @@ MonitoringWidget::~MonitoringWidget() {
 }
 
 void MonitoringWidget::startMonitoring() {
+    if (!PingMonitor::isSupported()) {
+        addLogEntry(QString::fromUtf8("Недоступно на этой платформе"));
+        return;
+    }
     QPointer<MonitoringWidget> owner(this);
     ping_monitor_.setPingCallback([owner](const ICMPResult& result) {
         if (!owner) {
@@ -496,6 +500,9 @@ void MonitoringWidget::startMonitoring() {
 }
 
 void MonitoringWidget::handlePingResult(const ICMPResult& result) {
+    if (result.error == DiagnosticError::UnsupportedCapability) {
+        return;
+    }
     double ping = result.success ? result.latency_ms : -1.0;
 
     if (ping >= 0) {

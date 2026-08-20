@@ -91,6 +91,7 @@ TEST_CASE("monitoring widget tears down without background monitoring") {
 TEST_CASE("unsupported diagnostic controls explain the platform limitation") {
     gno::DashboardWidget dashboard(nullptr, false);
     gno::NetworkToolsWidget tools;
+    gno::MonitoringWidget monitoring(nullptr, true);
 
     const auto unavailable = QString::fromUtf8("Недоступно на этой платформе");
     bool dashboard_label_found = false;
@@ -101,9 +102,15 @@ TEST_CASE("unsupported diagnostic controls explain the platform limitation") {
     for (const auto* label : tools.findChildren<QLabel*>()) {
         tools_label_found = tools_label_found || label->text().contains(unavailable);
     }
+    bool monitoring_label_found = false;
+    for (const auto* label : monitoring.findChildren<QLabel*>()) {
+        monitoring_label_found = monitoring_label_found || label->text().contains(unavailable);
+        CHECK_FALSE(label->text().contains(QString::fromUtf8("Тайм-аут — пакет потерян")));
+    }
 
     CHECK(dashboard_label_found);
     CHECK(tools_label_found);
+    CHECK(monitoring_label_found);
 }
 #endif
 

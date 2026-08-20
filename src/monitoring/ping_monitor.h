@@ -38,7 +38,9 @@ struct PingStats {
 
 class PingMonitor {
 public:
-    PingMonitor();
+    using Probe = std::function<bool(const Ipv4Address&, uint32_t timeout_ms)>;
+
+    explicit PingMonitor(Probe probe = {});
     ~PingMonitor();
 
     static bool isSupported() noexcept;
@@ -77,6 +79,7 @@ private:
     
     PingCallback ping_callback_;
     StatsCallback stats_callback_;
+    Probe probe_;
 };
 
 } // namespace gno

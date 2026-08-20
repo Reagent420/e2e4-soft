@@ -211,6 +211,14 @@ TEST_CASE("diagnostic measurements explicitly report their platform support") {
 #endif
 }
 
+#ifndef PLATFORM_WINDOWS
+TEST_CASE("PingMonitor refuses to start an unsupported native worker") {
+    PingMonitor monitor;
+    monitor.start("1.1.1.1");
+    CHECK_FALSE(monitor.isRunning());
+}
+#endif
+
 TEST_CASE("ProcessMonitor::getTopProcesses") {
     ProcessMonitor pm;
     auto procs = pm.getTopProcesses(10);
@@ -289,7 +297,9 @@ TEST_CASE("StatsCollector callbacks can inspect the completed session") {
 }
 
 TEST_CASE("GameWatcher stop interrupts a confirmed long wait") {
-    GameWatcher watcher([] { return std::vector<GameWatcher::ObservedGame>{}; });
+    GameWatcher watcher([](const CancellationToken&) {
+        return std::vector<GameWatcher::ObservedGame>{};
+    });
     GameWatcherConfig config;
     config.check_interval_ms = 60000;
     watcher.start(config);
@@ -304,7 +314,7 @@ TEST_CASE("GameWatcher stop interrupts a confirmed long wait") {
 
 TEST_CASE("GameWatcher reaps a worker stopped by its callback before restart") {
     std::atomic<int> callback_count{0};
-    GameWatcher watcher([] {
+    GameWatcher watcher([](const CancellationToken&) {
         return std::vector<GameWatcher::ObservedGame>{{"Test game", "test.exe", 42}};
     });
     watcher.setGameStartCallback([&](const std::string&, const std::string&, uint32_t) {
@@ -322,7 +332,7 @@ TEST_CASE("GameWatcher reaps a worker stopped by its callback before restart") {
 
 TEST_CASE("PingMonitor reaps a worker stopped by its callback before restart") {
     std::atomic<int> callback_count{0};
-    PingMonitor monitor;
+    PingMonitor monitor([](const Ipv4Address&, uint32_t) { return true; });
     monitor.setPingCallback([&](const ICMPResult&) {
         ++callback_count;
         monitor.stop();
@@ -334,4 +344,84 @@ TEST_CASE("PingMonitor reaps a worker stopped by its callback before restart") {
     monitor.start("1.1.1.1", 60000);
     CHECK(waitUntil([&] { return callback_count == 2 && !monitor.isRunning(); },
                     std::chrono::milliseconds(250)));
+}
+
+TEST_CASE("GameWatcher external and callback stops do not deadlock") {
+    std::atomic<bool> callback_entered{false};
+    std::atomic<bool> allow_callback_stop{false};
+    std::atomic<bool> external_stop_finished{false};
+    GameWatcher watcher([](const CancellationToken&) {
+        return std::vector<GameWatcher::ObservedGame>{{"Test game", "test.exe", 42}};
+    });
+    watcher.setGameStartCallback([&](const std::string&, const std::string&, uint32_t) {
+        callback_entered = true;
+        while (!allow_callback_stop) {
+            std::this_thread::yield();
+        }
+        watcher.stop();
+    });
+
+    watcher.start();
+    REQUIRE(waitUntil([&] { return callback_entered.load(); }, std::chrono::milliseconds(250)));
+    std::thread external_stop([&] {
+        watcher.stop();
+        external_stop_finished = true;
+    });
+    REQUIRE(waitUntil([&] { return !watcher.isRunning(); }, std::chrono::milliseconds(250)));
+    allow_callback_stop = true;
+    CHECK(waitUntil([&] { return external_stop_finished.load(); }, std::chrono::milliseconds(250)));
+    external_stop.join();
+}
+
+TEST_CASE("PingMonitor external and callback stops do not deadlock") {
+    std::atomic<bool> callback_entered{false};
+    std::atomic<bool> allow_callback_stop{false};
+    std::atomic<bool> external_stop_finished{false};
+    PingMonitor monitor([](const Ipv4Address&, uint32_t) { return true; });
+    monitor.setPingCallback([&](const ICMPResult&) {
+        callback_entered = true;
+        while (!allow_callback_stop) {
+            std::this_thread::yield();
+        }
+        monitor.stop();
+    });
+
+    monitor.start("1.1.1.1", 60000);
+    REQUIRE(waitUntil([&] { return callback_entered.load(); }, std::chrono::milliseconds(250)));
+    std::thread external_stop([&] {
+        monitor.stop();
+        external_stop_finished = true;
+    });
+    REQUIRE(waitUntil([&] { return !monitor.isRunning(); }, std::chrono::milliseconds(250)));
+    allow_callback_stop = true;
+    CHECK(waitUntil([&] { return external_stop_finished.load(); }, std::chrono::milliseconds(250)));
+    external_stop.join();
+}
+
+TEST_CASE("GameWatcher stop cancels an in-progress scan provider") {
+    std::atomic<bool> provider_entered{false};
+    GameWatcher watcher([&](const CancellationToken& cancellation) {
+        provider_entered = true;
+        while (!cancellation.isCancelled()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return std::vector<GameWatcher::ObservedGame>{};
+    });
+
+    watcher.start();
+    REQUIRE(waitUntil([&] { return provider_entered.load(); }, std::chrono::milliseconds(250)));
+    const auto started = std::chrono::steady_clock::now();
+    watcher.stop();
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::milliseconds(250));
+}
+
+TEST_CASE("GameWatcher checkNow works while the watcher is idle") {
+    GameWatcher watcher([](const CancellationToken&) {
+        return std::vector<GameWatcher::ObservedGame>{{"Manual game", "manual.exe", 7}};
+    });
+
+    const auto games = watcher.checkNow();
+
+    REQUIRE(games.size() == 1);
+    CHECK(games.front() == std::make_pair(std::string("Manual game"), uint32_t{7}));
 }

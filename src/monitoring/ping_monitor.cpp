@@ -13,7 +13,7 @@
 
 namespace gno {
 
-PingMonitor::PingMonitor() = default;
+PingMonitor::PingMonitor(Probe probe) : probe_(std::move(probe)) {}
 PingMonitor::~PingMonitor() {
     stop();
 }
@@ -27,7 +27,7 @@ bool PingMonitor::isSupported() noexcept {
 }
 
 void PingMonitor::start(const std::string& target_ip, uint32_t interval_ms) {
-    if (!Ipv4Address::parse(target_ip)) return;
+    if (!Ipv4Address::parse(target_ip) || (!probe_ && !isSupported())) return;
 
     std::thread completed_worker;
     {
@@ -55,11 +55,17 @@ void PingMonitor::start(const std::string& target_ip, uint32_t interval_ms) {
 }
 
 void PingMonitor::stop() {
-    running_ = false;
+    std::thread completed_worker;
+    {
+        std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+        running_ = false;
+        if (monitor_thread_.joinable() && monitor_thread_.get_id() != std::this_thread::get_id()) {
+            completed_worker = std::move(monitor_thread_);
+        }
+    }
     wait_cv_.notify_all();
-    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
-    if (monitor_thread_.joinable() && monitor_thread_.get_id() != std::this_thread::get_id()) {
-        monitor_thread_.join();
+    if (completed_worker.joinable()) {
+        completed_worker.join();
     }
 }
 
@@ -73,6 +79,12 @@ ICMPResult PingMonitor::ping(const std::string& target_ip, uint32_t timeout_ms) 
     const auto address = Ipv4Address::parse(target_ip);
     if (!address) {
         result.error = DiagnosticError::MalformedResponse;
+        return result;
+    }
+    if (probe_) {
+        timeout_ms = std::clamp(timeout_ms, 1u, 10000u);
+        result.success = probe_(*address, timeout_ms);
+        result.error = result.success ? DiagnosticError::None : DiagnosticError::Timeout;
         return result;
     }
     if (!isSupported()) {

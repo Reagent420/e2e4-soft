@@ -9,6 +9,8 @@
 #include <condition_variable>
 #include <unordered_set>
 
+#include "diagnostics/diagnostic_types.h"
+
 namespace gno {
 
 struct GameWatcherConfig {
@@ -26,7 +28,7 @@ public:
         std::string process_name;
         uint32_t pid = 0;
     };
-    using SnapshotProvider = std::function<std::vector<ObservedGame>()>;
+    using SnapshotProvider = std::function<std::vector<ObservedGame>(const CancellationToken&)>;
 
     explicit GameWatcher(SnapshotProvider snapshot_provider = {});
     ~GameWatcher();
@@ -46,9 +48,9 @@ public:
     std::vector<std::pair<std::string, uint32_t>> checkNow();
 
 private:
-    void watchLoop();
-    void checkProcesses();
-    std::vector<ObservedGame> collectObservedGames() const;
+    void watchLoop(const CancellationToken& cancellation);
+    void checkProcesses(const CancellationToken& cancellation);
+    std::vector<ObservedGame> collectObservedGames(const CancellationToken& cancellation) const;
 
     GameWatcherConfig config_;
     std::atomic<bool> running_{false};
@@ -57,6 +59,7 @@ private:
     std::mutex lifecycle_mutex_;
     std::mutex wait_mutex_;
     std::condition_variable wait_cv_;
+    CancellationSource cancellation_source_;
     mutable std::mutex callback_mutex_;
     
     GameStartCallback start_callback_;

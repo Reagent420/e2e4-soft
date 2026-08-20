@@ -43,16 +43,27 @@ void GameWatcher::start(const GameWatcherConfig& config) {
     waiting_ = false;
     known_game_pids_.clear();
     pid_to_game_name_.clear();
-    watch_thread_ = std::thread(&GameWatcher::watchLoop, this);
+    cancellation_source_ = CancellationSource{};
+    const auto cancellation = cancellation_source_.token();
+    watch_thread_ = std::thread([this, cancellation] { watchLoop(cancellation); });
 }
 
 void GameWatcher::stop() {
-    running_ = false;
-    waiting_ = false;
+    std::thread completed_worker;
+    CancellationSource cancellation;
+    {
+        std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+        running_ = false;
+        waiting_ = false;
+        cancellation = cancellation_source_;
+        if (watch_thread_.joinable() && watch_thread_.get_id() != std::this_thread::get_id()) {
+            completed_worker = std::move(watch_thread_);
+        }
+    }
+    cancellation.cancel();
     wait_cv_.notify_all();
-    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
-    if (watch_thread_.joinable() && watch_thread_.get_id() != std::this_thread::get_id()) {
-        watch_thread_.join();
+    if (completed_worker.joinable()) {
+        completed_worker.join();
     }
 }
 
@@ -74,31 +85,33 @@ void GameWatcher::setGameEndCallback(GameEndCallback callback) {
     end_callback_ = std::move(callback);
 }
 
-void GameWatcher::watchLoop() {
+void GameWatcher::watchLoop(const CancellationToken& cancellation) {
     while (running_) {
-        checkProcesses();
-        if (!running_) {
+        checkProcesses(cancellation);
+        if (!running_ || cancellation.isCancelled()) {
             break;
         }
         waiting_ = true;
         std::unique_lock<std::mutex> lock(wait_mutex_);
-        wait_cv_.wait_for(lock, std::chrono::milliseconds(config_.check_interval_ms), [this] {
-            return !running_;
+        wait_cv_.wait_for(lock, std::chrono::milliseconds(config_.check_interval_ms), [this, &cancellation] {
+            return !running_ || cancellation.isCancelled();
         });
         waiting_ = false;
     }
     waiting_ = false;
 }
 
-void GameWatcher::checkProcesses() {
-    const auto observed_games = snapshot_provider_ ? snapshot_provider_() : collectObservedGames();
-    if (!running_) {
+void GameWatcher::checkProcesses(const CancellationToken& cancellation) {
+    const auto observed_games = snapshot_provider_
+        ? snapshot_provider_(cancellation)
+        : collectObservedGames(cancellation);
+    if (!running_ || cancellation.isCancelled()) {
         return;
     }
     std::unordered_set<uint32_t> current_pids;
     std::unordered_map<uint32_t, ObservedGame> current_games;
     for (const auto& game : observed_games) {
-        if (!running_) {
+        if (!running_ || cancellation.isCancelled()) {
             return;
         }
         current_pids.insert(game.pid);
@@ -106,7 +119,7 @@ void GameWatcher::checkProcesses() {
     }
 
     for (const auto& [pid, game] : current_games) {
-        if (!running_) {
+        if (!running_ || cancellation.isCancelled()) {
             return;
         }
         if (known_game_pids_.find(pid) == known_game_pids_.end()) {
@@ -131,7 +144,7 @@ void GameWatcher::checkProcesses() {
         }
     }
     for (const auto pid : ended_pids) {
-        if (!running_) {
+        if (!running_ || cancellation.isCancelled()) {
             return;
         }
         const auto it = pid_to_game_name_.find(pid);
@@ -150,14 +163,16 @@ void GameWatcher::checkProcesses() {
     }
 }
 
-std::vector<GameWatcher::ObservedGame> GameWatcher::collectObservedGames() const {
+std::vector<GameWatcher::ObservedGame> GameWatcher::collectObservedGames(
+    const CancellationToken& cancellation) const {
     std::vector<ObservedGame> observed_games;
+#ifndef PLATFORM_WINDOWS
+    (void)cancellation;
+#endif
 #ifdef PLATFORM_WINDOWS
     GameDetector detector;
-    detector.scanInstalledGames();
-    if (!running_) return observed_games;
     detector.detectRunningGames();
-    if (!running_) return observed_games;
+    if (cancellation.isCancelled()) return observed_games;
     const auto running_games = detector.getRunningGames();
 
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -167,7 +182,7 @@ std::vector<GameWatcher::ObservedGame> GameWatcher::collectObservedGames() const
     pe.dwSize = sizeof(pe);
     if (Process32FirstW(snapshot, &pe)) {
         do {
-            if (!running_) break;
+            if (cancellation.isCancelled()) break;
             for (const auto& game : running_games) {
                 if (_wcsicmp(pe.szExeFile, std::wstring(game.process_name.begin(), game.process_name.end()).c_str()) == 0) {
                     observed_games.push_back({game.name, game.process_name, pe.th32ProcessID});
@@ -182,10 +197,11 @@ std::vector<GameWatcher::ObservedGame> GameWatcher::collectObservedGames() const
 
 std::vector<std::pair<std::string, uint32_t>> GameWatcher::checkNow() {
     std::vector<std::pair<std::string, uint32_t>> result;
-    for (const auto& game : snapshot_provider_ ? snapshot_provider_() : collectObservedGames()) {
-        if (!running_ && !snapshot_provider_) {
-            break;
-        }
+    const CancellationToken cancellation;
+    const auto observed_games = snapshot_provider_
+        ? snapshot_provider_(cancellation)
+        : collectObservedGames(cancellation);
+    for (const auto& game : observed_games) {
         result.emplace_back(game.game_name, game.pid);
     }
     return result;

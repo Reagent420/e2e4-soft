@@ -247,6 +247,12 @@ if(GNO_TESTS)
     add_test(NAME GNO-PingMonitorLifecycle
         COMMAND ${PROJECT_NAME}-tests --test-case="PingMonitor reaps a worker stopped by its callback before restart")
     set_tests_properties(GNO-PingMonitorLifecycle PROPERTIES TIMEOUT 5)
+    add_test(NAME GNO-GameWatcherConcurrentStop
+        COMMAND ${PROJECT_NAME}-tests --test-case="GameWatcher external and callback stops do not deadlock")
+    set_tests_properties(GNO-GameWatcherConcurrentStop PROPERTIES TIMEOUT 5)
+    add_test(NAME GNO-PingMonitorConcurrentStop
+        COMMAND ${PROJECT_NAME}-tests --test-case="PingMonitor external and callback stops do not deadlock")
+    set_tests_properties(GNO-PingMonitorConcurrentStop PROPERTIES TIMEOUT 5)
 
     add_test(NAME GNO-RejectBoost
         COMMAND ${CMAKE_COMMAND}
