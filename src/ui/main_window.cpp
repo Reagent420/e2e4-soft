@@ -62,7 +62,7 @@ void MainWindow::setupUi()
     statusBarLayout->addWidget(m_statusLabel);
     statusBarLayout->addStretch();
 
-    auto* hint = new QLabel(QString::fromUtf8("GNO — оптимизация игровой сети"), statusBarWidget);
+    auto* hint = new QLabel(QString::fromUtf8("E2E4 Soft — оптимизация игровой сети"), statusBarWidget);
     hint->setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px; background: transparent;");
     statusBarLayout->addWidget(hint);
 

@@ -33,9 +33,9 @@ void printSeparator() {
 
 void printHelp() {
     std::cout << R"(
-GNO - Game Network Optimizer v1.0.0
+E2E4 Soft - Game Network Optimizer v1.2.0
 
-Usage: GNO-console [OPTIONS]
+Usage: E2E4-console [OPTIONS]
 
 Network Testing:
   --target <ip>         Target IP for ping/loss tests (default: 8.8.8.8)
@@ -69,12 +69,12 @@ General:
   -v, --version         Show version
 
 Examples:
-  GNO-console --target 1.1.1.1 --ping 10
-  GNO-console --boost --game "Counter-Strike 2"
-  GNO-console --speedtest
-  GNO-console --dns-benchmark
-  GNO-console --watch
-  GNO-console --export-profile profiles.json
+  E2E4-console --target 1.1.1.1 --ping 10
+  E2E4-console --boost --game "Counter-Strike 2"
+  E2E4-console --speedtest
+  E2E4-console --dns-benchmark
+  E2E4-console --watch
+  E2E4-console --export-profile profiles.json
 )" << std::endl;
 }
 

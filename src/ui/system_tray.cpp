@@ -10,7 +10,7 @@ SystemTray::SystemTray(QObject* parent)
     : QObject(parent)
 {
     m_trayIcon = new QSystemTrayIcon(this);
-    m_trayIcon->setToolTip(QString::fromUtf8("GNO — Оптимизатор игровой сети"));
+    m_trayIcon->setToolTip(QString::fromUtf8("E2E4 Soft — Оптимизатор игровой сети"));
 
     buildMenu();
     m_trayIcon->setContextMenu(m_menu);
@@ -26,7 +26,7 @@ void SystemTray::buildMenu()
 {
     m_menu = new QMenu();
 
-    m_showAction = m_menu->addAction(QString::fromUtf8("Показать GNO"));
+    m_showAction = m_menu->addAction(QString::fromUtf8("Показать E2E4 Soft"));
     connect(m_showAction, &QAction::triggered, this, &SystemTray::showRequested);
 
     m_boostAction = m_menu->addAction(QString::fromUtf8("ОПТИМИЗАЦИЯ: ВЫКЛ"));
@@ -104,7 +104,7 @@ void SystemTray::updateIcon()
 
     m_trayIcon->setIcon(QIcon(pixmap));
 
-    QString tooltip = QString::fromUtf8("GNO — Оптимизатор игровой сети\n"
+    QString tooltip = QString::fromUtf8("E2E4 Soft — Оптимизатор игровой сети\n"
                               "Пинг: %1 мс | Джиттер: %2 мс\n"
                               "Потери пакетов: %3%\n"
                               "Оптимизация: %4")

@@ -152,16 +152,33 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
         auto* aboutLayout = new QVBoxLayout();
         aboutLayout->setSpacing(6);
 
-        auto* appName = new QLabel(QString::fromUtf8("GNO — оптимизатор игровой сети"), this);
+        auto* appName = new QLabel(QString::fromUtf8("E2E4 Soft — Оптимизатор игровой сети"), this);
         QFont appFont = appName->font();
         appFont.setBold(true);
         appFont.setPointSize(13);
         appName->setFont(appFont);
         aboutLayout->addWidget(appName);
 
-        aboutLayout->addWidget(new QLabel(QString::fromUtf8("Версия 1.1.0"), this));
+        aboutLayout->addWidget(new QLabel(QString::fromUtf8("Версия 1.2.0"), this));
         aboutLayout->addWidget(new QLabel(QString::fromUtf8("Собрано на Qt 6.11.1 + MinGW GCC 16.1.0"), this));
         aboutLayout->addWidget(new QLabel(QString::fromUtf8("Лицензия: MIT"), this));
+
+        auto* descLabel = new QLabel(
+            QString::fromUtf8(
+                "E2E4 Soft — программа для снижения пинга и повышения FPS в играх.\n"
+                "Что умеет:\n"
+                "• Мониторинг сети в реальном времени: пинг, джиттер, потери пакетов\n"
+                "• Авто-обнаружение установленных игр (Steam / Epic / GOG)\n"
+                "• Профили оптимизации для каждой игры с автоприменением\n"
+                "• Ускорение FPS: отключение Game DVR, план питания, приоритет процесса\n"
+                "• Спидтест и бенчмарк DNS-серверов с применением лучшего\n"
+                "• Мультимаршрутное соединение и автовыбор маршрута\n"
+                "• Монитор процессов: блокировка и завершение программ-пожирателей трафика\n"
+                "• История сессий и карта серверов по всему миру"),
+            this);
+        descLabel->setObjectName("sectionSubtitle");
+        descLabel->setWordWrap(true);
+        aboutLayout->addWidget(descLabel);
 
         auto* githubLabel = new QLabel("GitHub: github.com/user/gno-native", this);
         QPalette pal = githubLabel->palette();

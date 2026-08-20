@@ -15,7 +15,7 @@ Sidebar::Sidebar(QWidget* parent)
     layout->setContentsMargins(12, 16, 12, 16);
     layout->setSpacing(2);
 
-    m_logoLabel = new QLabel("GNO", this);
+    m_logoLabel = new QLabel("E2E4", this);
     m_logoLabel->setObjectName("logoLabel");
     m_logoLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_logoLabel);
