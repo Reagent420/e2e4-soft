@@ -8,7 +8,7 @@
 
 Add explicit, user-controlled system fixes alongside the diagnostic-only foundation. The application may diagnose without elevated privileges, but it must never modify the system merely because it was opened, a scan ran, a game was detected, or monitoring started.
 
-The first remediation release includes all currently requested actions:
+The first Windows remediation release includes all currently requested actions:
 
 - DNS configuration;
 - interface MTU;
@@ -17,6 +17,8 @@ The first remediation release includes all currently requested actions:
 - Windows Game DVR;
 - Windows fullscreen optimizations;
 - priority of a selected running game process.
+
+The following macOS phase reuses the same transaction engine, backup format, and UI model for the five defensible equivalents: DNS, interface MTU, an allowlisted subset of TCP parameters, energy mode, and selected-process priority. Game DVR and Windows fullscreen optimizations have no direct macOS equivalent and are omitted rather than replaced with unrelated tweaks.
 
 VPN and traffic tunnelling are explicitly outside this feature. They must not be included in **Fix all** and remain a separate project stage.
 
@@ -113,7 +115,11 @@ Only transactions created and successfully persisted by this application may be 
 
 The Windows adapter uses system APIs where practical. Where a command-line system utility is unavoidable, arguments are passed without shell interpretation, output and exit status are captured, execution is timed out, and the result is verified independently. No `cmd.exe /c`, string-concatenated `netsh`, detached worker, or generic `system()` entry point is allowed.
 
-The macOS adapter exposes only actions with a safe, supported implementation. Other rows remain visible as `Unsupported on macOS` and cannot be selected. This release does not add a Network Extension or VPN entitlement.
+The macOS adapter lives beside the Windows adapter under `src/remediation/macos/` and exposes only actions with a safe, supported implementation. It uses a separate, narrowly scoped privileged helper registered through Apple's Service Management model. The helper accepts the same persisted transaction-identifier boundary as Windows, validates the complete plan again, and never accepts arbitrary commands.
+
+Direct frameworks and system calls are preferred. If an operation has no appropriate public mutation API, the helper may execute a fixed Apple-supplied utility by absolute path with an allowlisted typed argument vector and captured exit/output through `posix_spawn`; it may not invoke a shell or concatenate user text. Any action that cannot be applied and independently verified on the running macOS version is `Unsupported`.
+
+The macOS UI contains DNS, MTU, TCP parameters, energy mode, and process priority. Windows-only Game DVR and fullscreen rows are omitted on macOS. This phase does not add a Network Extension or VPN entitlement.
 
 ## Action Semantics
 
@@ -144,6 +150,28 @@ Operate only on an explicitly selected executable. Canonicalize and validate the
 ### Process Priority
 
 Operate only on a currently running process explicitly selected by the user. Bind the preview to both PID and process creation identity to prevent PID-reuse errors. Capture its current priority class, apply an allowlisted non-realtime target, and verify immediately. Rollback is available only while the same process instance remains alive. Realtime priority is never offered.
+
+## macOS Action Semantics
+
+### DNS and MTU
+
+Bind both actions to an explicitly selected network service/interface discovered immediately before preflight. Preserve automatic/manual DNS mode, ordered servers, interface identity, and original MTU. Prefer SystemConfiguration and socket/interface APIs. A fixed Apple utility is permitted only inside the helper under the structured-execution rules above. Re-enumerate and verify the same service/interface after mutation.
+
+### TCP Parameters
+
+Expose only an audited allowlist that exists and is writable on the running macOS version. Preview whether a value is runtime-only and may reset at reboot. Never attempt to bypass System Integrity Protection or modify protected system files. Preserve the original value and verify through a fresh read.
+
+### Energy Mode
+
+Expose only supported Apple power settings with clear battery/charger scope. Preserve the complete old value for every affected power source. Use public power-management APIs where available or a fixed `/usr/bin/pmset` invocation with allowlisted arguments inside the helper. Verify the effective setting after application and rollback.
+
+### Process Priority
+
+Use a selected live process identity and an allowlisted non-realtime nice value. Revalidate PID plus start identity immediately before `setpriority`, verify with `getpriority`, and allow rollback only while that same process instance exists.
+
+### Local Development and Distribution
+
+Platform-neutral logic, fake adapters, UI, and read-only observation are buildable and testable without a paid Apple account. Privileged-helper registration is exercised with local development signing and explicit user approval where the host permits it; it is never silently downgraded to running the GUI as root. Public distribution requires an appropriate Apple Developer identity, hardened runtime configuration, signing, and notarization. Failure to meet those requirements leaves mutation controls unavailable while diagnostics continue to work.
 
 ## Concurrency and Cancellation
 
@@ -188,6 +216,7 @@ Unit tests use fake observers and runners; normal tests never modify the host sy
 - backup size, schema-version, atomicity, corruption, and retention limits;
 - callback reentrancy and bounded shutdown;
 - explicit unsupported behavior on macOS.
+- macOS helper request validation, fixed-tool allowlists, service/interface identity changes, runtime-only TCP disclosure, energy-source rollback, PID reuse, helper refusal, and bounded shutdown.
 
 Platform integration tests run only in isolated disposable Windows test environments with known fixtures. They must restore the observed initial state during cleanup and cannot be required on a developer's normal workstation.
 
@@ -197,7 +226,7 @@ Release gates continue to reject legacy optimizer artifacts and generic mutation
 
 Upstream `v1.4.0` is not merged wholesale. Its UI ideas and read-only detection logic may be ported selectively. Direct mutation implementations are rewritten behind `FixAction` and `PrivilegeRunner` because the upstream code contains string-built system commands, incomplete result checking, weak rollback, legacy auto-fix paths, and detached workers.
 
-The reusable candidates are the capability presentation, action descriptions, report concepts, overlay concepts, and portions of the centralized monitoring model. VPN/tunnel work remains independent.
+The reusable candidates are the capability presentation, action descriptions, report concepts, overlay concepts, and portions of the centralized monitoring model. The upstream macOS `system("sysctl ...")` and shell-built `renice` paths are not reused. VPN/tunnel work remains independent.
 
 ## Acceptance Criteria
 
@@ -206,7 +235,8 @@ The reusable candidates are the capability presentation, action descriptions, re
 - No action runs automatically or before an atomic backup exists.
 - Every applied action is independently verified.
 - All reversible actions restore their captured original state; limitations are shown before confirmation.
-- Unsupported macOS actions are disabled and explicitly labeled.
+- macOS actions unavailable on the running OS, or blocked by helper/signing state, are disabled with an explicit reason rather than reported as timeout or success.
+- The macOS phase provides verified DNS, MTU, audited TCP, energy-mode, and selected-process-priority actions through a separate helper; Windows-only concepts are omitted.
 - No arbitrary command execution or user-controlled shell interpolation exists.
 - Partial failure produces a durable, accurate transaction state and supports verified reverse rollback.
 - VPN/tunnel behavior is absent from the remediation transaction.

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add seven explicit Windows remediation actions, individual Fix/Revert controls, and a confirmed transactional **Fix all** flow with durable backups, verification, and rollback while preserving diagnostic-only default behavior.
+**Goal:** Add seven explicit Windows remediation actions followed by five native macOS equivalents, with individual Fix/Revert controls and a confirmed transactional **Fix all** flow using durable backups, verification, and rollback.
 
-**Architecture:** A platform-neutral remediation domain owns typed plans and transactions. A Windows-only elevated helper performs a closed set of structured operations through Windows APIs; the GUI never executes shell text. A durable JSON store records the plan and original values before mutation, and every action is re-observed before it is reported as applied or reverted.
+**Architecture:** A platform-neutral remediation domain owns typed plans and transactions. Separate Windows and macOS privileged helpers perform closed sets of structured operations; the GUI never executes shell text. A durable JSON store records the plan and original values before mutation, and every action is re-observed before it is reported as applied or reverted.
 
 **Tech Stack:** C++17, CMake 3.24+, Qt 6 Widgets, nlohmann/json 3.12.0, Win32 IP Helper/Power/Registry/Process APIs, doctest, CTest.
 
@@ -12,12 +12,13 @@
 
 - Diagnostics never invoke remediation automatically on startup, scan completion, monitoring, profile import, timer, or game detection.
 - The first Windows release includes DNS, MTU, allowlisted TCP parameters, power plan, Game DVR, per-executable fullscreen optimizations, and selected-process priority.
+- The following macOS phase includes DNS, MTU, audited TCP parameters, energy mode, and selected-process priority under `src/remediation/macos/`; Game DVR and Windows fullscreen optimizations are omitted because they have no direct macOS equivalent.
 - VPN and traffic tunnelling are absent from remediation and **Fix all**.
 - **Fix all** requires full preflight, a persisted backup, a human-readable preview, and explicit user confirmation.
 - Only one transaction executes at a time; operations are bounded, cancellable between mutations, verified after application, and rolled back in reverse order.
 - The helper accepts a generated transaction UUID only. It never accepts arbitrary commands, registry paths, executable paths, or network values on its command line.
 - Windows mutations use allowlisted Windows APIs. Do not add `system()`, `cmd.exe /c`, `ShellExecute` of a user-built command, detached threads, legacy `applyFix`, or auto-apply paths.
-- macOS and Linux expose these actions as typed `Unsupported`; they never return timeout or success for a mutation that did not run.
+- Before the macOS phase lands, macOS exposes mutation actions as typed `Unsupported`. Afterward it exposes only the five verified native equivalents; Linux remains `Unsupported`.
 - Durable state uses bounded, versioned JSON and sibling-temp atomic replacement. Unknown schema versions are preserved and not executed.
 - Normal unit/UI tests use fakes and do not alter the developer machine. Real mutation tests run only in disposable Windows CI environments explicitly enabled for integration testing.
 - All shell commands in this repository are prefixed with `rtk`.
@@ -42,6 +43,14 @@
 - Create `src/remediation/windows/windows_fix_action.h/.cpp`: seven allowlisted `FixAction` implementations.
 - Create `src/remediation/windows/privilege_runner.h/.cpp`: starts the signed project helper with `runas` and a UUID only, then reads its bounded result.
 - Create `src/remediation/windows/helper_main.cpp`: validates and executes one persisted prepared transaction.
+
+**macOS boundary (implemented after the Windows feature is complete)**
+
+- Create `src/remediation/macos/macos_state_api.h/.mm`: narrow injectable interface and production SystemConfiguration, interface, sysctl, power, and process operations.
+- Create `src/remediation/macos/macos_fix_action.h/.cpp`: five macOS `FixAction` implementations.
+- Create `src/remediation/macos/privileged_helper.h/.mm`: Service Management registration, authorization state, and UUID-only IPC.
+- Create `src/remediation/macos/helper_main.mm`: validates and executes one persisted prepared transaction.
+- Create `tests/remediation_macos_tests.cpp`: fake-adapter and helper-boundary tests that do not mutate the host.
 
 **UI and wiring**
 
@@ -222,7 +231,8 @@ Expected: compilation fails because the remediation contracts do not exist.
 Define the closed action set:
 
 ```cpp
-enum class ActionId { PowerPlan, GameDvr, FullscreenOptimizations, TcpParameters, Dns, Mtu, ProcessPriority };
+enum class ActionId { PowerPlan, EnergyMode, GameDvr, FullscreenOptimizations,
+                      TcpParameters, Dns, Mtu, ProcessPriority };
 enum class ActionStatus { NotChecked, Recommended, AlreadyConfigured, Applied, Failed, Unsupported, Reverted };
 enum class RemediationError { None, Unsupported, InvalidTarget, PermissionDenied, ElevationCancelled,
     PreflightFailed, BackupFailed, ApplyFailed, VerificationMismatch, Timeout, Cancelled,
@@ -237,7 +247,7 @@ struct Result {
 };
 ```
 
-Use `std::variant` for typed values rather than free-form strings. `FixTransaction::prepare()` gathers every observation and plan without applying. `execute()` first persists `Prepared`, then applies in declared order and persists after every verified transition. `rollback()` traverses only successfully applied actions in reverse.
+Use `std::variant` for typed values rather than free-form strings. The variant defines `DnsValue`, `MtuValue`, `TcpValue`, `PowerPlanValue`, `EnergyValue`, `RegistryValue`, `FullscreenValue`, `PriorityValue`, and `NiceValue`; unavailable values use `std::monostate`, never magic strings. `FixTransaction::prepare()` gathers every observation and plan without applying. `execute()` first persists `Prepared`, then applies in declared order and persists after every verified transition. `rollback()` traverses only successfully applied actions in reverse.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 
@@ -553,6 +563,160 @@ rtk git commit -m "ci: gate safe remediation releases"
 
 ---
 
+### Task 8: Implement Five Native macOS Remediation Actions
+
+**Files:**
+- Create: `src/remediation/macos/macos_state_api.h`
+- Create: `src/remediation/macos/macos_state_api.mm`
+- Create: `src/remediation/macos/macos_fix_action.h`
+- Create: `src/remediation/macos/macos_fix_action.cpp`
+- Create: `src/remediation/macos/privileged_helper.h`
+- Create: `src/remediation/macos/privileged_helper.mm`
+- Create: `src/remediation/macos/helper_main.mm`
+- Create: `tests/remediation_macos_tests.cpp`
+- Modify: `src/remediation/platform_action_factory.cpp`
+- Modify: `CMakeLists.txt`
+
+**Interfaces:**
+- Consumes: platform-neutral `FixAction`, `FixTransaction`, `JsonBackupStore`, and transaction UUID boundary.
+- Produces `MacStateApi`, five macOS actions, and `MacPrivilegeRunner`:
+
+```cpp
+class MacStateApi {
+public:
+    virtual ~MacStateApi() = default;
+    virtual Result<DnsValue> getDns(const NetworkServiceId&) const = 0;
+    virtual Result<std::monostate> setDns(const NetworkServiceId&, const DnsValue&) = 0;
+    virtual Result<MtuValue> getMtu(const InterfaceId&) const = 0;
+    virtual Result<std::monostate> setMtu(const InterfaceId&, MtuValue) = 0;
+    virtual Result<TcpValue> getAllowedTcp(MacTcpKey) const = 0;
+    virtual Result<std::monostate> setAllowedTcp(MacTcpKey, const TcpValue&) = 0;
+    virtual Result<EnergyValue> getEnergy(EnergySource) const = 0;
+    virtual Result<std::monostate> setEnergy(EnergySource, const EnergyValue&) = 0;
+    virtual Result<NiceValue> getNice(const ProcessIdentity&) const = 0;
+    virtual Result<std::monostate> setNice(const ProcessIdentity&, NiceValue) = 0;
+};
+```
+
+- [ ] **Step 1: Write failing macOS adapter tests**
+
+Using a fake `MacStateApi`, assert exactly five actions in this order: energy, TCP, DNS, MTU, process priority. Cover automatic/manual DNS restoration, ordered servers, MTU range, unknown/unwritable sysctl rejection, runtime-only TCP disclosure, battery/charger energy scope, stale service/interface, exited process, PID reuse, non-realtime nice bounds, apply verification, and reverse rollback. Assert no Game DVR or fullscreen action IDs are created.
+
+```cpp
+const auto actions = createMacFixActions(fake);
+CHECK(actionIds(actions) == std::vector<ActionId>{ActionId::EnergyMode,
+    ActionId::TcpParameters, ActionId::Dns, ActionId::Mtu, ActionId::ProcessPriority});
+CHECK_FALSE(contains(actions, ActionId::GameDvr));
+CHECK_FALSE(contains(actions, ActionId::FullscreenOptimizations));
+```
+
+- [ ] **Step 2: Run on macOS and verify RED**
+
+```bash
+rtk cmake -S . -B build-remediation-macos -DGNO_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+rtk cmake --build build-remediation-macos -j 4
+rtk ctest --test-dir build-remediation-macos -R "GNO-UnitTests|GNO-MacRemediationTests" --output-on-failure
+```
+
+Expected: missing macOS contracts or factory assertions fail.
+
+- [ ] **Step 3: Implement observation and typed mutation boundaries**
+
+Use SystemConfiguration for network-service discovery and DNS state, `getifaddrs` plus interface ioctls for identity/MTU, `sysctlbyname` for the compiled TCP allowlist, public IOKit power-management APIs where available, and `getpriority`/`setpriority` for the selected process. Re-read the same stable identity immediately before mutation and after it.
+
+When a public mutation API is unavailable, permit only a fixed Apple executable selected by an enum, an absolute compiled path, and an argument vector produced entirely from validated typed values. Execute with `posix_spawn`, captured stdout/stderr, a bounded wait, and no shell:
+
+```cpp
+enum class AllowedMacTool { NetworkSetup, Pmset };
+Result<ToolOutput> runAllowedTool(AllowedMacTool tool,
+                                  const std::vector<TypedArgument>& arguments,
+                                  std::chrono::milliseconds timeout,
+                                  const CancellationToken& cancellation);
+```
+
+Never invoke `/bin/sh`, `system`, `popen`, AppleScript, or a caller-supplied path. Return `Unsupported` when the running OS cannot safely apply and verify an action.
+
+- [ ] **Step 4: Implement the five macOS FixAction objects**
+
+Reuse the same prepare/backup/apply/verify/rollback lifecycle as Windows. DNS preserves automatic/manual mode and ordering. MTU binds to interface identity. TCP declares runtime-only behavior in its preview and never edits protected files. Energy preserves every affected power-source value. Priority binds PID plus start identity and forbids realtime/negative unsafe targets.
+
+- [ ] **Step 5: Implement the Service Management helper boundary**
+
+Register a bundled launch daemon with `SMAppService` on macOS 13+. The GUI sends only a validated transaction UUID over an authenticated local IPC channel. The helper resolves the fixed app-data transaction path, validates producer/version/digest/status/action IDs and code-signing identity, re-observes all targets, requests authorization immediately before mutation, and atomically records outcomes. No operation falls back to running the Qt GUI as root.
+
+Provide a development status that clearly distinguishes `Helper unavailable`, `User approval required`, and `Release signing required`. Fake/helper-parser tests work without a paid account; real helper registration is an explicit local integration step and is skipped when the host lacks a usable signing identity.
+
+- [ ] **Step 6: Run and verify GREEN**
+
+Run the Task 8 command. Expected: domain, adapter, parser, and unsupported/helper-state tests pass without mutating the host.
+
+- [ ] **Step 7: Commit**
+
+```bash
+rtk git add CMakeLists.txt src/remediation/macos src/remediation/platform_action_factory.cpp tests/remediation_macos_tests.cpp
+rtk git commit -m "feat: add native macOS remediation actions"
+```
+
+---
+
+### Task 9: Integrate macOS UI, Packaging, and Platform Gates
+
+**Files:**
+- Modify: `src/ui/remediation_widget.h`
+- Modify: `src/ui/remediation_widget.cpp`
+- Modify: `tests/ui_tests.cpp`
+- Modify: `cmake/remediation_release_gate.cmake`
+- Modify: `CMakeLists.txt`
+- Modify: `.github/workflows/ci.yml`
+- Modify: `README.md`
+- Modify: `docs/development/diagnostic-builds.md`
+
+**Interfaces:**
+- Consumes: Task 8 macOS factory and helper states.
+- Produces: a five-row native macOS remediation page and a signed-helper-ready app bundle layout.
+
+- [ ] **Step 1: Write failing macOS UI and gate tests**
+
+Assert macOS shows exactly DNS, MTU, TCP, energy mode, and process priority; shows no Windows-only rows; disables Fix/Fix all until the helper is approved; previews runtime-only TCP and per-power-source energy effects; cancellation causes zero helper calls; active work cancels and joins within 250 ms. Gate fixtures reject `/bin/sh`, `system(`, `popen(`, `osascript`, caller-controlled executable paths, unbounded `waitpid`, and helper messages containing anything other than a UUID.
+
+- [ ] **Step 2: Run and verify RED**
+
+```bash
+QT_QPA_PLATFORM=offscreen rtk ctest --test-dir build-remediation-macos -R "GNO-UITests|RemediationGate" --output-on-failure
+```
+
+Expected: row selection/helper-state/gate assertions fail before integration.
+
+- [ ] **Step 3: Wire platform-specific rows and helper state**
+
+Select rows from the platform action factory rather than a hard-coded seven-row UI. Display `Требуется разрешить helper в настройках macOS`, `Helper недоступен`, or `Требуется релизная подпись` as distinct non-success states. Open the relevant System Settings pane only from an explicit user button. Keep diagnostics available when remediation is unavailable.
+
+- [ ] **Step 4: Add bundle and CI configuration**
+
+Place the helper and launch-daemon property list in the app bundle paths required by Service Management. Keep identifiers configurable through CMake cache variables without embedding credentials. macOS ARM and Intel CI compile the Objective-C++ bridge, validate plist/bundle layout, run fake/parser/UI/gate tests, and assert no actual helper registration or host mutation occurred.
+
+Document local core/UI testing without a paid account, the optional locally signed helper integration step, explicit user approval, and the Developer ID/hardened-runtime/notarization requirement for public distribution.
+
+- [ ] **Step 5: Run the complete cross-platform completion gate**
+
+Run the Task 7 console/GUI gate and the Task 8/9 macOS commands, then:
+
+```bash
+rtk git diff --check
+rtk git status --short
+```
+
+Expected: all supported-platform tests and gates pass; no host mutation test ran; status contains only intended documentation/progress changes before commit.
+
+- [ ] **Step 6: Commit**
+
+```bash
+rtk git add .github/workflows/ci.yml CMakeLists.txt cmake/remediation_release_gate.cmake src/ui tests/ui_tests.cpp README.md docs/development/diagnostic-builds.md
+rtk git commit -m "feat: integrate macOS remediation experience"
+```
+
+---
+
 ## Final Review Checklist
 
 - Confirm all seven individual actions and **Fix all** exist and require confirmation.
@@ -560,6 +724,6 @@ rtk git commit -m "ci: gate safe remediation releases"
 - Confirm every apply and rollback is independently re-observed and verified.
 - Confirm partial failure stops the transaction and reverse rollback is offered.
 - Confirm no arbitrary command, shell interpolation, detached worker, auto-fix path, or VPN behavior is linked.
-- Confirm macOS/Linux show typed Unsupported rather than timeout or success.
+- Confirm macOS provides only the five verified equivalents and shows accurate helper/signing/authorization states; Linux remains typed Unsupported.
 - Confirm ordinary tests never mutate the host and Windows integration mutation remains explicitly opt-in in a disposable environment.
 - Run a whole-branch security review against the accepted specification before merge.
