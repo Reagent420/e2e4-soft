@@ -982,6 +982,7 @@ rtk git commit -m "feat: define diagnostic service contracts"
 
 **Files:**
 - Modify: `.github/workflows/ci.yml`
+- Modify: `CMakeLists.txt`
 - Create: `docs/development/diagnostic-builds.md`
 
 **Interfaces:**
@@ -1000,7 +1001,7 @@ Expected: no `macos-latest` job, no sanitizer configuration, and direct test exe
 
 - [ ] **Step 2: Replace CI with explicit platform gates**
 
-Keep the existing Windows MSYS2 dependency installation, but change test execution to:
+Keep the existing Windows MSYS2 dependency installation, configure explicitly with `-DGNO_TESTS=ON`, and build the default target so `GNO-ui-tests` is not skipped. Change test execution to:
 
 ```yaml
 - name: Run tests
@@ -1008,18 +1009,22 @@ Keep the existing Windows MSYS2 dependency installation, but change test executi
   run: ctest --test-dir build --output-on-failure
 ```
 
-Add a macOS job:
+Add a native macOS matrix covering both supported architectures. The current official GitHub runner labels are `macos-15` for Apple Silicon and `macos-15-intel` for x86-64:
 
 ```yaml
 build-macos:
-  runs-on: macos-latest
+  strategy:
+    fail-fast: false
+    matrix:
+      runner: [macos-15, macos-15-intel]
+  runs-on: ${{ matrix.runner }}
   timeout-minutes: 30
   steps:
     - uses: actions/checkout@v4
     - name: Install Qt
       run: brew install qt
     - name: Configure
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DGNO_TESTS=ON -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DGNO_TESTS=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
     - name: Build
       run: cmake --build build --parallel 4
     - name: Test
@@ -1032,11 +1037,15 @@ Change the Linux configure command to enable sanitizers and console-only mode:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DGNO_CONSOLE=ON -DGNO_TESTS=ON -DGNO_SANITIZERS=ON
 ```
 
-Do not broaden workflow permissions; add `permissions: contents: read` at workflow level.
+The Linux job does not install Qt because console-only mode must not discover or build GUI targets. Build every configured default target and run all tests with CTest.
+
+Do not broaden workflow permissions; add `permissions: contents: read` at workflow level. Set `persist-credentials: false` on every checkout step. Keep third-party action references on explicit released major versions rather than branches.
+
+In `CMakeLists.txt`, silence project-owned configuration noise: add `DOWNLOAD_EXTRACT_TIMESTAMP TRUE` to the pinned FetchContent declaration, disable global AUTOMOC, and enable AUTOMOC only on the GUI and UI-test targets that contain `Q_OBJECT`. Console-only configuration must not emit Qt AUTOGEN warnings.
 
 - [ ] **Step 3: Document exact local build commands**
 
-Create `docs/development/diagnostic-builds.md` containing the three configure/build/test sequences used by CI, the requirement for Qt 6, and this release invariant:
+Create `docs/development/diagnostic-builds.md` containing the Windows, Linux sanitizer, macOS Apple Silicon, and macOS Intel configure/build/test sequences used by CI, the Qt 6 requirement for GUI builds, the macOS 13 deployment target, and this release invariant:
 
 ```text
 The diagnostic build performs no privileged or mutating network operation.
@@ -1051,6 +1060,7 @@ Run:
 rtk cmake -S . -B build-foundation-asan -DGNO_CONSOLE=ON -DGNO_TESTS=ON -DGNO_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
 rtk cmake --build build-foundation-asan --parallel 4
 rtk ctest --test-dir build-foundation-asan --output-on-failure
+rtk ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml"); puts "workflow syntax ok"'
 rtk git diff --check
 ```
 
@@ -1059,7 +1069,7 @@ Expected: configuration and build exit 0, CTest reports zero failures, and `git 
 - [ ] **Step 5: Commit foundation build gates**
 
 ```bash
-rtk git add .github/workflows/ci.yml docs/development/diagnostic-builds.md
+rtk git add .github/workflows/ci.yml CMakeLists.txt docs/development/diagnostic-builds.md
 rtk git commit -m "ci: gate diagnostic foundation builds"
 ```
 
