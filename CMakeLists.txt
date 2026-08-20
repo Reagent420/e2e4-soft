@@ -8,6 +8,7 @@ FetchContent_Declare(
     nlohmann_json
     URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
     URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(nlohmann_json)
@@ -15,7 +16,7 @@ FetchContent_MakeAvailable(nlohmann_json)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOMOC OFF)
 set(CMAKE_AUTOUIC OFF)
 set(CMAKE_AUTORCC OFF)
 
@@ -133,6 +134,7 @@ if(NOT GNO_CONSOLE)
         )
 
         gno_enable_warnings(${PROJECT_NAME})
+        set_target_properties(${PROJECT_NAME} PROPERTIES AUTOMOC ON)
 
         target_include_directories(${PROJECT_NAME} PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -173,6 +175,7 @@ if(NOT GNO_CONSOLE)
                 ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
             target_link_libraries(${PROJECT_NAME}-ui-tests PRIVATE ${COMMON_LIBS} Qt6::Widgets Qt6::Charts)
             gno_enable_warnings(${PROJECT_NAME}-ui-tests)
+            set_target_properties(${PROJECT_NAME}-ui-tests PROPERTIES AUTOMOC ON)
             add_test(NAME GNO-UITests COMMAND ${PROJECT_NAME}-ui-tests)
             set_tests_properties(GNO-UITests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
         endif()
