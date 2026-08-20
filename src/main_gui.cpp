@@ -37,7 +37,8 @@ int main(int argc, char* argv[]) {
 
     fprintf(stderr, "Platform: %s\n", QApplication::platformName().toUtf8().constData());
 
-    QString appDir = QApplication::applicationDirPath();
+#ifdef PLATFORM_WINDOWS
+    const QString appDir = QApplication::applicationDirPath();
     QStringList checks = {
         "platforms/qwindows.dll",
         "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll"
@@ -54,6 +55,7 @@ int main(int argc, char* argv[]) {
             QString::fromUtf8("Отсутствуют необходимые файлы!\nУбедитесь, что все DLL находятся в одной папке с E2E4.exe."));
         return 1;
     }
+#endif
 
     fprintf(stderr, "Applying stylesheet...\n");
     QSettings settings;

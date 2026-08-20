@@ -50,6 +50,7 @@ private:
     std::vector<ServerNode> servers_;
     std::vector<PingResult> results_;
     mutable std::mutex results_mutex_;
+    std::mutex worker_mutex_;
     std::atomic<bool> running_{false};
     std::thread bench_thread_;
     BenchmarkCallback callback_;

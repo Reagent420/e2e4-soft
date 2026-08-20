@@ -73,9 +73,12 @@ namespace gno {
 class MonitoringWidget : public QWidget {
     Q_OBJECT
 public:
-    explicit MonitoringWidget(QWidget* parent = nullptr);
+    explicit MonitoringWidget(QWidget* parent = nullptr, bool startMonitoring = true);
+    ~MonitoringWidget() override;
 
 private:
+    void startMonitoring();
+    void handlePingResult(const ICMPResult& result);
     void addLogEntry(const QString& message, const QColor& color = QColor("#94A3B8"));
 
     PingChartWidget* ping_chart_;

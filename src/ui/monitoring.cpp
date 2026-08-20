@@ -4,6 +4,7 @@
 
 #include <QFrame>
 #include <QDateTime>
+#include <QPointer>
 #include <QScrollBar>
 
 #include <atomic>
@@ -397,7 +398,7 @@ void BandwidthChartWidget::paintEvent(QPaintEvent*) {
 
 namespace gno {
 
-MonitoringWidget::MonitoringWidget(QWidget* parent) : QWidget(parent) {
+MonitoringWidget::MonitoringWidget(QWidget* parent, bool startMonitoring) : QWidget(parent) {
     setObjectName("monitoringPage");
 
     auto* mainLayout = new QVBoxLayout(this);
@@ -469,57 +470,79 @@ MonitoringWidget::MonitoringWidget(QWidget* parent) : QWidget(parent) {
                                "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }");
     mainLayout->addWidget(log_scroll_);
 
-    // Real monitoring: ping callback drives the charts
-    ping_monitor_.setPingCallback([this](const ICMPResult& result) {
-        double ping = result.success ? result.latency_ms : -1.0;
+    if (startMonitoring) {
+        this->startMonitoring();
+    }
+}
 
-        if (ping >= 0) {
-            // jitter: deviation over last 10 samples
-            jitter_samples_.append(ping);
-            if (jitter_samples_.size() > 10) jitter_samples_.removeFirst();
-            double jitter = 0.0;
-            if (jitter_samples_.size() >= 2) {
-                double avg = 0;
-                for (double v : jitter_samples_) avg += v;
-                avg /= jitter_samples_.size();
-                double dev = 0;
-                for (double v : jitter_samples_) dev += qAbs(v - avg);
-                jitter = dev / jitter_samples_.size();
-            }
+MonitoringWidget::~MonitoringWidget() {
+    ping_monitor_.stop();
+    ping_monitor_.setPingCallback({});
+}
 
-            // loss: 0 or 1 per second, smoothed over 30s window
-            loss_window_.append(0.0);
-            while (loss_window_.size() > 30) loss_window_.removeFirst();
-            double lossSum = 0;
-            for (double v : loss_window_) lossSum += v;
-            double lossPercent = lossSum / loss_window_.size() * 100.0;
-
-            ping_chart_->addPoint(ping);
-            jitter_chart_->addPoint(jitter);
-            loss_chart_->addPoint(lossPercent);
-
-            QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
-            QColor pingColor = ping < 35 ? QColor("#22C55E") : ping < 50 ? QColor("#EAB308") : QColor("#EF4444");
-            QString msg = QString("[%1] Пинг: <font color='%2'>%3мс</font>")
-                              .arg(time)
-                              .arg(pingColor.name())
-                              .arg(QString::number(ping, 'f', 1));
-            addLogEntry(msg);
-        } else {
-            loss_window_.append(1.0);
-            while (loss_window_.size() > 30) loss_window_.removeFirst();
-            double lossSum = 0;
-            for (double v : loss_window_) lossSum += v;
-            double lossPercent = lossSum / loss_window_.size() * 100.0;
-
-            ping_chart_->addPoint(0.0);
-            loss_chart_->addPoint(lossPercent);
-
-            QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
-            addLogEntry(QString("[%1] <font color='#EF4444'>Тайм-аут — пакет потерян</font>").arg(time));
+void MonitoringWidget::startMonitoring() {
+    QPointer<MonitoringWidget> owner(this);
+    ping_monitor_.setPingCallback([owner](const ICMPResult& result) {
+        if (!owner) {
+            return;
         }
+        QMetaObject::invokeMethod(owner.data(), [owner, result]() {
+            if (owner) {
+                owner->handlePingResult(result);
+            }
+        }, Qt::QueuedConnection);
     });
     ping_monitor_.start("1.1.1.1", 1000);
+}
+
+void MonitoringWidget::handlePingResult(const ICMPResult& result) {
+    double ping = result.success ? result.latency_ms : -1.0;
+
+    if (ping >= 0) {
+        // jitter: deviation over last 10 samples
+        jitter_samples_.append(ping);
+        if (jitter_samples_.size() > 10) jitter_samples_.removeFirst();
+        double jitter = 0.0;
+        if (jitter_samples_.size() >= 2) {
+            double avg = 0;
+            for (double v : jitter_samples_) avg += v;
+            avg /= jitter_samples_.size();
+            double dev = 0;
+            for (double v : jitter_samples_) dev += qAbs(v - avg);
+            jitter = dev / jitter_samples_.size();
+        }
+
+        // loss: 0 or 1 per second, smoothed over 30s window
+        loss_window_.append(0.0);
+        while (loss_window_.size() > 30) loss_window_.removeFirst();
+        double lossSum = 0;
+        for (double v : loss_window_) lossSum += v;
+        double lossPercent = lossSum / loss_window_.size() * 100.0;
+
+        ping_chart_->addPoint(ping);
+        jitter_chart_->addPoint(jitter);
+        loss_chart_->addPoint(lossPercent);
+
+        QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
+        QColor pingColor = ping < 35 ? QColor("#22C55E") : ping < 50 ? QColor("#EAB308") : QColor("#EF4444");
+        QString msg = QString("[%1] Пинг: <font color='%2'>%3мс</font>")
+                          .arg(time)
+                          .arg(pingColor.name())
+                          .arg(QString::number(ping, 'f', 1));
+        addLogEntry(msg);
+    } else {
+        loss_window_.append(1.0);
+        while (loss_window_.size() > 30) loss_window_.removeFirst();
+        double lossSum = 0;
+        for (double v : loss_window_) lossSum += v;
+        double lossPercent = lossSum / loss_window_.size() * 100.0;
+
+        ping_chart_->addPoint(0.0);
+        loss_chart_->addPoint(lossPercent);
+
+        QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
+        addLogEntry(QString("[%1] <font color='#EF4444'>Тайм-аут — пакет потерян</font>").arg(time));
+    }
 }
 
 void MonitoringWidget::addLogEntry(const QString& message, const QColor& color) {
@@ -539,8 +562,11 @@ void MonitoringWidget::addLogEntry(const QString& message, const QColor& color) 
         log_count_--;
     }
 
-    QMetaObject::invokeMethod(log_scroll_, [this]() {
-        log_scroll_->verticalScrollBar()->setValue(log_scroll_->verticalScrollBar()->maximum());
+    QPointer<QScrollArea> scroll(log_scroll_);
+    QMetaObject::invokeMethod(scroll.data(), [scroll]() {
+        if (scroll) {
+            scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+        }
     }, Qt::QueuedConnection);
 }
 

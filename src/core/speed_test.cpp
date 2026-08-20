@@ -78,51 +78,66 @@ PingResult SpeedTest::benchmarkServer(const std::string& server_ip) {
 }
 
 void SpeedTest::runBenchmark(const std::string& target_ip) {
-    if (running_) return;
-    results_.clear();
+    std::lock_guard<std::mutex> worker_lock(worker_mutex_);
+    if (running_) {
+        return;
+    }
+    if (bench_thread_.joinable()) {
+        bench_thread_.join();
+    }
+    {
+        std::lock_guard<std::mutex> results_lock(results_mutex_);
+        results_.clear();
+    }
     running_ = true;
 
-    if (!target_ip.empty()) {
-        bench_thread_ = std::thread([this, target_ip]() {
-            PingResult r;
-            r.server_name = "Custom";
-            r.server_ip = target_ip;
+    try {
+        if (!target_ip.empty()) {
+            bench_thread_ = std::thread([this, target_ip]() {
+                PingResult r;
+                r.server_name = "Custom";
+                r.server_ip = target_ip;
 
 #ifdef PLATFORM_WINDOWS
-            HANDLE icmp = IcmpCreateFile();
-            if (icmp != INVALID_HANDLE_VALUE) {
-                struct in_addr addr;
-                inet_pton(AF_INET, target_ip.c_str(), &addr);
+                HANDLE icmp = IcmpCreateFile();
+                if (icmp != INVALID_HANDLE_VALUE) {
+                    struct in_addr addr;
+                    inet_pton(AF_INET, target_ip.c_str(), &addr);
 
-                char send[] = "GNO";
-                char recv_buf[1024] = {};
+                    char send[] = "GNO";
+                    char recv_buf[1024] = {};
 
-                auto start = std::chrono::steady_clock::now();
-                DWORD reply = IcmpSendEcho(icmp, addr.S_un.S_addr,
-                    send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), 3000);
-                auto end = std::chrono::steady_clock::now();
+                    auto start = std::chrono::steady_clock::now();
+                    DWORD reply = IcmpSendEcho(icmp, addr.S_un.S_addr,
+                        send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), 3000);
+                    auto end = std::chrono::steady_clock::now();
 
-                if (reply > 0) {
-                    r.latency_ms = std::chrono::duration<double, std::milli>(end - start).count();
-                    r.success = true;
+                    if (reply > 0) {
+                        r.latency_ms = std::chrono::duration<double, std::milli>(end - start).count();
+                        r.success = true;
+                    }
+                    IcmpCloseHandle(icmp);
                 }
-                IcmpCloseHandle(icmp);
-            }
 #endif
 
-            {
-                std::lock_guard<std::mutex> lock(results_mutex_);
-                results_.push_back(r);
-            }
-            if (callback_) callback_(r);
-            running_ = false;
-        });
-    } else {
-        bench_thread_ = std::thread(&SpeedTest::benchmarkThread, this);
+                {
+                    std::lock_guard<std::mutex> lock(results_mutex_);
+                    results_.push_back(r);
+                }
+                if (callback_) callback_(r);
+                running_ = false;
+            });
+        } else {
+            bench_thread_ = std::thread(&SpeedTest::benchmarkThread, this);
+        }
+    } catch (...) {
+        running_ = false;
+        throw;
     }
 }
 
 void SpeedTest::stop() {
+    std::lock_guard<std::mutex> worker_lock(worker_mutex_);
     running_ = false;
     if (bench_thread_.joinable()) bench_thread_.join();
 }

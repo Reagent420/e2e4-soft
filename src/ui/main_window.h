@@ -14,7 +14,7 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget* parent = nullptr);
+    explicit MainWindow(QWidget* parent = nullptr, bool startBackgroundMonitoring = true);
     ~MainWindow() override = default;
 
     void forceShow();
@@ -30,7 +30,7 @@ private slots:
 
 private:
     void setupUi();
-    void setupPages();
+    void setupPages(bool startBackgroundMonitoring);
 
     Sidebar* m_sidebar;
     QStackedWidget* m_stackedWidget;

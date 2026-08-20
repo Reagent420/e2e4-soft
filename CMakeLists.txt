@@ -156,14 +156,21 @@ if(NOT GNO_CONSOLE)
         endif()
 
         if(GNO_TESTS)
-            add_executable(${PROJECT_NAME}-ui-tests tests/ui_tests.cpp src/ui/sidebar.cpp)
+            add_executable(${PROJECT_NAME}-ui-tests
+                tests/ui_tests.cpp
+                ${CORE_SOURCES}
+                ${MON_SOURCES}
+                ${UI_SOURCES})
             target_include_directories(${PROJECT_NAME}-ui-tests PRIVATE
                 ${CMAKE_CURRENT_SOURCE_DIR}/src
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
                 ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
-            target_link_libraries(${PROJECT_NAME}-ui-tests PRIVATE Qt6::Widgets)
+            target_link_libraries(${PROJECT_NAME}-ui-tests PRIVATE ${COMMON_LIBS} Qt6::Widgets Qt6::Charts)
             gno_enable_warnings(${PROJECT_NAME}-ui-tests)
             add_test(NAME GNO-UITests COMMAND ${PROJECT_NAME}-ui-tests)
+            set_tests_properties(GNO-UITests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
         endif()
     else()
         message(STATUS "Qt6 not found - GUI target will not be built")

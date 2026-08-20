@@ -26,7 +26,7 @@ private:
 class DashboardWidget : public QWidget {
     Q_OBJECT
 public:
-    explicit DashboardWidget(QWidget* parent = nullptr);
+    explicit DashboardWidget(QWidget* parent = nullptr, bool startMonitoring = true);
     ~DashboardWidget() override;
 
 private:

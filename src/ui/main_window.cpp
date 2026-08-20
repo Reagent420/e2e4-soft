@@ -15,11 +15,11 @@
 
 namespace gno {
 
-MainWindow::MainWindow(QWidget* parent)
+MainWindow::MainWindow(QWidget* parent, bool startBackgroundMonitoring)
     : QMainWindow(parent)
 {
     setupUi();
-    setupPages();
+    setupPages(startBackgroundMonitoring);
 
     connect(m_sidebar, &Sidebar::navigationChanged,
             this, &MainWindow::onNavigationChanged);
@@ -69,17 +69,22 @@ void MainWindow::setupUi()
     statusBar()->addWidget(statusBarWidget, 1);
 }
 
-void MainWindow::setupPages()
+void MainWindow::setupPages(bool startBackgroundMonitoring)
 {
-    m_stackedWidget->addWidget(new DashboardWidget(this));
-    m_stackedWidget->addWidget(new GameListWidget(this));
-    m_stackedWidget->addWidget(new MonitoringWidget(this));
-    m_stackedWidget->addWidget(new NetworkToolsWidget(this));
-    m_stackedWidget->addWidget(new SessionHistoryWidget(this));
+    auto addPage = [this](QWidget* page, const char* objectName) {
+        page->setObjectName(objectName);
+        m_stackedWidget->addWidget(page);
+    };
+
+    addPage(new DashboardWidget(this, startBackgroundMonitoring), "dashboardPage");
+    addPage(new GameListWidget(this), "gamesPage");
+    addPage(new MonitoringWidget(this, startBackgroundMonitoring), "monitoringPage");
+    addPage(new NetworkToolsWidget(this), "diagnosticsPage");
+    addPage(new SessionHistoryWidget(this), "historyPage");
 
     auto* settings = new SettingsPageWidget(this);
     connect(settings, &SettingsPageWidget::themeChanged, this, &MainWindow::themeChanged);
-    m_stackedWidget->addWidget(settings);
+    addPage(settings, "settingsPage");
 }
 
 void MainWindow::onNavigationChanged(int index)

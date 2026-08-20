@@ -130,7 +130,7 @@ QWidget* DashboardWidget::createMetricCard(const QString& label, QLabel** valueO
 // DashboardWidget
 // ---------------------------------------------------------------------------
 
-DashboardWidget::DashboardWidget(QWidget* parent)
+DashboardWidget::DashboardWidget(QWidget* parent, bool startMonitoring)
     : QWidget(parent) {
 
     auto* root = new QVBoxLayout(this);
@@ -184,8 +184,9 @@ DashboardWidget::DashboardWidget(QWidget* parent)
     info->setAlignment(Qt::AlignCenter);
     root->addWidget(info);
 
-    // monitoring
-    startMonitoring();
+    if (startMonitoring) {
+        this->startMonitoring();
+    }
 }
 
 DashboardWidget::~DashboardWidget() {

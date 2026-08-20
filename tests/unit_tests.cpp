@@ -10,6 +10,9 @@
 #include "monitoring/packet_loss_monitor.h"
 #include "monitoring/stats_collector.h"
 
+#include <chrono>
+#include <thread>
+
 using namespace gno;
 
 TEST_CASE("GameDetector::supported games") {
@@ -77,6 +80,28 @@ TEST_CASE("SpeedTest::servers") {
     REQUIRE(servers.size() == 10);
     REQUIRE(servers[0].name.empty() == false);
 }
+
+#ifndef PLATFORM_WINDOWS
+TEST_CASE("SpeedTest restarts after a completed benchmark") {
+    SpeedTest st;
+    st.runBenchmark("127.0.0.1");
+    for (int i = 0; i < 1000 && st.isRunning(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE_FALSE(st.isRunning());
+
+    st.runBenchmark("127.0.0.1");
+    for (int i = 0; i < 1000 && st.isRunning(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE_FALSE(st.isRunning());
+    st.stop();
+
+    const auto results = st.getResults();
+    REQUIRE(results.size() == 1);
+    CHECK(results.front().server_ip == "127.0.0.1");
+}
+#endif
 
 TEST_CASE("DNSManager::presets") {
     DNSManager dm;
