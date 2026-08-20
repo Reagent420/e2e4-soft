@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-project(GNO VERSION 1.1.0 LANGUAGES CXX)
+project(GNO VERSION 1.2.0 LANGUAGES CXX)
+
+include(CTest)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +12,12 @@ set(CMAKE_AUTORCC OFF)
 
 option(GNO_CONSOLE "Build console-only (no Qt)" OFF)
 option(GNO_TESTS "Build unit tests" ON)
+option(GNO_SANITIZERS "Enable address and undefined behavior sanitizers" OFF)
+
+if(GNO_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+endif()
 
 find_package(Threads REQUIRED)
 
@@ -18,11 +26,19 @@ if(WIN32)
     set(PLATFORM_SOURCES src/core/platform_windows.cpp src/optimization/fps_optimizer_windows.cpp)
 elseif(APPLE)
     add_definitions(-DPLATFORM_MACOS)
-    set(PLATFORM_SOURCES src/core/platform_macos.cpp src/optimization/fps_optimizer_macos.cpp)
+    set(PLATFORM_SOURCES src/core/platform_macos.cpp)
 else()
     add_definitions(-DPLATFORM_LINUX)
-    set(PLATFORM_SOURCES src/core/platform_linux.cpp src/optimization/fps_optimizer_linux.cpp)
+    set(PLATFORM_SOURCES src/core/platform_linux.cpp)
 endif()
+
+function(gno_enable_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
 
 set(CORE_SOURCES
     src/core/route_analyzer.cpp
@@ -82,6 +98,8 @@ add_executable(${PROJECT_NAME}-console
     ${PLATFORM_SOURCES}
 )
 
+gno_enable_warnings(${PROJECT_NAME}-console)
+
 target_include_directories(${PROJECT_NAME}-console PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
@@ -120,6 +138,8 @@ if(NOT GNO_CONSOLE)
             ${PLATFORM_SOURCES}
             ${UI_SOURCES}
         )
+
+        gno_enable_warnings(${PROJECT_NAME})
 
         target_include_directories(${PROJECT_NAME} PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -160,6 +180,8 @@ if(GNO_TESTS)
         ${MON_SOURCES}
         ${PLATFORM_SOURCES}
     )
+
+    gno_enable_warnings(${PROJECT_NAME}-tests)
     
     target_include_directories(${PROJECT_NAME}-tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src

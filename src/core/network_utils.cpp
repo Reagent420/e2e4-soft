@@ -14,6 +14,8 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <netdb.h>
+#include <fcntl.h>
+#include <cerrno>
 #endif
 
 namespace gno {
@@ -79,46 +81,75 @@ std::string NetworkUtils::reverseDNS(const std::string& ip) {
 }
 
 bool NetworkUtils::isPortOpen(const std::string& host, uint16_t port, uint32_t timeout_ms) {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    const int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return false;
-    
-    struct sockaddr_in addr;
+
+    sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
-    
+    if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
+#ifdef PLATFORM_WINDOWS
+        closesocket(sock);
+#else
+        close(sock);
+#endif
+        return false;
+    }
+
 #ifdef PLATFORM_WINDOWS
     u_long mode = 1;
-    ioctlsocket(sock, FIONBIO, &mode);
+    if (ioctlsocket(sock, FIONBIO, &mode) != 0) {
+        closesocket(sock);
+        return false;
+    }
 #else
-    fcntl(sock, F_SETFL, O_NONBLOCK);
+    const int flags = fcntl(sock, F_GETFL, 0);
+    if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
+        close(sock);
+        return false;
+    }
 #endif
-    
-    connect(sock, (struct sockaddr*)&addr, sizeof(addr));
-    
+
+    const int connect_result = connect(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+#ifndef PLATFORM_WINDOWS
+    if (connect_result < 0 && errno != EINPROGRESS) {
+        close(sock);
+        return false;
+    }
+#else
+    if (connect_result == SOCKET_ERROR && WSAGetLastError() != WSAEWOULDBLOCK) {
+        closesocket(sock);
+        return false;
+    }
+#endif
+
     fd_set writefds;
     FD_ZERO(&writefds);
     FD_SET(sock, &writefds);
-    
-    struct timeval tv;
-    tv.tv_sec = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
-    
-    int result = select(sock + 1, nullptr, &writefds, nullptr, &tv);
-    
+
+    timeval timeout{};
+    timeout.tv_sec = static_cast<decltype(timeout.tv_sec)>(timeout_ms / 1000);
+    timeout.tv_usec = static_cast<decltype(timeout.tv_usec)>((timeout_ms % 1000) * 1000);
+    const int selected = select(sock + 1, nullptr, &writefds, nullptr, &timeout);
+
+    int socket_error = 1;
 #ifdef PLATFORM_WINDOWS
+    int error_size = sizeof(socket_error);
+    if (selected > 0) getsockopt(sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&socket_error), &error_size);
     closesocket(sock);
 #else
+    socklen_t error_size = sizeof(socket_error);
+    if (selected > 0) getsockopt(sock, SOL_SOCKET, SO_ERROR, &socket_error, &error_size);
     close(sock);
 #endif
-    
-    return result > 0;
+    return selected > 0 && socket_error == 0;
 }
 
 std::vector<uint16_t> NetworkUtils::scanPorts(const std::string& host, uint16_t start_port, uint16_t end_port, uint32_t timeout_ms) {
     std::vector<uint16_t> open_ports;
     
-    for (uint16_t port = start_port; port <= end_port; port++) {
+    for (uint32_t value = start_port; value <= end_port; ++value) {
+        const auto port = static_cast<uint16_t>(value);
         if (isPortOpen(host, port, timeout_ms)) {
             open_ports.push_back(port);
         }

@@ -9,13 +9,22 @@
 
 namespace gno {
 
-static std::wstring toWide(const std::string& s) {
-    if (s.empty()) return {};
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring ws(len - 1, 0);
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], len);
-    return ws;
+#ifdef PLATFORM_WINDOWS
+static std::wstring toWide(const std::string& value) {
+    if (value.empty()) return {};
+    const int required = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+        static_cast<int>(value.size()), nullptr, 0);
+    if (required <= 0) return {};
+
+    std::wstring result(static_cast<std::size_t>(required), L'\0');
+    const int written = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+        static_cast<int>(value.size()), result.data(), required);
+    if (written != required) return {};
+    return result;
 }
+#endif
 
 FPSOptimizer::FPSOptimizer() = default;
 FPSOptimizer::~FPSOptimizer() = default;

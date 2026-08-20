@@ -3,6 +3,7 @@
 #include <sstream>
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <regex>
 
 #ifdef PLATFORM_WINDOWS
@@ -18,21 +19,22 @@
 
 namespace gno {
 
-static std::wstring toWide(const std::string& s) {
-    if (s.empty()) return {};
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring ws(len - 1, 0);
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], len);
-    return ws;
-}
+#ifdef PLATFORM_WINDOWS
+static std::wstring toWide(const std::string& value) {
+    if (value.empty()) return {};
+    const int required = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+        static_cast<int>(value.size()), nullptr, 0);
+    if (required <= 0) return {};
 
-static std::string toNarrow(const std::wstring& ws) {
-    if (ws.empty()) return {};
-    int len = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    std::string s(len - 1, 0);
-    WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, &s[0], len, nullptr, nullptr);
-    return s;
+    std::wstring result(static_cast<std::size_t>(required), L'\0');
+    const int written = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+        static_cast<int>(value.size()), result.data(), required);
+    if (written != required) return {};
+    return result;
 }
+#endif
 
 GameDetector::GameDetector() {
     supported_games_ = {
@@ -269,6 +271,7 @@ std::string GameDetector::getGOGPath() const {
 
 std::vector<std::string> GameDetector::getSteamLibraryFolders() const {
     std::vector<std::string> folders;
+#ifdef PLATFORM_WINDOWS
     std::string steamPath = getSteamPath();
     if (steamPath.empty()) return folders;
     
@@ -284,12 +287,12 @@ std::vector<std::string> GameDetector::getSteamLibraryFolders() const {
             if (std::regex_search(line, match, pathRegex)) {
                 std::string path = match[1].str();
                 std::replace(path.begin(), path.end(), '/', '\\');
-                if (path.back() != '\\') path += "\\";
-                path += "steamapps";
-                folders.push_back(path);
+                if (!path.empty() && path.back() != '\\') path += "\\";
+                folders.push_back(path + "steamapps");
             }
         }
     }
+#endif
     return folders;
 }
 
@@ -312,6 +315,7 @@ std::string GameDetector::findExecutableInDir(const std::string& dir, const std:
 }
 
 void GameDetector::scanSteamLibrary() {
+#ifdef PLATFORM_WINDOWS
     auto folders = getSteamLibraryFolders();
     if (folders.empty()) return;
     
@@ -364,9 +368,11 @@ void GameDetector::scanSteamLibrary() {
     for (auto& game : supported_games_) {
         if (game.is_installed) installed_games_.push_back(game);
     }
+#endif
 }
 
 void GameDetector::scanEpicLibrary() {
+#ifdef PLATFORM_WINDOWS
     char localAppData[MAX_PATH];
     if (SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, localAppData) != S_OK) return;
     
@@ -402,9 +408,11 @@ void GameDetector::scanEpicLibrary() {
     for (auto& game : supported_games_) {
         if (game.is_installed) installed_games_.push_back(game);
     }
+#endif
 }
 
 void GameDetector::scanGOGLibrary() {
+#ifdef PLATFORM_WINDOWS
     char localAppData[MAX_PATH];
     if (SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, localAppData) != S_OK) return;
     
@@ -436,6 +444,7 @@ void GameDetector::scanGOGLibrary() {
     for (auto& game : supported_games_) {
         if (game.is_installed) installed_games_.push_back(game);
     }
+#endif
 }
 
 std::vector<GameInstallInfo> GameDetector::findGameInstallations(const std::string& game_name) {

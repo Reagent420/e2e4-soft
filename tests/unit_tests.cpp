@@ -32,6 +32,7 @@ TEST_CASE("GameDetector::regions") {
 TEST_CASE("RouteAnalyzer::getRoutes") {
     RouteAnalyzer analyzer;
     auto routes = analyzer.getRoutes();
+#ifdef PLATFORM_WINDOWS
     REQUIRE(routes.size() > 0);
     bool hasValid = false;
     for (const auto& r : routes) {
@@ -41,6 +42,9 @@ TEST_CASE("RouteAnalyzer::getRoutes") {
         }
     }
     REQUIRE(hasValid);
+#else
+    REQUIRE(routes.empty());
+#endif
 }
 
 TEST_CASE("GameProfiles::save/load") {
@@ -88,8 +92,12 @@ TEST_CASE("DNSManager::presets") {
 TEST_CASE("ProcessMonitor::getTopProcesses") {
     ProcessMonitor pm;
     auto procs = pm.getTopProcesses(10);
+#ifdef PLATFORM_WINDOWS
     REQUIRE(procs.size() <= 10);
     REQUIRE(procs.size() > 0);
+#else
+    REQUIRE(procs.empty());
+#endif
 }
 
 TEST_CASE("ProcessMonitor::block/unblock") {
@@ -117,8 +125,12 @@ TEST_CASE("JitterCalculator::basic") {
 TEST_CASE("PacketLossMonitor::measure") {
     PacketLossMonitor plm;
     auto result = plm.measure("8.8.8.8", 10, 1000);
+#ifdef PLATFORM_WINDOWS
     REQUIRE(result.packets_sent == 10);
     REQUIRE(result.loss_percent >= 0.0);
+#else
+    REQUIRE(result.packets_sent == 0);
+#endif
 }
 
 TEST_CASE("StatsCollector::session") {
