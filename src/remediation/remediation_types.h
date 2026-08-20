@@ -21,6 +21,8 @@ inline constexpr std::size_t kMaxPowerPlanIdLength = 128;
 inline constexpr std::size_t kMaxRegistryStringLength = 4096;
 inline constexpr std::size_t kMaxDnsServers = 8;
 inline constexpr std::size_t kMaxTcpSettings = 16;
+inline constexpr int kMinNiceValue = -20;
+inline constexpr int kMaxNiceValue = 19;
 
 enum class ActionId {
     PowerPlan,
@@ -220,6 +222,15 @@ struct ActionState {
     std::string detail;
 };
 
+inline bool operator==(const ActionState& left, const ActionState& right) noexcept {
+    return left.id == right.id && left.status == right.status &&
+           left.value == right.value && left.detail == right.detail;
+}
+
+inline bool operator!=(const ActionState& left, const ActionState& right) noexcept {
+    return !(left == right);
+}
+
 struct PreparedAction {
     ActionId id = ActionId::PowerPlan;
     ActionTarget target;
@@ -235,6 +246,9 @@ struct ActionOutcome {
     bool attempted = false;
     ActionState state;
     std::string detail;
+    RemediationError rollback_error = RemediationError::None;
+    bool rollback_attempted = false;
+    std::string rollback_detail;
 };
 
 enum class TransactionStatus {
@@ -256,6 +270,7 @@ struct TransactionRecord {
     std::vector<PreparedAction> prepared_actions;
     std::vector<ActionOutcome> outcomes;
     std::vector<ActionId> action_order;
+    std::vector<ActionId> applied_action_order;
     RemediationError error = RemediationError::None;
     std::string detail;
 };
@@ -307,6 +322,19 @@ inline bool isBounded(const ActionValue& action_value) noexcept {
             }
         },
         action_value);
+}
+
+inline bool isSafeProposed(const ActionValue& action_value) noexcept {
+    if (!isBounded(action_value)) {
+        return false;
+    }
+    if (const auto* priority = std::get_if<PriorityValue>(&action_value)) {
+        return *priority != PriorityValue::Realtime;
+    }
+    if (const auto* nice = std::get_if<NiceValue>(&action_value)) {
+        return nice->value >= kMinNiceValue && nice->value <= kMaxNiceValue;
+    }
+    return true;
 }
 
 } // namespace gno

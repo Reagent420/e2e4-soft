@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -76,8 +77,12 @@ Result<T> failure(RemediationError error, std::string detail = {}) {
 
 class FakeAction final : public FixAction {
 public:
-    FakeAction(ActionId action_id, std::vector<std::string>& log)
-        : action_id_(action_id), log_(log) {}
+    FakeAction(ActionId action_id, std::vector<std::string>& log,
+               std::shared_ptr<ActionValue> state = {})
+        : action_id_(action_id),
+          log_(log),
+          state_(state ? std::move(state)
+                       : std::make_shared<ActionValue>(originalValue(action_id))) {}
 
     ActionId id() const noexcept override { return action_id_; }
 
@@ -88,7 +93,7 @@ public:
             return failure<ActionState>(observe_error, "observe failed");
         }
         return success(ActionState{action_id_, ActionStatus::Recommended,
-                                   originalValue(action_id_), {}});
+                                   *state_, {}});
     }
 
     Result<PreparedAction> prepare(
@@ -101,9 +106,13 @@ public:
         prepared.id = action_id_;
         prepared.target = target;
         prepared.before = observed;
+        if (fabricate_before) {
+            prepared.before.value = proposedValue(action_id_);
+        }
         prepared.proposed = ActionState{action_id_, ActionStatus::Recommended,
-                                        proposedValue(action_id_), {}};
-        prepared.rollback_supported = true;
+                                        proposed_override.value_or(
+                                            proposedValue(action_id_)), {}};
+        prepared.rollback_supported = rollback_supported;
         return success(std::move(prepared));
     }
 
@@ -116,8 +125,10 @@ public:
         if (apply_error != RemediationError::None) {
             return failure<ActionState>(apply_error, "apply failed");
         }
-        auto value = verification_mismatch ? originalValue(action_id_)
-                                           : prepared.proposed.value;
+        if (!apply_observation_mismatch) {
+            *state_ = prepared.proposed.value;
+        }
+        auto value = apply_return_override.value_or(prepared.proposed.value);
         return success(ActionState{action_id_, ActionStatus::Applied,
                                    std::move(value), {}});
     }
@@ -128,7 +139,12 @@ public:
         if (rollback_error != RemediationError::None) {
             return failure<ActionState>(rollback_error, "rollback failed");
         }
-        auto value = rollback_mismatch ? prepared.proposed.value : prepared.before.value;
+        if (rollback_observed_override) {
+            *state_ = *rollback_observed_override;
+        } else if (!rollback_observation_mismatch) {
+            *state_ = prepared.before.value;
+        }
+        auto value = rollback_return_override.value_or(prepared.before.value);
         return success(ActionState{action_id_, ActionStatus::Reverted,
                                    std::move(value), {}});
     }
@@ -137,13 +153,20 @@ public:
     RemediationError prepare_error = RemediationError::None;
     RemediationError apply_error = RemediationError::None;
     RemediationError rollback_error = RemediationError::None;
-    bool verification_mismatch = false;
-    bool rollback_mismatch = false;
+    bool fabricate_before = false;
+    bool rollback_supported = true;
+    bool apply_observation_mismatch = false;
+    bool rollback_observation_mismatch = false;
+    std::optional<ActionValue> proposed_override;
+    std::optional<ActionValue> apply_return_override;
+    std::optional<ActionValue> rollback_return_override;
+    std::optional<ActionValue> rollback_observed_override;
     std::function<void()> on_apply;
 
 private:
     ActionId action_id_;
     std::vector<std::string>& log_;
+    std::shared_ptr<ActionValue> state_;
 };
 
 class FakeBackupStore final : public BackupStore {
@@ -209,6 +232,18 @@ std::vector<std::unique_ptr<FixAction>> twoActions(
     return actions;
 }
 
+std::vector<std::unique_ptr<FixAction>> oneAction(
+    std::vector<std::string>& log, ActionId id, FakeAction** action = nullptr,
+    std::shared_ptr<ActionValue> state = {}) {
+    std::vector<std::unique_ptr<FixAction>> actions;
+    auto fake = std::make_unique<FakeAction>(id, log, std::move(state));
+    if (action) {
+        *action = fake.get();
+    }
+    actions.push_back(std::move(fake));
+    return actions;
+}
+
 void requirePrepared(FixTransaction& transaction, const CancellationToken& token) {
     const auto prepared = transaction.prepare(token);
     REQUIRE(prepared.ok());
@@ -249,7 +284,9 @@ TEST_CASE("transaction completes all preflight and persists Prepared before muta
     REQUIRE(executed.ok());
     CHECK(log == std::vector<std::string>{"observe:power", "prepare:power",
                                           "observe:dns", "prepare:dns",
-                                          "save", "apply:power", "apply:dns"});
+                                          "observe:power", "observe:dns", "save",
+                                          "apply:power", "observe:power",
+                                          "apply:dns", "observe:dns"});
     REQUIRE(store.records.size() == 3);
     CHECK(store.records[0].status == gno::TransactionStatus::Prepared);
     CHECK(store.records[1].outcomes[0].status == gno::ActionStatus::Applied);
@@ -270,7 +307,8 @@ TEST_CASE("backup failure prevents every mutation") {
     CHECK_FALSE(result.ok());
     CHECK(result.error == gno::RemediationError::BackupFailed);
     CHECK(log == std::vector<std::string>{"observe:power", "prepare:power",
-                                          "observe:dns", "prepare:dns", "save"});
+                                          "observe:dns", "prepare:dns",
+                                          "observe:power", "observe:dns", "save"});
 }
 
 TEST_CASE("apply stops at first failure and preserves not-attempted outcomes") {
@@ -302,7 +340,7 @@ TEST_CASE("verification mismatch is a failure") {
     FakeBackupStore store(log);
     FakeAction* power = nullptr;
     auto actions = twoActions(log, &power, nullptr);
-    power->verification_mismatch = true;
+    power->apply_observation_mismatch = true;
     auto transaction = makeTransaction(store, std::move(actions));
     const gno::CancellationToken token;
     requirePrepared(*transaction, token);
@@ -312,8 +350,105 @@ TEST_CASE("verification mismatch is a failure") {
     CHECK_FALSE(result.ok());
     CHECK(result.error == gno::RemediationError::VerificationMismatch);
     CHECK(result.value.outcomes[0].error == gno::RemediationError::VerificationMismatch);
+    CHECK(result.value.outcomes[0].state.value ==
+          originalValue(gno::ActionId::PowerPlan));
+    CHECK(store.records.back().outcomes[0].state.value ==
+          originalValue(gno::ActionId::PowerPlan));
     CHECK(result.value.outcomes[1].status == gno::ActionStatus::NotChecked);
-    CHECK(log.back() == "apply:power");
+    CHECK(log[log.size() - 2] == "apply:power");
+    CHECK(log.back() == "observe:power");
+}
+
+TEST_CASE("apply verification trusts fresh observation rather than mutation return") {
+    std::vector<std::string> log;
+    FakeBackupStore store(log);
+    FakeAction* power = nullptr;
+    auto actions = oneAction(log, gno::ActionId::PowerPlan, &power);
+    power->apply_return_override = originalValue(gno::ActionId::PowerPlan);
+    auto transaction = makeTransaction(store, std::move(actions));
+    const gno::CancellationToken token;
+    requirePrepared(*transaction, token);
+
+    const auto result = transaction->execute(token);
+
+    REQUIRE(result.ok());
+    CHECK(result.value.outcomes[0].state.value ==
+          proposedValue(gno::ActionId::PowerPlan));
+    REQUIRE(store.records.size() == 2);
+    CHECK(store.records.back().outcomes[0].state.value ==
+          proposedValue(gno::ActionId::PowerPlan));
+    CHECK(log[log.size() - 2] == "apply:power");
+    CHECK(log.back() == "observe:power");
+}
+
+TEST_CASE("execute rejects a stale prepared before-state before backup or mutation") {
+    std::vector<std::string> first_log;
+    std::vector<std::string> second_log;
+    FakeBackupStore first_store(first_log);
+    FakeBackupStore second_store(second_log);
+    auto shared_state = std::make_shared<gno::ActionValue>(
+        originalValue(gno::ActionId::PowerPlan));
+    auto first = makeTransaction(
+        first_store,
+        oneAction(first_log, gno::ActionId::PowerPlan, nullptr, shared_state));
+    std::vector<std::unique_ptr<gno::FixAction>> second_actions;
+    second_actions.push_back(std::make_unique<FakeAction>(
+        gno::ActionId::PowerPlan, second_log, shared_state));
+    second_actions.push_back(std::make_unique<FakeAction>(
+        gno::ActionId::Dns, second_log));
+    auto second = makeTransaction(
+        second_store, std::move(second_actions),
+        "00000000-0000-4000-8000-000000000002");
+    const gno::CancellationToken token;
+    requirePrepared(*first, token);
+    requirePrepared(*second, token);
+    REQUIRE(first->execute(token).ok());
+
+    const auto stale = second->execute(token);
+
+    CHECK_FALSE(stale.ok());
+    CHECK(stale.error == gno::RemediationError::PreflightFailed);
+    CHECK(second_store.records.empty());
+    CHECK(second_log == std::vector<std::string>{
+                            "observe:power", "prepare:power",
+                            "observe:dns", "prepare:dns",
+                            "observe:power", "observe:dns"});
+}
+
+TEST_CASE("prepare rejects a fabricated backup that differs from observation") {
+    std::vector<std::string> log;
+    FakeBackupStore store(log);
+    FakeAction* power = nullptr;
+    auto actions = oneAction(log, gno::ActionId::PowerPlan, &power);
+    power->fabricate_before = true;
+    auto transaction = makeTransaction(store, std::move(actions));
+
+    const auto result = transaction->prepare({});
+
+    CHECK_FALSE(result.ok());
+    CHECK(result.error == gno::RemediationError::PreflightFailed);
+    CHECK(store.records.empty());
+}
+
+TEST_CASE("transaction preparation is one-shot and cannot erase applied bookkeeping") {
+    std::vector<std::string> log;
+    FakeBackupStore store(log);
+    auto transaction = makeTransaction(
+        store, oneAction(log, gno::ActionId::PowerPlan));
+    const gno::CancellationToken token;
+    requirePrepared(*transaction, token);
+    REQUIRE(transaction->execute(token).ok());
+    const auto before_retry = transaction->record();
+    const auto log_size = log.size();
+
+    const auto retried = transaction->prepare(token);
+
+    CHECK_FALSE(retried.ok());
+    CHECK(retried.error == gno::RemediationError::PreflightFailed);
+    CHECK(transaction->record().status == gno::TransactionStatus::Applied);
+    CHECK(transaction->record().outcomes[0].status == gno::ActionStatus::Applied);
+    CHECK(transaction->record().applied_action_order == before_retry.applied_action_order);
+    CHECK(log.size() == log_size);
 }
 
 TEST_CASE("cancellation stops before the next action") {
@@ -333,13 +468,19 @@ TEST_CASE("cancellation stops before the next action") {
     CHECK(result.error == gno::RemediationError::Cancelled);
     CHECK(result.value.outcomes[0].status == gno::ActionStatus::Applied);
     CHECK(result.value.outcomes[1].status == gno::ActionStatus::NotChecked);
-    CHECK(log.back() == "apply:power");
+    CHECK(log[log.size() - 2] == "apply:power");
+    CHECK(log.back() == "observe:power");
 }
 
 TEST_CASE("rollback visits only verified applied actions in reverse order") {
     std::vector<std::string> log;
     FakeBackupStore store(log);
-    auto transaction = makeTransaction(store, twoActions(log));
+    FakeAction* power = nullptr;
+    FakeAction* dns = nullptr;
+    auto actions = twoActions(log, &power, &dns);
+    power->rollback_return_override = proposedValue(gno::ActionId::PowerPlan);
+    dns->rollback_return_override = proposedValue(gno::ActionId::Dns);
+    auto transaction = makeTransaction(store, std::move(actions));
     const gno::CancellationToken token;
     requirePrepared(*transaction, token);
     REQUIRE(transaction->execute(token).ok());
@@ -352,8 +493,142 @@ TEST_CASE("rollback visits only verified applied actions in reverse order") {
     REQUIRE(result.value.outcomes.size() == 2);
     CHECK(result.value.outcomes[0].status == gno::ActionStatus::Reverted);
     CHECK(result.value.outcomes[1].status == gno::ActionStatus::Reverted);
-    CHECK(log[log.size() - 2] == "rollback:dns");
-    CHECK(log.back() == "rollback:power");
+    CHECK(log[log.size() - 4] == "rollback:dns");
+    CHECK(log[log.size() - 3] == "observe:dns");
+    CHECK(log[log.size() - 2] == "rollback:power");
+    CHECK(log.back() == "observe:power");
+}
+
+TEST_CASE("rollback observation mismatch remains applied and succeeds on retry") {
+    std::vector<std::string> log;
+    FakeBackupStore store(log);
+    FakeAction* power = nullptr;
+    FakeAction* dns = nullptr;
+    auto actions = twoActions(log, &power, &dns);
+    auto transaction = makeTransaction(store, std::move(actions));
+    const gno::CancellationToken token;
+    requirePrepared(*transaction, token);
+    REQUIRE(transaction->execute(token).ok());
+    power->rollback_observed_override = gno::PowerPlanValue{"eco"};
+
+    const auto failed = transaction->rollback(token);
+
+    CHECK_FALSE(failed.ok());
+    CHECK(failed.error == gno::RemediationError::RollbackFailed);
+    CHECK(failed.value.status == gno::TransactionStatus::RollbackFailed);
+    CHECK(failed.value.outcomes[0].status == gno::ActionStatus::Applied);
+    CHECK(failed.value.outcomes[0].rollback_error ==
+          gno::RemediationError::VerificationMismatch);
+    CHECK(failed.value.outcomes[0].state.value ==
+          gno::ActionValue{gno::PowerPlanValue{"eco"}});
+    CHECK(store.records.back().outcomes[0].state.value ==
+          gno::ActionValue{gno::PowerPlanValue{"eco"}});
+    CHECK(failed.value.outcomes[1].status == gno::ActionStatus::Reverted);
+
+    power->rollback_observed_override.reset();
+    const auto retried = transaction->rollback(token);
+
+    REQUIRE(retried.ok());
+    CHECK(retried.value.status == gno::TransactionStatus::Reverted);
+    CHECK(retried.value.action_order ==
+          std::vector<gno::ActionId>{gno::ActionId::PowerPlan});
+    CHECK(retried.value.outcomes[0].status == gno::ActionStatus::Reverted);
+    CHECK(retried.value.outcomes[0].rollback_error == gno::RemediationError::None);
+}
+
+TEST_CASE("rollback rejects transactions without an eligible reversible applied prefix") {
+    SUBCASE("Prepared is ineligible") {
+        std::vector<std::string> log;
+        FakeBackupStore store(log);
+        auto transaction = makeTransaction(
+            store, oneAction(log, gno::ActionId::PowerPlan));
+        requirePrepared(*transaction, {});
+        const auto before = log.size();
+
+        const auto result = transaction->rollback({});
+
+        CHECK(result.error == gno::RemediationError::RollbackFailed);
+        CHECK(log.size() == before);
+    }
+
+    SUBCASE("backup failure is ineligible") {
+        std::vector<std::string> log;
+        FakeBackupStore store(log);
+        store.fail_next_save = true;
+        auto transaction = makeTransaction(
+            store, oneAction(log, gno::ActionId::PowerPlan));
+        requirePrepared(*transaction, {});
+        REQUIRE(transaction->execute({}).error == gno::RemediationError::BackupFailed);
+
+        const auto result = transaction->rollback({});
+
+        CHECK(result.error == gno::RemediationError::RollbackFailed);
+        CHECK(log.back() == "save");
+    }
+
+    SUBCASE("rollback unsupported is ineligible") {
+        std::vector<std::string> log;
+        FakeBackupStore store(log);
+        FakeAction* power = nullptr;
+        auto actions = oneAction(log, gno::ActionId::PowerPlan, &power);
+        power->rollback_supported = false;
+        auto transaction = makeTransaction(store, std::move(actions));
+        requirePrepared(*transaction, {});
+        REQUIRE(transaction->execute({}).ok());
+        const auto before = log.size();
+
+        const auto result = transaction->rollback({});
+
+        CHECK(result.error == gno::RemediationError::RollbackFailed);
+        CHECK(log.size() == before);
+    }
+
+    SUBCASE("already reverted is ineligible") {
+        std::vector<std::string> log;
+        FakeBackupStore store(log);
+        auto transaction = makeTransaction(
+            store, oneAction(log, gno::ActionId::PowerPlan));
+        requirePrepared(*transaction, {});
+        REQUIRE(transaction->execute({}).ok());
+        REQUIRE(transaction->rollback({}).ok());
+        const auto before = log.size();
+
+        const auto result = transaction->rollback({});
+
+        CHECK(result.error == gno::RemediationError::RollbackFailed);
+        CHECK(log.size() == before);
+    }
+}
+
+TEST_CASE("proposed process priority values are restricted to safe ranges") {
+    const std::vector<gno::ActionValue> unsafe = {
+        gno::PriorityValue::Realtime, gno::NiceValue{-21}, gno::NiceValue{20}};
+    for (const auto& proposed : unsafe) {
+        std::vector<std::string> log;
+        FakeBackupStore store(log);
+        FakeAction* priority = nullptr;
+        auto observed = std::make_shared<gno::ActionValue>(
+            gno::PriorityValue::Realtime);
+        auto actions = oneAction(
+            log, gno::ActionId::ProcessPriority, &priority, observed);
+        priority->proposed_override = proposed;
+        auto transaction = makeTransaction(store, std::move(actions));
+
+        const auto result = transaction->prepare({});
+
+        CHECK_FALSE(result.ok());
+        CHECK(result.error == gno::RemediationError::PreflightFailed);
+    }
+
+    for (const auto nice : {-20, 19}) {
+        std::vector<std::string> log;
+        FakeBackupStore store(log);
+        FakeAction* priority = nullptr;
+        auto actions = oneAction(log, gno::ActionId::ProcessPriority, &priority);
+        priority->proposed_override = gno::NiceValue{nice};
+        auto transaction = makeTransaction(store, std::move(actions));
+        CHECK(transaction->prepare({}).ok());
+    }
 }
 
 TEST_CASE("concurrent and reentrant execute calls return Busy") {

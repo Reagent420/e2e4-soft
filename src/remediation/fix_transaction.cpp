@@ -41,6 +41,45 @@ bool matchingState(const ActionState& state, const ActionState& expected) noexce
     return state.id == expected.id && isBounded(state) && state.value == expected.value;
 }
 
+bool rollbackEligible(const TransactionRecord& record) noexcept {
+    const bool eligible_status = record.status == TransactionStatus::Applied ||
+                                 record.status == TransactionStatus::Failed ||
+                                 record.status == TransactionStatus::Cancelled ||
+                                 record.status == TransactionStatus::RollbackFailed;
+    if (!eligible_status || record.error == RemediationError::BackupFailed ||
+        record.applied_action_order.empty() ||
+        record.applied_action_order.size() > record.prepared_actions.size() ||
+        record.outcomes.size() != record.prepared_actions.size()) {
+        return false;
+    }
+
+    bool unresolved = false;
+    const auto applied_count = record.applied_action_order.size();
+    for (std::size_t index = 0; index < applied_count; ++index) {
+        const auto& prepared = record.prepared_actions[index];
+        const auto& outcome = record.outcomes[index];
+        if (record.applied_action_order[index] != prepared.id ||
+            outcome.id != prepared.id ||
+            (outcome.status != ActionStatus::Applied &&
+             outcome.status != ActionStatus::Reverted)) {
+            return false;
+        }
+        if (outcome.status == ActionStatus::Applied) {
+            if (!prepared.rollback_supported) {
+                return false;
+            }
+            unresolved = true;
+        }
+    }
+    for (std::size_t index = applied_count; index < record.outcomes.size(); ++index) {
+        if (record.outcomes[index].status == ActionStatus::Applied ||
+            record.outcomes[index].status == ActionStatus::Reverted) {
+            return false;
+        }
+    }
+    return unresolved;
+}
+
 } // namespace
 
 FixTransaction::FixTransaction(
@@ -60,6 +99,12 @@ Result<TransactionRecord> FixTransaction::prepare(
     std::unique_lock<std::mutex> operation_lock(operation_mutex_, std::try_to_lock);
     if (!operation_lock.owns_lock()) {
         return busyResult();
+    }
+
+    const auto existing = record();
+    if (existing.status != TransactionStatus::Unprepared) {
+        return makeResult(existing, RemediationError::PreflightFailed,
+                          "transaction preparation is one-shot");
     }
 
     TransactionRecord prepared;
@@ -107,7 +152,9 @@ Result<TransactionRecord> FixTransaction::prepare(
         if (action.value.id != actions_[index]->id() ||
             action.value.before.id != actions_[index]->id() ||
             action.value.proposed.id != actions_[index]->id() ||
-            action.value.target != targets_[index] || !isBounded(action.value)) {
+            action.value.target != targets_[index] ||
+            action.value.before != observed.value || !isBounded(action.value) ||
+            !isSafeProposed(action.value.proposed.value)) {
             return fail(std::move(prepared), RemediationError::PreflightFailed,
                         "invalid prepared action", false);
         }
@@ -144,6 +191,27 @@ Result<TransactionRecord> FixTransaction::execute(
                           "transaction is not prepared");
     }
 
+    bool stale = false;
+    std::string stale_detail;
+    for (std::size_t index = 0; index < actions_.size(); ++index) {
+        if (cancellation.isCancelled()) {
+            return fail(std::move(current), RemediationError::Cancelled,
+                        "execution cancelled during freshness check", false);
+        }
+        const auto fresh = actions_[index]->observe(targets_[index], cancellation);
+        if (!fresh.ok() || fresh.value != current.prepared_actions[index].before ||
+            !isBounded(fresh.value)) {
+            stale = true;
+            if (stale_detail.empty()) {
+                stale_detail = fresh.ok() ? "prepared state is stale" : fresh.detail;
+            }
+        }
+    }
+    if (stale) {
+        return fail(std::move(current), RemediationError::PreflightFailed,
+                    std::move(stale_detail), false);
+    }
+
     const auto prepared_save = persist(current);
     if (!prepared_save.ok()) {
         current.status = TransactionStatus::Failed;
@@ -172,9 +240,18 @@ Result<TransactionRecord> FixTransaction::execute(
             return fail(std::move(current), applied.error, applied.detail, true);
         }
 
-        if (!matchingState(applied.value, current.prepared_actions[index].proposed)) {
+        const auto verified = actions_[index]->observe(targets_[index], cancellation);
+        if (!verified.ok()) {
+            outcome.status = ActionStatus::Failed;
+            outcome.error = verified.error;
+            outcome.detail = boundedDetail(verified.detail);
+            return fail(std::move(current), verified.error, verified.detail, true);
+        }
+
+        if (!matchingState(verified.value, current.prepared_actions[index].proposed)) {
             outcome.status = ActionStatus::Failed;
             outcome.error = RemediationError::VerificationMismatch;
+            outcome.state = verified.value;
             outcome.detail = "post-apply state did not match the prepared value";
             return fail(std::move(current), RemediationError::VerificationMismatch,
                         outcome.detail, true);
@@ -182,9 +259,10 @@ Result<TransactionRecord> FixTransaction::execute(
 
         outcome.status = ActionStatus::Applied;
         outcome.error = RemediationError::None;
-        outcome.state = applied.value;
+        outcome.state = verified.value;
         outcome.detail.clear();
         current.action_order.push_back(actions_[index]->id());
+        current.applied_action_order.push_back(actions_[index]->id());
         current.status = index + 1 == actions_.size()
                              ? TransactionStatus::Applied
                              : TransactionStatus::Applying;
@@ -219,18 +297,26 @@ Result<TransactionRecord> FixTransaction::rollback(
 
     TransactionRecord current = record();
     if (current.prepared_actions.size() != actions_.size() ||
-        current.outcomes.size() != actions_.size()) {
+        current.outcomes.size() != actions_.size() || !rollbackEligible(current)) {
         return makeResult(std::move(current), RemediationError::RollbackFailed,
-                          "transaction has no rollback plan");
+                          "transaction has no eligible reversible applied prefix");
     }
 
-    current.status = TransactionStatus::RollingBack;
-    current.error = RemediationError::None;
-    current.detail.clear();
-    current.action_order.clear();
+    TransactionRecord rolling_back = current;
+    rolling_back.status = TransactionStatus::RollingBack;
+    rolling_back.error = RemediationError::None;
+    rolling_back.detail.clear();
+    rolling_back.action_order.clear();
+    const auto rolling_back_save = persist(rolling_back);
+    if (!rolling_back_save.ok()) {
+        return makeResult(std::move(current), RemediationError::BackupFailed,
+                          rolling_back_save.detail);
+    }
+    current = std::move(rolling_back);
     replaceRecord(current);
 
-    for (std::size_t reverse = actions_.size(); reverse > 0; --reverse) {
+    for (std::size_t reverse = current.applied_action_order.size(); reverse > 0;
+         --reverse) {
         const std::size_t index = reverse - 1;
         if (current.outcomes[index].status != ActionStatus::Applied) {
             continue;
@@ -241,27 +327,56 @@ Result<TransactionRecord> FixTransaction::rollback(
                         "rollback cancelled", true);
         }
 
-        current.action_order.push_back(actions_[index]->id());
         const auto rolled_back = actions_[index]->rollback(
             current.prepared_actions[index], cancellation);
         auto& outcome = current.outcomes[index];
-        if (!rolled_back.ok() ||
-            !matchingState(rolled_back.value, current.prepared_actions[index].before)) {
-            outcome.status = ActionStatus::Failed;
-            outcome.error = RemediationError::RollbackFailed;
-            outcome.attempted = true;
-            outcome.detail = rolled_back.ok()
-                                 ? "post-rollback state did not match the original value"
-                                 : boundedDetail(rolled_back.detail);
-            return fail(std::move(current), RemediationError::RollbackFailed,
-                        outcome.detail, true);
+        outcome.rollback_attempted = true;
+        if (!rolled_back.ok()) {
+            outcome.rollback_error = rolled_back.error;
+            outcome.rollback_detail = boundedDetail(rolled_back.detail);
+            current.status = TransactionStatus::RollbackFailed;
+            current.error = RemediationError::RollbackFailed;
+            current.detail = outcome.rollback_detail;
+            replaceRecord(current);
+            const auto saved = persist(current);
+            if (!saved.ok()) {
+                return makeResult(std::move(current), RemediationError::BackupFailed,
+                                  saved.detail);
+            }
+            return makeResult(std::move(current), RemediationError::RollbackFailed,
+                              outcome.rollback_detail);
+        }
+
+        const auto verified = actions_[index]->observe(targets_[index], cancellation);
+        if (!verified.ok() ||
+            !matchingState(verified.value, current.prepared_actions[index].before)) {
+            if (verified.ok()) {
+                outcome.state = verified.value;
+            }
+            outcome.rollback_error = verified.ok()
+                                         ? RemediationError::VerificationMismatch
+                                         : verified.error;
+            outcome.rollback_detail = verified.ok()
+                                          ? "post-rollback state did not match the original value"
+                                          : boundedDetail(verified.detail);
+            current.status = TransactionStatus::RollbackFailed;
+            current.error = RemediationError::RollbackFailed;
+            current.detail = outcome.rollback_detail;
+            replaceRecord(current);
+            const auto saved = persist(current);
+            if (!saved.ok()) {
+                return makeResult(std::move(current), RemediationError::BackupFailed,
+                                  saved.detail);
+            }
+            return makeResult(std::move(current), RemediationError::RollbackFailed,
+                              outcome.rollback_detail);
         }
 
         outcome.status = ActionStatus::Reverted;
-        outcome.error = RemediationError::None;
-        outcome.attempted = true;
-        outcome.state = rolled_back.value;
-        outcome.detail.clear();
+        outcome.rollback_error = RemediationError::None;
+        outcome.rollback_detail.clear();
+        outcome.state = verified.value;
+        current.action_order.push_back(actions_[index]->id());
 
         const bool has_more = std::any_of(
             current.outcomes.begin(), current.outcomes.end(),
@@ -283,15 +398,6 @@ Result<TransactionRecord> FixTransaction::rollback(
         }
     }
 
-    if (current.status == TransactionStatus::RollingBack) {
-        current.status = TransactionStatus::Reverted;
-        replaceRecord(current);
-        const auto saved = persist(current);
-        if (!saved.ok()) {
-            return makeResult(std::move(current), RemediationError::BackupFailed,
-                              saved.detail);
-        }
-    }
     return makeResult(std::move(current), RemediationError::None);
 }
 
