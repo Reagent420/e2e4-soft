@@ -57,10 +57,14 @@ void MainWindow::setupUi()
     auto* statusBarLayout = new QHBoxLayout(statusBarWidget);
     statusBarLayout->setContentsMargins(16, 8, 16, 8);
 
-    m_statusLabel = new QLabel("Disconnected", statusBarWidget);
+    m_statusLabel = new QLabel(QString::fromUtf8("Готово к работе"), statusBarWidget);
     m_statusLabel->setObjectName("statusDisconnected");
     statusBarLayout->addWidget(m_statusLabel);
     statusBarLayout->addStretch();
+
+    auto* hint = new QLabel(QString::fromUtf8("GNO — оптимизация игровой сети"), statusBarWidget);
+    hint->setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px; background: transparent;");
+    statusBarLayout->addWidget(hint);
 
     setStatusBar(new QStatusBar(this));
     statusBar()->setStyleSheet(

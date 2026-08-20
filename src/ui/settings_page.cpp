@@ -52,14 +52,14 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
     mainLayout->setSpacing(16);
 
     auto* headerLayout = new QHBoxLayout();
-    auto* headerTitle = new QLabel("Settings", this);
+    auto* headerTitle = new QLabel(QString::fromUtf8("Настройки"), this);
     headerTitle->setObjectName("headerTitle");
     QFont hFont = headerTitle->font();
     hFont.setBold(true);
     hFont.setPointSize(16);
     headerTitle->setFont(hFont);
 
-    auto* headerSubtitle = new QLabel("Configure application", this);
+    auto* headerSubtitle = new QLabel(QString::fromUtf8("Настройка приложения"), this);
     headerSubtitle->setObjectName("headerSubtitle");
 
     headerLayout->addWidget(headerTitle);
@@ -81,16 +81,16 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
     {
         auto* generalLayout = new QVBoxLayout();
         generalLayout->setSpacing(10);
-        start_windows_ = createCheckBox("Start with Windows", false, this);
-        minimize_tray_ = createCheckBox("Minimize to system tray", true, this);
-        show_notifications_ = createCheckBox("Show notifications", true, this);
+        start_windows_ = createCheckBox(QString::fromUtf8("Запускать при загрузке Windows"), false, this);
+        minimize_tray_ = createCheckBox(QString::fromUtf8("Сворачивать в системный трей"), true, this);
+        show_notifications_ = createCheckBox(QString::fromUtf8("Показывать уведомления"), true, this);
         generalLayout->addWidget(start_windows_);
         generalLayout->addWidget(minimize_tray_);
         generalLayout->addWidget(show_notifications_);
 
         auto* langRow = new QHBoxLayout();
-        auto* langLabel = new QLabel("Language:", this);
-        language_ = createComboBox({"English", "Russian", "Chinese", "Korean", "Japanese"}, 0, this);
+        auto* langLabel = new QLabel(QString::fromUtf8("Язык:"), this);
+        language_ = createComboBox({QString::fromUtf8("Русский"), "English", "中文", "한국어", "日本語"}, 0, this);
         langRow->addWidget(langLabel);
         langRow->addSpacing(12);
         langRow->addWidget(language_);
@@ -98,8 +98,8 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
         generalLayout->addLayout(langRow);
 
         auto* themeRow = new QHBoxLayout();
-        auto* themeLabel = new QLabel("Theme:", this);
-        theme_ = createComboBox({"Dark", "Light"}, 0, this);
+        auto* themeLabel = new QLabel(QString::fromUtf8("Тема:"), this);
+        theme_ = createComboBox({QString::fromUtf8("Тёмная"), QString::fromUtf8("Светлая")}, 0, this);
         themeRow->addWidget(themeLabel);
         themeRow->addSpacing(12);
         themeRow->addWidget(theme_);
@@ -109,7 +109,7 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
         connect(theme_, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [this](int index) { emit themeChanged(index == 1); });
 
-        scrollLayout->addWidget(createSection("GENERAL", generalLayout, this));
+        scrollLayout->addWidget(createSection(QString::fromUtf8("ОБЩИЕ"), generalLayout, this));
     }
 
     {
@@ -127,41 +127,41 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
             connLayout->addLayout(row);
         };
 
-        addComboRow("Protocol:", &protocol_, {"UDP", "TCP", "ICMP"}, 0);
-        addComboRow("Server Region:", &region_, {"Auto Detect", "Europe", "North America", "Asia Pacific", "South America"}, 0);
-        addComboRow("Max Routes:", &max_routes_, {"1", "2", "3", "4", "5"}, 2);
-        addComboRow("Ping Interval:", &ping_interval_, {"500", "1000", "2000", "5000"}, 1);
+        addComboRow(QString::fromUtf8("Протокол:"), &protocol_, {QString::fromUtf8("UDP"), QString::fromUtf8("TCP"), QString::fromUtf8("ICMP")}, 0);
+        addComboRow(QString::fromUtf8("Регион серверов:"), &region_, {QString::fromUtf8("Автоопределение"), QString::fromUtf8("Европа"), QString::fromUtf8("Северная Америка"), QString::fromUtf8("Азия"), QString::fromUtf8("Южная Америка")}, 0);
+        addComboRow(QString::fromUtf8("Макс. маршрутов:"), &max_routes_, {"1", "2", "3", "4", "5"}, 2);
+        addComboRow(QString::fromUtf8("Интервал пинга:"), &ping_interval_, {"500", "1000", "2000", "5000"}, 1);
 
-        scrollLayout->addWidget(createSection("CONNECTION", connLayout, this));
+        scrollLayout->addWidget(createSection(QString::fromUtf8("ПОДКЛЮЧЕНИЕ"), connLayout, this));
     }
 
     {
         auto* advLayout = new QVBoxLayout();
         advLayout->setSpacing(10);
-        verbose_log_ = createCheckBox("Verbose logging", false, this);
-        auto_update_ = createCheckBox("Auto-update", true, this);
-        dev_mode_ = createCheckBox("Developer mode", false, this);
+        verbose_log_ = createCheckBox(QString::fromUtf8("Подробные логи"), false, this);
+        auto_update_ = createCheckBox(QString::fromUtf8("Автообновление"), true, this);
+        dev_mode_ = createCheckBox(QString::fromUtf8("Режим разработчика"), false, this);
         advLayout->addWidget(verbose_log_);
         advLayout->addWidget(auto_update_);
         advLayout->addWidget(dev_mode_);
 
-        scrollLayout->addWidget(createSection("ADVANCED", advLayout, this));
+        scrollLayout->addWidget(createSection(QString::fromUtf8("ДОПОЛНИТЕЛЬНО"), advLayout, this));
     }
 
     {
         auto* aboutLayout = new QVBoxLayout();
         aboutLayout->setSpacing(6);
 
-        auto* appName = new QLabel("GNO - Game Network Optimizer", this);
+        auto* appName = new QLabel(QString::fromUtf8("GNO — оптимизатор игровой сети"), this);
         QFont appFont = appName->font();
         appFont.setBold(true);
         appFont.setPointSize(13);
         appName->setFont(appFont);
         aboutLayout->addWidget(appName);
 
-        aboutLayout->addWidget(new QLabel("Version 1.0.0", this));
-        aboutLayout->addWidget(new QLabel("Built with Qt 6.11.1 + MinGW GCC 16.1.0", this));
-        aboutLayout->addWidget(new QLabel("License: MIT", this));
+        aboutLayout->addWidget(new QLabel(QString::fromUtf8("Версия 1.1.0"), this));
+        aboutLayout->addWidget(new QLabel(QString::fromUtf8("Собрано на Qt 6.11.1 + MinGW GCC 16.1.0"), this));
+        aboutLayout->addWidget(new QLabel(QString::fromUtf8("Лицензия: MIT"), this));
 
         auto* githubLabel = new QLabel("GitHub: github.com/user/gno-native", this);
         QPalette pal = githubLabel->palette();
@@ -169,7 +169,7 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
         githubLabel->setPalette(pal);
         aboutLayout->addWidget(githubLabel);
 
-        scrollLayout->addWidget(createSection("ABOUT", aboutLayout, this));
+        scrollLayout->addWidget(createSection(QString::fromUtf8("О ПРОГРАММЕ"), aboutLayout, this));
     }
 
     scrollLayout->addStretch();
@@ -178,7 +178,7 @@ SettingsPageWidget::SettingsPageWidget(QWidget* parent)
 
     auto* btnRow = new QHBoxLayout();
     btnRow->setContentsMargins(0, 4, 0, 0);
-    auto* resetBtn = new QPushButton("Reset to Defaults", this);
+    auto* resetBtn = new QPushButton(QString::fromUtf8("Сбросить настройки"), this);
     resetBtn->setObjectName("boostButton");
     resetBtn->setFixedWidth(200);
     btnRow->addWidget(resetBtn);

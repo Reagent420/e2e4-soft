@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QWidget>
-#include <QTimer>
 #include <QVector>
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -10,6 +9,8 @@
 #include <QPainterPath>
 #include <QFont>
 #include <QResizeEvent>
+
+#include "../monitoring/ping_monitor.h"
 
 static const int kMaxDataPoints = 60;
 
@@ -67,13 +68,12 @@ private:
     void drawChart(QPainter& p, const QRect& chartRect);
 };
 
+namespace gno {
+
 class MonitoringWidget : public QWidget {
     Q_OBJECT
 public:
     explicit MonitoringWidget(QWidget* parent = nullptr);
-
-private slots:
-    void onRefresh();
 
 private:
     void addLogEntry(const QString& message, const QColor& color = QColor("#94A3B8"));
@@ -85,6 +85,11 @@ private:
     QVBoxLayout* log_layout_;
     QScrollArea* log_scroll_;
     QWidget* log_container_;
-    QTimer* refresh_timer_;
     int log_count_ = 0;
+
+    PingMonitor ping_monitor_;
+    QVector<double> jitter_samples_;
+    QVector<double> loss_window_;
 };
+
+} // namespace gno

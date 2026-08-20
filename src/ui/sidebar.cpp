@@ -30,16 +30,16 @@ Sidebar::Sidebar(QWidget* parent)
     m_buttonGroup = new QButtonGroup(this);
     m_buttonGroup->setExclusive(true);
 
-    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard,       "Dashboard"),       0);
-    m_buttonGroup->addButton(createNavButton(NavPage::Games,           "Games"),           1);
-    m_buttonGroup->addButton(createNavButton(NavPage::Profiles,        "Profiles"),        2);
-    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring,      "Monitoring"),      3);
-    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "Optimizer"),       4);
-    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "Net Tools"),       5);
-    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "Processes"),       6);
-    m_buttonGroup->addButton(createNavButton(NavPage::History,         "History"),         7);
-    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "Geo Map"),         8);
-    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "Settings"),        9);
+    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard,       "Главная"),          0);
+    m_buttonGroup->addButton(createNavButton(NavPage::Games,           "Игры"),             1);
+    m_buttonGroup->addButton(createNavButton(NavPage::Profiles,        "Профили игр"),      2);
+    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring,      "Мониторинг"),       3);
+    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "Оптимизация"),      4);
+    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "Сетевые утилиты"),  5);
+    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "Процессы"),         6);
+    m_buttonGroup->addButton(createNavButton(NavPage::History,         "История"),          7);
+    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "Карта серверов"),   8);
+    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "Настройки"),        9);
 
     for (int i = 0; i < BUTTON_COUNT; ++i) {
         layout->addWidget(m_buttonGroup->button(i));

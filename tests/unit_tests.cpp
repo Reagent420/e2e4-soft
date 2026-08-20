@@ -15,7 +15,7 @@ using namespace gno;
 TEST_CASE("GameDetector::supported games") {
     GameDetector detector;
     auto games = detector.getSupportedGames();
-    REQUIRE(games.size() == 20);
+    REQUIRE(games.size() == 23);
     bool hasCS2 = false;
     for (const auto& g : games) {
         if (g.name == "Counter-Strike 2") hasCS2 = true;

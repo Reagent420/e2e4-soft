@@ -55,7 +55,10 @@ GameDetector::GameDetector() {
         {"Minecraft", "javaw.exe", "", {25565, 25565}, {"52.0.0.0/8"}, "Sandbox", ""},
         {"Escape from Tarkov", "EscapeFromTarkov.exe", "", {10000, 10000}, {"37.230.0.0/16"}, "FPS", ""},
         {"Brawlhalla", "BrawlhallaGame.exe", "", {7000, 7100}, {"23.52.0.0/16"}, "Fighting", ""},
-        {"Fall Guys", "FallGuys_client_game.exe", "", {7000, 7100}, {"23.52.0.0/16"}, "Party", ""}
+        {"Fall Guys", "FallGuys_client_game.exe", "", {7000, 7100}, {"23.52.0.0/16"}, "Party", ""},
+        {"Left 4 Dead 2", "left4dead2.exe", "", {27015, 27016}, {"155.133.226.0/24"}, "FPS", ""},
+        {"Killing Floor 2", "KFGame.exe", "", {7777, 7777}, {"23.52.0.0/16"}, "FPS", ""},
+        {"Poppy Playtime", "PlaytimeLauncher.exe", "", {27015, 27016}, {"155.133.226.0/24"}, "Horror", ""}
     };
 }
 
@@ -294,7 +297,15 @@ std::string GameDetector::findExecutableInDir(const std::string& dir, const std:
     if (!std::filesystem::exists(dir)) return "";
     for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
         if (entry.is_regular_file() && entry.path().filename().string() == process_name) {
-            return entry.path().string();
+            std::string path = entry.path().string();
+            // normalize: forward slashes and duplicate backslashes
+            std::replace(path.begin(), path.end(), '/', '\\');
+            std::string doubleSep = "\\\\";
+            size_t pos = 0;
+            while ((pos = path.find(doubleSep, pos)) != std::string::npos) {
+                path.replace(pos, 2, "\\");
+            }
+            return path;
         }
     }
     return "";
@@ -311,6 +322,9 @@ void GameDetector::scanSteamLibrary() {
         else if (game.name == "PUBG") appIdMap["578080"] = &game;
         else if (game.name == "Apex Legends") appIdMap["1172470"] = &game;
         else if (game.name == "Rust") appIdMap["252490"] = &game;
+        else if (game.name == "Left 4 Dead 2") appIdMap["550"] = &game;
+        else if (game.name == "Killing Floor 2") appIdMap["232090"] = &game;
+        else if (game.name == "Poppy Playtime") appIdMap["1721470"] = &game;
     }
     
     for (const auto& folder : folders) {
@@ -334,7 +348,7 @@ void GameDetector::scanSteamLibrary() {
                     
                     if (!appid.empty() && appIdMap.count(appid) && appIdMap[appid]) {
                         GameInfo* game = appIdMap[appid];
-                        std::string installPath = folder + "\\" + installdir;
+                        std::string installPath = folder + "\\common\\" + installdir;
                         game->executable_path = findExecutableInDir(installPath, game->process_name);
                         if (!game->executable_path.empty()) {
                             game->is_installed = true;

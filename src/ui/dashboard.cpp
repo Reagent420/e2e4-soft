@@ -1,4 +1,5 @@
 #include "dashboard.h"
+#include "theme.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -6,9 +7,10 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QLinearGradient>
-#include <QRandomGenerator>
 #include <QStyle>
 #include <QFont>
+
+namespace gno {
 
 // ---------------------------------------------------------------------------
 // PingGraphWidget
@@ -19,7 +21,7 @@ PingGraphWidget::PingGraphWidget(QWidget* parent)
     setObjectName("metricCard");
     setFixedHeight(180);
     for (int i = 0; i < kMaxPoints; ++i)
-        data_.append(32.0);
+        data_.append(0.0);
 }
 
 void PingGraphWidget::addPingValue(double ms) {
@@ -64,7 +66,7 @@ void PingGraphWidget::paintEvent(QPaintEvent*) {
     QPainterPath linePath;
     for (int i = 0; i < count; ++i) {
         double x = area.left() + (kMaxPoints - count + i) * step;
-        double y = area.bottom() - (data_[i] / 100.0) * area.height();
+        double y = area.bottom() - (qBound(0.0, data_[i], 100.0) / 100.0) * area.height();
         if (i == 0)
             linePath.moveTo(x, y);
         else
@@ -112,11 +114,11 @@ QWidget* DashboardWidget::createMetricCard(const QString& label, QLabel** valueO
 
     auto* row = new QHBoxLayout;
     row->setSpacing(2);
-    *valueOut = new QLabel("0");
+    *valueOut = new QLabel("—");
     (*valueOut)->setStyleSheet("font-size:28px; font-weight:700; color:white; background:transparent;");
     row->addWidget(*valueOut);
 
-    auto* unitLabel = new QLabel("ms");
+    auto* unitLabel = new QLabel(label.contains("потерь") ? "%" : "ms");
     unitLabel->setStyleSheet("color:rgba(255,255,255,0.4); font-size:13px; background:transparent;");
     unitLabel->setContentsMargins(0, 6, 0, 0);
     row->addWidget(unitLabel);
@@ -143,9 +145,9 @@ DashboardWidget::DashboardWidget(QWidget* parent)
 
     // header
     auto* headerRow = new QHBoxLayout;
-    auto* title = new QLabel("Dashboard");
+    auto* title = new QLabel("Главная");
     title->setStyleSheet("font-size:20px; font-weight:700; color:white; background:transparent;");
-    auto* subtitle = new QLabel("Real-time network status");
+    auto* subtitle = new QLabel("Текущее состояние сети (реальные замеры)");
     subtitle->setStyleSheet("color:rgba(255,255,255,0.4); font-size:12px; background:transparent;");
     headerRow->addWidget(title);
     headerRow->addStretch();
@@ -157,21 +159,20 @@ DashboardWidget::DashboardWidget(QWidget* parent)
     cardsRow->setSpacing(10);
 
     QLabel* pingDelta;
-    auto* pingCard = createMetricCard("CURRENT PING", &ping_value_, &pingDelta, "#22c55e");
-    pingDelta->setText("▼15ms from baseline");
+    auto* pingCard = createMetricCard("ПИНГ", &ping_value_, &pingDelta, "#22c55e");
+    pingDelta->setText("ожидание данных…");
 
     QLabel* jitterDelta;
-    auto* jitterCard = createMetricCard("JITTER", &jitter_value_, &jitterDelta, "#22c55e");
-    jitterDelta->setText("Good");
+    auto* jitterCard = createMetricCard("ДЖИТТЕР", &jitter_value_, &jitterDelta, "#22c55e");
+    jitterDelta->setText("стабильность соединения");
 
     QLabel* lossDelta;
-    auto* lossCard = createMetricCard("PACKET LOSS", &loss_value_, &lossDelta, "#22c55e");
-    lossDelta->setText("Perfect");
+    auto* lossCard = createMetricCard("ПОТЕРИ ПАКЕТОВ", &loss_value_, &lossDelta, "#22c55e");
+    lossDelta->setText("% потерянных пакетов");
 
     QLabel* routeDelta;
-    auto* routeCard = createMetricCard("ACTIVE ROUTES", &route_value_, &routeDelta, "#06b6d4");
-    routeCard->findChild<QLabel*>({}, Qt::FindChildrenRecursively);
-    routeDelta->setText("Best path");
+    auto* routeCard = createMetricCard("ПОСЛЕДНИЙ ПИНГ", &route_value_, &routeDelta, "#06b6d4");
+    routeDelta->setText("цель: 1.1.1.1");
 
     cardsRow->addWidget(pingCard);
     cardsRow->addWidget(jitterCard);
@@ -184,7 +185,7 @@ DashboardWidget::DashboardWidget(QWidget* parent)
     root->addWidget(graph_);
 
     // boost button
-    boost_btn_ = new QPushButton("⚡  BOOST CONNECTION");
+    boost_btn_ = new QPushButton("⚡  ВКЛЮЧИТЬ ОПТИМИЗАЦИЮ");
     boost_btn_->setObjectName("boostButton");
     boost_btn_->setFixedHeight(52);
     boost_btn_->setCursor(Qt::PointingHandCursor);
@@ -192,34 +193,64 @@ DashboardWidget::DashboardWidget(QWidget* parent)
     root->addWidget(boost_btn_);
 
     // info bar
-    auto* info = new QLabel("Current Game: Counter-Strike 2  |  Server: EU West  |  Node: Frankfurt");
+    auto* info = new QLabel("Измерение пинга к 1.1.1.1 (Cloudflare) каждую секунду. График обновляется автоматически.");
     info->setStyleSheet("color:rgba(255,255,255,0.35); font-size:11px; background:transparent;");
     info->setAlignment(Qt::AlignCenter);
     root->addWidget(info);
 
-    // timer
-    refresh_timer_ = new QTimer(this);
-    connect(refresh_timer_, &QTimer::timeout, this, &DashboardWidget::onRefresh);
-    refresh_timer_->start(1000);
+    // monitoring
+    startMonitoring();
 }
 
-// slots ---------------------------------------------------------------
-
-void DashboardWidget::updatePing(double ms) {
-    ping_value_->setText(QString::number(static_cast<int>(ms)));
-    graph_->addPingValue(ms);
+DashboardWidget::~DashboardWidget() {
+    ping_monitor_.stop();
 }
 
-void DashboardWidget::updateJitter(double ms) {
-    jitter_value_->setText(QString::number(ms, 'f', 1));
+void DashboardWidget::startMonitoring() {
+    ping_monitor_.setPingCallback([this](const ICMPResult& result) {
+        onPingResult(result);
+    });
+    ping_monitor_.start("1.1.1.1", 1000);
 }
 
-void DashboardWidget::updatePacketLoss(double percent) {
-    loss_value_->setText(QString::number(percent, 'f', 1));
-}
+void DashboardWidget::onPingResult(const ICMPResult& result) {
+    double ping = result.success ? result.latency_ms : -1.0;
 
-void DashboardWidget::updateRouteCount(int count) {
-    route_value_->setText(QString::number(count));
+    if (ping >= 0) {
+        last_ping_ = ping;
+        ping_value_->setText(QString::number(static_cast<int>(ping)));
+        graph_->addPingValue(ping);
+        route_value_->setText(QString::number(static_cast<int>(ping)));
+
+        // jitter: среднее отклонение от последних 10 замеров
+        jitter_history_.append(ping);
+        if (jitter_history_.size() > 10) jitter_history_.removeFirst();
+        if (jitter_history_.size() >= 2) {
+            double avg = 0;
+            for (double v : jitter_history_) avg += v;
+            avg /= jitter_history_.size();
+            double dev = 0;
+            for (double v : jitter_history_) dev += qAbs(v - avg);
+            dev /= jitter_history_.size();
+            jitter_value_->setText(QString::number(dev, 'f', 1));
+        }
+
+        // loss: считаем по пропущенным пингам
+        ++packets_sent_;
+        loss_history_.append(0.0);
+    } else {
+        ++packets_sent_;
+        ++packets_lost_;
+        loss_history_.append(1.0);
+        ping_value_->setText("тайм-аут");
+        graph_->addPingValue(0.0);
+    }
+
+    if (loss_history_.size() > 30) loss_history_.removeFirst();
+    double lossSum = 0;
+    for (double v : loss_history_) lossSum += v;
+    double lossPercent = lossSum / qMax(1, loss_history_.size()) * 100.0;
+    loss_value_->setText(QString::number(lossPercent, 'f', 1));
 }
 
 void DashboardWidget::setConnected(bool connected) {
@@ -230,20 +261,14 @@ void DashboardWidget::onBoostClicked() {
     boosting_ = !boosting_;
     if (boosting_) {
         boost_btn_->setObjectName("boostButtonActive");
-        boost_btn_->setText("■  DISCONNECT");
+        boost_btn_->setText("■  ОТКЛЮЧИТЬ ОПТИМИЗАЦИЮ");
     } else {
         boost_btn_->setObjectName("boostButton");
-        boost_btn_->setText("⚡  BOOST CONNECTION");
+        boost_btn_->setText("⚡  ВКЛЮЧИТЬ ОПТИМИЗАЦИЮ");
     }
     boost_btn_->style()->unpolish(boost_btn_);
     boost_btn_->style()->polish(boost_btn_);
     emit boostToggled(boosting_);
 }
 
-void DashboardWidget::onRefresh() {
-    auto* rng = QRandomGenerator::global();
-    updatePing(rng->bounded(28, 46));
-    updateJitter(rng->bounded(10, 35) / 10.0);
-    updatePacketLoss(rng->bounded(0, 5) / 10.0);
-    updateRouteCount(rng->bounded(2, 6));
-}
+} // namespace gno

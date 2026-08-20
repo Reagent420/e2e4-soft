@@ -27,12 +27,12 @@ void myMessageHandler(QtMsgType type, const QMessageLogContext& context, const Q
 int main(int argc, char* argv[]) {
     qInstallMessageHandler(myMessageHandler);
 
-    fprintf(stderr, "=== GNO v1.0.0 Starting ===\n");
+    fprintf(stderr, "=== GNO v1.1.0 Starting ===\n");
     fprintf(stderr, "App dir: %s\n", QDir::currentPath().toUtf8().constData());
 
     QApplication app(argc, argv);
     app.setApplicationName("GNO");
-    app.setApplicationVersion("1.0.0");
+    app.setApplicationVersion("1.1.0");
     app.setOrganizationName("GNO");
 
     fprintf(stderr, "Platform: %s\n", QApplication::platformName().toUtf8().constData());
@@ -50,8 +50,8 @@ int main(int argc, char* argv[]) {
     }
 
     if (!allOk) {
-        QMessageBox::critical(nullptr, "GNO Error",
-            "Missing required files!\nMake sure all DLLs are in the same folder as GNO.exe.");
+        QMessageBox::critical(nullptr, QString::fromUtf8("Ошибка GNO"),
+            QString::fromUtf8("Отсутствуют необходимые файлы!\nУбедитесь, что все DLL находятся в одной папке с GNO.exe."));
         return 1;
     }
 
@@ -85,11 +85,11 @@ int main(int argc, char* argv[]) {
         return app.exec();
     } catch (const std::exception& e) {
         fprintf(stderr, "FATAL: %s\n", e.what());
-        QMessageBox::critical(nullptr, "GNO Fatal Error", QString("Exception: %1").arg(e.what()));
+        QMessageBox::critical(nullptr, QString::fromUtf8("Критическая ошибка GNO"), QString("Exception: %1").arg(e.what()));
         return 1;
     } catch (...) {
         fprintf(stderr, "FATAL: unknown exception\n");
-        QMessageBox::critical(nullptr, "GNO Fatal Error", "Unknown fatal error");
+        QMessageBox::critical(nullptr, QString::fromUtf8("Критическая ошибка GNO"), QString::fromUtf8("Неизвестная ошибка"));
         return 1;
     }
 }

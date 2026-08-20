@@ -30,20 +30,20 @@ void GameProfilesWidget::setupUI()
     mainLayout->setContentsMargins(24, 24, 24, 24);
     mainLayout->setSpacing(16);
 
-    auto* title = new QLabel("Game Profiles", this);
+    auto* title = new QLabel(QString::fromUtf8("Профили игр"), this);
     title->setObjectName("sectionTitle");
     mainLayout->addWidget(title);
 
-    auto* subtitle = new QLabel("Per-game optimization settings, saved to %APPDATA%\\GNO\\profiles.json", this);
+    auto* subtitle = new QLabel(QString::fromUtf8("Настройки оптимизации для каждой игры. Сохраняются в %APPDATA%\\GNO\\profiles.json"), this);
     subtitle->setObjectName("sectionSubtitle");
     mainLayout->addWidget(subtitle);
 
-    auto* editorGroup = new QGroupBox("Profile Editor", this);
+    auto* editorGroup = new QGroupBox(QString::fromUtf8("Редактор профиля"), this);
     auto* editorLayout = new QVBoxLayout(editorGroup);
     editorLayout->setSpacing(10);
 
     auto* gameRow = new QHBoxLayout();
-    auto* gameLabel = new QLabel("Game:", editorGroup);
+    auto* gameLabel = new QLabel(QString::fromUtf8("Игра:"), editorGroup);
     m_gameCombo = new QComboBox(editorGroup);
     m_gameCombo->setMinimumWidth(260);
 
@@ -58,24 +58,24 @@ void GameProfilesWidget::setupUI()
     gameRow->addStretch();
     editorLayout->addLayout(gameRow);
 
-    m_multipathCb = new QCheckBox("Multipath routing (multi-route connections)", editorGroup);
+    m_multipathCb = new QCheckBox(QString::fromUtf8("Мультимаршрут (несколько путей передачи данных)"), editorGroup);
     m_multipathCb->setChecked(true);
     editorLayout->addWidget(m_multipathCb);
 
-    m_fpsBoostCb = new QCheckBox("FPS boost optimizations (Game DVR, power plan)", editorGroup);
+    m_fpsBoostCb = new QCheckBox(QString::fromUtf8("Ускорение FPS (Game DVR, план питания)"), editorGroup);
     m_fpsBoostCb->setChecked(true);
     editorLayout->addWidget(m_fpsBoostCb);
 
-    m_networkOptCb = new QCheckBox("Network stack optimizations (TCP tweaks)", editorGroup);
+    m_networkOptCb = new QCheckBox(QString::fromUtf8("Оптимизация сети (настройки TCP)"), editorGroup);
     m_networkOptCb->setChecked(true);
     editorLayout->addWidget(m_networkOptCb);
 
-    m_autoApplyCb = new QCheckBox("Auto-apply when game launches", editorGroup);
+    m_autoApplyCb = new QCheckBox(QString::fromUtf8("Применять автоматически при запуске игры"), editorGroup);
     m_autoApplyCb->setChecked(true);
     editorLayout->addWidget(m_autoApplyCb);
 
     auto* routesRow = new QHBoxLayout();
-    auto* routesLabel = new QLabel("Max routes:", editorGroup);
+    auto* routesLabel = new QLabel(QString::fromUtf8("Макс. маршрутов:"), editorGroup);
     m_maxRoutesSpin = new QSpinBox(editorGroup);
     m_maxRoutesSpin->setRange(1, 5);
     m_maxRoutesSpin->setValue(3);
@@ -87,7 +87,7 @@ void GameProfilesWidget::setupUI()
     editorLayout->addLayout(routesRow);
 
     auto* btnRow = new QHBoxLayout();
-    auto* saveBtn = new QPushButton("Save Profile", editorGroup);
+    auto* saveBtn = new QPushButton(QString::fromUtf8("Сохранить профиль"), editorGroup);
     saveBtn->setObjectName("boostButton");
     saveBtn->setFixedWidth(160);
     connect(saveBtn, &QPushButton::clicked, this, &GameProfilesWidget::onSaveProfile);
@@ -101,7 +101,7 @@ void GameProfilesWidget::setupUI()
 
     mainLayout->addWidget(editorGroup);
 
-    auto* listTitle = new QLabel("Saved Profiles", this);
+    auto* listTitle = new QLabel(QString::fromUtf8("Сохранённые профили"), this);
     listTitle->setObjectName("sectionTitle");
     mainLayout->addWidget(listTitle);
 
@@ -167,7 +167,7 @@ void GameProfilesWidget::onSaveProfile()
     }
 
     if (gameName.empty()) {
-        m_statusLabel->setText("Cannot determine game name");
+        m_statusLabel->setText(QString::fromUtf8("Не удалось определить название игры"));
         return;
     }
 
@@ -181,7 +181,7 @@ void GameProfilesWidget::onSaveProfile()
     p.max_routes = m_maxRoutesSpin->value();
 
     m_profiles->set(p);
-    m_statusLabel->setText(QString("Saved: %1").arg(QString::fromStdString(gameName)));
+    m_statusLabel->setText(QString("Сохранено: %1").arg(QString::fromStdString(gameName)));
     refreshProfileList();
 }
 
@@ -198,7 +198,7 @@ void GameProfilesWidget::refreshProfileList()
 
     auto profiles = m_profiles->getAll();
     if (profiles.empty()) {
-        auto* emptyLbl = new QLabel("No profiles saved yet", m_profileList);
+        auto* emptyLbl = new QLabel(QString::fromUtf8("Профили ещё не сохранены"), m_profileList);
         emptyLbl->setObjectName("sectionSubtitle");
         layout->addWidget(emptyLbl);
         layout->addStretch();
@@ -231,7 +231,7 @@ void GameProfilesWidget::refreshProfileList()
         cardLayout->addWidget(flagsLbl);
         cardLayout->addStretch();
 
-        auto* removeBtn = new QPushButton("Remove", card);
+        auto* removeBtn = new QPushButton(QString::fromUtf8("Удалить"), card);
         removeBtn->setObjectName("sidebarButton");
         removeBtn->setFixedWidth(80);
         QString gname = QString::fromStdString(p.game_name);

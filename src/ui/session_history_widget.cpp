@@ -25,11 +25,11 @@ void SessionHistoryWidget::setupUI()
     mainLayout->setContentsMargins(24, 24, 24, 24);
     mainLayout->setSpacing(16);
 
-    auto* title = new QLabel("Session History", this);
+    auto* title = new QLabel(QString::fromUtf8("История сессий"), this);
     title->setObjectName("sectionTitle");
     mainLayout->addWidget(title);
 
-    auto* subtitle = new QLabel("Network performance history across gaming sessions", this);
+    auto* subtitle = new QLabel(QString::fromUtf8("Показатели сети за прошлые игровые сессии"), this);
     subtitle->setObjectName("sectionSubtitle");
     mainLayout->addWidget(subtitle);
 
@@ -38,13 +38,13 @@ void SessionHistoryWidget::setupUI()
     mainLayout->addWidget(m_statsLabel);
 
     auto* btnRow = new QHBoxLayout();
-    auto* refreshBtn = new QPushButton("Refresh", this);
+    auto* refreshBtn = new QPushButton(QString::fromUtf8("Обновить"), this);
     refreshBtn->setObjectName("boostButton");
     refreshBtn->setFixedWidth(120);
     connect(refreshBtn, &QPushButton::clicked, this, &SessionHistoryWidget::refreshHistory);
     btnRow->addWidget(refreshBtn);
 
-    auto* clearBtn = new QPushButton("Clear History", this);
+    auto* clearBtn = new QPushButton(QString::fromUtf8("Очистить историю"), this);
     clearBtn->setObjectName("sidebarButton");
     clearBtn->setFixedWidth(120);
     connect(clearBtn, &QPushButton::clicked, this, [this]() {
@@ -75,7 +75,7 @@ void SessionHistoryWidget::refreshHistory()
     double avgPing = m_history->getAveragePing();
     double avgJitter = m_history->getAverageJitter();
     m_statsLabel->setText(
-        QString("Sessions: %1 | Avg Ping: %2 ms | Avg Jitter: %3 ms")
+        QString("Сессий: %1 | Средний пинг: %2 мс | Средний джиттер: %3 мс")
             .arg(records.size())
             .arg(avgPing, 0, 'f', 1)
             .arg(avgJitter, 0, 'f', 1));
@@ -110,23 +110,23 @@ void SessionHistoryWidget::refreshHistory()
         timeLbl->setFixedWidth(140);
         cardLayout->addWidget(timeLbl);
 
-        auto* pingLbl = new QLabel(QString("%1 ms").arg(r.avg_ping_ms, 0, 'f', 1), card);
+        auto* pingLbl = new QLabel(QString("%1 мс").arg(r.avg_ping_ms, 0, 'f', 1), card);
         pingLbl->setObjectName("sectionSubtitle");
         pingLbl->setFixedWidth(80);
         cardLayout->addWidget(pingLbl);
 
-        auto* jitterLbl = new QLabel(QString("J: %1 ms").arg(r.avg_jitter_ms, 0, 'f', 1), card);
+        auto* jitterLbl = new QLabel(QString("Д: %1 мс").arg(r.avg_jitter_ms, 0, 'f', 1), card);
         jitterLbl->setObjectName("sectionSubtitle");
         jitterLbl->setFixedWidth(80);
         cardLayout->addWidget(jitterLbl);
 
-        auto* lossLbl = new QLabel(QString("Loss: %1%").arg(r.avg_packet_loss, 0, 'f', 1), card);
+        auto* lossLbl = new QLabel(QString("Потери: %1%").arg(r.avg_packet_loss, 0, 'f', 1), card);
         lossLbl->setObjectName("sectionSubtitle");
         lossLbl->setFixedWidth(80);
         cardLayout->addWidget(lossLbl);
 
         if (r.boost_was_active) {
-            auto* boostTag = new QLabel("BOOST", card);
+            auto* boostTag = new QLabel(QString::fromUtf8("УСКОРЕНИЕ"), card);
             boostTag->setObjectName("gameCategory");
             cardLayout->addWidget(boostTag);
         }

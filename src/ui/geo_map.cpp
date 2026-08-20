@@ -16,21 +16,21 @@ GeoMapWidget::GeoMapWidget(QWidget* parent)
 void GeoMapWidget::initMapData()
 {
     points_ = {
-        {0.48, 0.32, "Moscow",     QColor(theme::Colors::ACCENT_BLUE)},
-        {0.47, 0.30, "St Petersburg", QColor(theme::Colors::ACCENT_CYAN)},
-        {0.46, 0.28, "Helsinki",   QColor(theme::Colors::TEXT_SECONDARY)},
-        {0.44, 0.27, "Stockholm",  QColor(theme::Colors::TEXT_SECONDARY)},
-        {0.45, 0.29, "Warsaw",     QColor(theme::Colors::TEXT_SECONDARY)},
-        {0.45, 0.30, "Berlin",     QColor(theme::Colors::ACCENT_CYAN)},
-        {0.44, 0.30, "Frankfurt",  QColor(theme::Colors::SUCCESS)},
-        {0.43, 0.30, "Amsterdam",  QColor(theme::Colors::SUCCESS)},
-        {0.42, 0.29, "London",     QColor(theme::Colors::SUCCESS)},
-        {0.40, 0.28, "New York",   QColor(theme::Colors::ACCENT_BLUE)},
-        {0.37, 0.30, "Los Angeles", QColor(theme::Colors::ACCENT_VIOLET)},
-        {0.53, 0.30, "Tokyo",      QColor(theme::Colors::WARNING)},
-        {0.52, 0.32, "Singapore",  QColor(theme::Colors::ACCENT_CYAN)},
-        {0.56, 0.37, "Sydney",     QColor(theme::Colors::WARNING)},
-        {0.38, 0.36, "São Paulo",  QColor(theme::Colors::ERROR)},
+        {0.48, 0.32, "Москва",      QColor(theme::Colors::ACCENT_BLUE)},
+        {0.47, 0.30, "Санкт-Петербург", QColor(theme::Colors::ACCENT_CYAN)},
+        {0.46, 0.28, "Хельсинки",   QColor(theme::Colors::TEXT_SECONDARY)},
+        {0.44, 0.27, "Стокгольм",   QColor(theme::Colors::TEXT_SECONDARY)},
+        {0.45, 0.29, "Варшава",     QColor(theme::Colors::TEXT_SECONDARY)},
+        {0.45, 0.30, "Берлин",      QColor(theme::Colors::ACCENT_CYAN)},
+        {0.44, 0.30, "Франкфурт",   QColor(theme::Colors::SUCCESS)},
+        {0.43, 0.30, "Амстердам",   QColor(theme::Colors::SUCCESS)},
+        {0.42, 0.29, "Лондон",      QColor(theme::Colors::SUCCESS)},
+        {0.40, 0.28, "Нью-Йорк",    QColor(theme::Colors::ACCENT_BLUE)},
+        {0.37, 0.30, "Лос-Анджелес", QColor(theme::Colors::ACCENT_VIOLET)},
+        {0.53, 0.30, "Токио",       QColor(theme::Colors::WARNING)},
+        {0.52, 0.32, "Сингапур",    QColor(theme::Colors::ACCENT_CYAN)},
+        {0.56, 0.37, "Сидней",      QColor(theme::Colors::WARNING)},
+        {0.38, 0.36, "Сан-Паулу",   QColor(theme::Colors::ERROR)},
     };
 
     routes_ = {
@@ -57,12 +57,25 @@ void GeoMapWidget::paintEvent(QPaintEvent*)
 
     p.fillRect(rect(), QColor(theme::Colors::BG_PRIMARY));
 
+    // header
+    QFont titleFont("Segoe UI", 12, QFont::Bold);
+    p.setFont(titleFont);
+    p.setPen(QColor(255, 255, 255, 220));
+    p.drawText(24, 30, QString::fromUtf8("Карта серверов"));
+
+    QFont subFont("Segoe UI", 9);
+    p.setFont(subFont);
+    p.setPen(QColor(255, 255, 255, 90));
+    p.drawText(24, 48, QString::fromUtf8("Маршруты и серверы для игрового трафика"));
+
+    QRect mapArea(rect().adjusted(12, 60, -12, -12));
+
     QPen gridPen(QColor(theme::Colors::BORDER));
     gridPen.setWidthF(0.5);
     p.setPen(gridPen);
 
-    int w = width();
-    int h = height();
+    int w = mapArea.width();
+    int h = mapArea.height();
 
     for (int x = 0; x < w; x += 40) {
         p.drawLine(x, 0, x, h);
@@ -89,14 +102,14 @@ void GeoMapWidget::paintEvent(QPaintEvent*)
         QPainterPath path;
         double cx = (p1.x + p2.x) / 2.0;
         double cy = (std::min(p1.y, p2.y)) - 0.03;
-        path.moveTo(p1.x * w, p1.y * h);
-        path.quadTo(cx * w, cy * h, p2.x * w, p2.y * h);
+        path.moveTo(mapArea.left() + p1.x * w, mapArea.top() + p1.y * h);
+        path.quadTo(mapArea.left() + cx * w, mapArea.top() + cy * h, mapArea.left() + p2.x * w, mapArea.top() + p2.y * h);
         p.drawPath(path);
     }
 
     for (const auto& pt : points_) {
-        int px = static_cast<int>(pt.x * w);
-        int py = static_cast<int>(pt.y * h);
+        int px = mapArea.left() + static_cast<int>(pt.x * w);
+        int py = mapArea.top() + static_cast<int>(pt.y * h);
 
         p.setPen(Qt::NoPen);
         p.setBrush(pt.color);

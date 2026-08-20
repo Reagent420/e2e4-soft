@@ -1,8 +1,12 @@
 #include "monitoring.h"
+#include "theme.h"
+#include "../monitoring/ping_monitor.h"
+
 #include <QFrame>
 #include <QDateTime>
 #include <QScrollBar>
-#include <QRandomGenerator>
+
+#include <atomic>
 
 // ============================================================================
 // PingChartWidget
@@ -45,14 +49,14 @@ void PingChartWidget::drawChart(QPainter& p, const QRect& r) {
     double step = r.width() / static_cast<double>(n - 1);
 
     QPainterPath fillPath;
-    QPointF first(r.left(), r.top() + r.height() * (1.0 - data_[0] / maxVal));
+    QPointF first(r.left(), r.top() + r.height() * (1.0 - qBound(0.0, data_[0], maxVal) / maxVal));
     fillPath.moveTo(first);
 
     QPolygonF poly;
     poly << first;
     for (int i = 1; i < n; ++i) {
-        QPointF pt(r.left() + i * step, r.top() + r.height() * (1.0 - data_[i] / maxVal));
-        QPointF prev(r.left() + (i - 1) * step, r.top() + r.height() * (1.0 - data_[i - 1] / maxVal));
+        QPointF pt(r.left() + i * step, r.top() + r.height() * (1.0 - qBound(0.0, data_[i], maxVal) / maxVal));
+        QPointF prev(r.left() + (i - 1) * step, r.top() + r.height() * (1.0 - qBound(0.0, data_[i - 1], maxVal) / maxVal));
         QPointF c1(prev.x() + step * 0.4, prev.y());
         QPointF c2(pt.x() - step * 0.4, pt.y());
         fillPath.cubicTo(c1, c2, pt);
@@ -82,7 +86,7 @@ void PingChartWidget::paintEvent(QPaintEvent*) {
     tf.setBold(true);
     p.setFont(tf);
     p.setPen(QColor("#94A3B8"));
-    p.drawText(content, Qt::AlignTop | Qt::AlignLeft, "PING");
+    p.drawText(content, Qt::AlignTop | Qt::AlignLeft, QString::fromUtf8("ПИНГ (мс)"));
 
     double cur = data_.isEmpty() ? 0 : data_.last();
     QFont vf = p.font();
@@ -139,14 +143,14 @@ void JitterChartWidget::drawChart(QPainter& p, const QRect& r) {
     double step = r.width() / static_cast<double>(n - 1);
 
     QPainterPath fillPath;
-    QPointF first(r.left(), r.top() + r.height() * (1.0 - data_[0] / maxVal));
+    QPointF first(r.left(), r.top() + r.height() * (1.0 - qBound(0.0, data_[0], maxVal) / maxVal));
     fillPath.moveTo(first);
 
     QPolygonF poly;
     poly << first;
     for (int i = 1; i < n; ++i) {
-        QPointF pt(r.left() + i * step, r.top() + r.height() * (1.0 - data_[i] / maxVal));
-        QPointF prev(r.left() + (i - 1) * step, r.top() + r.height() * (1.0 - data_[i - 1] / maxVal));
+        QPointF pt(r.left() + i * step, r.top() + r.height() * (1.0 - qBound(0.0, data_[i], maxVal) / maxVal));
+        QPointF prev(r.left() + (i - 1) * step, r.top() + r.height() * (1.0 - qBound(0.0, data_[i - 1], maxVal) / maxVal));
         QPointF c1(prev.x() + step * 0.4, prev.y());
         QPointF c2(pt.x() - step * 0.4, pt.y());
         fillPath.cubicTo(c1, c2, pt);
@@ -176,7 +180,7 @@ void JitterChartWidget::paintEvent(QPaintEvent*) {
     tf.setBold(true);
     p.setFont(tf);
     p.setPen(QColor("#94A3B8"));
-    p.drawText(content, Qt::AlignTop | Qt::AlignLeft, "JITTER");
+    p.drawText(content, Qt::AlignTop | Qt::AlignLeft, QString::fromUtf8("ДЖИТТЕР (мс)"));
 
     double cur = data_.isEmpty() ? 0 : data_.last();
     QFont vf = p.font();
@@ -258,7 +262,7 @@ void PacketLossChartWidget::paintEvent(QPaintEvent*) {
     tf.setBold(true);
     p.setFont(tf);
     p.setPen(QColor("#94A3B8"));
-    p.drawText(content, Qt::AlignTop | Qt::AlignLeft, "PACKET LOSS");
+    p.drawText(content, Qt::AlignTop | Qt::AlignLeft, QString::fromUtf8("ПОТЕРИ ПАКЕТОВ (%)"));
 
     double cur = data_.isEmpty() ? 0 : data_.last();
     QFont vf = p.font();
@@ -313,7 +317,7 @@ void BandwidthChartWidget::drawGrid(QPainter& p, const QRect& r) {
     for (int i = 0; i <= 4; ++i) {
         int y = r.top() + (r.height() * i) / 4;
         int val = 100 - (100 * i) / 4;
-        p.drawText(r.left() + 4, y - 3, QString::number(val) + "M");
+        p.drawText(r.left() + 4, y - 3, QString::number(val) + "М");
     }
 }
 
@@ -325,14 +329,14 @@ void BandwidthChartWidget::drawChart(QPainter& p, const QRect& r) {
 
     auto drawArea = [&](const QVector<double>& data, QColor lineColor, QColor fillColorTop) {
         QPainterPath fillPath;
-        QPointF first(r.left(), r.top() + r.height() * (1.0 - data[0] / maxVal));
+        QPointF first(r.left(), r.top() + r.height() * (1.0 - qBound(0.0, data[0], maxVal) / maxVal));
         fillPath.moveTo(first);
 
         QPolygonF poly;
         poly << first;
         for (int i = 1; i < n; ++i) {
-            QPointF pt(r.left() + i * step, r.top() + r.height() * (1.0 - data[i] / maxVal));
-            QPointF prev(r.left() + (i - 1) * step, r.top() + r.height() * (1.0 - data[i - 1] / maxVal));
+            QPointF pt(r.left() + i * step, r.top() + r.height() * (1.0 - qBound(0.0, data[i], maxVal) / maxVal));
+            QPointF prev(r.left() + (i - 1) * step, r.top() + r.height() * (1.0 - qBound(0.0, data[i - 1], maxVal) / maxVal));
             QPointF c1(prev.x() + step * 0.4, prev.y());
             QPointF c2(pt.x() - step * 0.4, pt.y());
             fillPath.cubicTo(c1, c2, pt);
@@ -366,7 +370,7 @@ void BandwidthChartWidget::paintEvent(QPaintEvent*) {
     tf.setBold(true);
     p.setFont(tf);
     p.setPen(QColor("#94A3B8"));
-    p.drawText(content.left(), content.top(), content.width() / 2, 18, Qt::AlignTop | Qt::AlignLeft, "BANDWIDTH");
+    p.drawText(content.left(), content.top(), content.width() / 2, 18, Qt::AlignTop | Qt::AlignLeft, QString::fromUtf8("СКОРОСТЬ (Мбит/с)"));
 
     double dl = download_data_.isEmpty() ? 0 : download_data_.last();
     double ul = upload_data_.isEmpty() ? 0 : upload_data_.last();
@@ -377,10 +381,10 @@ void BandwidthChartWidget::paintEvent(QPaintEvent*) {
     int legendX = content.right() - 160;
     p.setPen(QColor("#3B82F6"));
     p.drawText(legendX, content.top() + 2, 80, 16, Qt::AlignVCenter | Qt::AlignLeft,
-               QString::fromUtf8("\u2193 Down") + " " + QString::number(dl, 'f', 0) + "M");
+               QString::fromUtf8("\u2193 Загрузка") + " " + QString::number(dl, 'f', 0));
     p.setPen(QColor("#8B5CF6"));
     p.drawText(legendX + 80, content.top() + 2, 80, 16, Qt::AlignVCenter | Qt::AlignLeft,
-               QString::fromUtf8("\u2191 Up") + " " + QString::number(ul, 'f', 0) + "M");
+               QString::fromUtf8("\u2191 Отдача") + " " + QString::number(ul, 'f', 0));
 
     QRect chartRect(content.left(), content.top() + 28, content.width(), content.height() - 32);
     drawGrid(p, chartRect);
@@ -391,6 +395,8 @@ void BandwidthChartWidget::paintEvent(QPaintEvent*) {
 // MonitoringWidget
 // ============================================================================
 
+namespace gno {
+
 MonitoringWidget::MonitoringWidget(QWidget* parent) : QWidget(parent) {
     setObjectName("monitoringPage");
 
@@ -400,7 +406,7 @@ MonitoringWidget::MonitoringWidget(QWidget* parent) : QWidget(parent) {
 
     // Header
     auto* headerRow = new QHBoxLayout();
-    auto* titleLabel = new QLabel("Network Monitor");
+    auto* titleLabel = new QLabel(QString::fromUtf8("Мониторинг сети"));
     titleLabel->setObjectName("pageTitle");
     QFont titleFont;
     titleFont.setPixelSize(20);
@@ -408,7 +414,7 @@ MonitoringWidget::MonitoringWidget(QWidget* parent) : QWidget(parent) {
     titleLabel->setFont(titleFont);
     titleLabel->setStyleSheet("color: #F1F5F9;");
 
-    auto* subtitleLabel = new QLabel("Real-time analysis");
+    auto* subtitleLabel = new QLabel(QString::fromUtf8("Реальные замеры каждую секунду — цель 1.1.1.1"));
     subtitleLabel->setObjectName("pageSubtitle");
     QFont subFont;
     subFont.setPixelSize(13);
@@ -437,7 +443,7 @@ MonitoringWidget::MonitoringWidget(QWidget* parent) : QWidget(parent) {
     mainLayout->addLayout(grid);
 
     // Connection log
-    auto* logHeader = new QLabel("CONNECTION LOG");
+    auto* logHeader = new QLabel(QString::fromUtf8("ЖУРНАЛ СОБЫТИЙ"));
     logHeader->setObjectName("sectionTitle");
     QFont logFont;
     logFont.setPixelSize(11);
@@ -463,54 +469,57 @@ MonitoringWidget::MonitoringWidget(QWidget* parent) : QWidget(parent) {
                                "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }");
     mainLayout->addWidget(log_scroll_);
 
-    // Timer
-    refresh_timer_ = new QTimer(this);
-    connect(refresh_timer_, &QTimer::timeout, this, &MonitoringWidget::onRefresh);
-    refresh_timer_->start(1000);
+    // Real monitoring: ping callback drives the charts
+    ping_monitor_.setPingCallback([this](const ICMPResult& result) {
+        double ping = result.success ? result.latency_ms : -1.0;
 
-    // Seed initial data
-    onRefresh();
-}
+        if (ping >= 0) {
+            // jitter: deviation over last 10 samples
+            jitter_samples_.append(ping);
+            if (jitter_samples_.size() > 10) jitter_samples_.removeFirst();
+            double jitter = 0.0;
+            if (jitter_samples_.size() >= 2) {
+                double avg = 0;
+                for (double v : jitter_samples_) avg += v;
+                avg /= jitter_samples_.size();
+                double dev = 0;
+                for (double v : jitter_samples_) dev += qAbs(v - avg);
+                jitter = dev / jitter_samples_.size();
+            }
 
-void MonitoringWidget::onRefresh() {
-    auto* rng = QRandomGenerator::global();
-    double ping = 28.0 + (rng->bounded(170)) / 10.0;
-    double jitter = 0.5 + (rng->bounded(35)) / 10.0;
-    double loss = (rng->bounded(50)) / 100.0;
-    double bwDown = 50.0 + (rng->bounded(450)) / 10.0;
-    double bwUp = 5.0 + (rng->bounded(150)) / 10.0;
+            // loss: 0 or 1 per second, smoothed over 30s window
+            loss_window_.append(0.0);
+            while (loss_window_.size() > 30) loss_window_.removeFirst();
+            double lossSum = 0;
+            for (double v : loss_window_) lossSum += v;
+            double lossPercent = lossSum / loss_window_.size() * 100.0;
 
-    ping_chart_->addPoint(ping);
-    jitter_chart_->addPoint(jitter);
-    loss_chart_->addPoint(loss);
-    bw_chart_->addDownloadPoint(bwDown);
-    bw_chart_->addUploadPoint(bwUp);
+            ping_chart_->addPoint(ping);
+            jitter_chart_->addPoint(jitter);
+            loss_chart_->addPoint(lossPercent);
 
-    QStringList routes = {"Frankfurt", "Amsterdam", "London", "New York", "Tokyo", "Singapore"};
-    QString route = routes[rng->bounded(routes.size())];
-    QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
+            QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
+            QColor pingColor = ping < 35 ? QColor("#22C55E") : ping < 50 ? QColor("#EAB308") : QColor("#EF4444");
+            QString msg = QString("[%1] Пинг: <font color='%2'>%3мс</font>")
+                              .arg(time)
+                              .arg(pingColor.name())
+                              .arg(QString::number(ping, 'f', 1));
+            addLogEntry(msg);
+        } else {
+            loss_window_.append(1.0);
+            while (loss_window_.size() > 30) loss_window_.removeFirst();
+            double lossSum = 0;
+            for (double v : loss_window_) lossSum += v;
+            double lossPercent = lossSum / loss_window_.size() * 100.0;
 
-    QColor pingColor = ping < 35 ? QColor("#22C55E") : ping < 50 ? QColor("#EAB308") : QColor("#EF4444");
-    QString msg = QString("[%1] Ping: <font color='%2'>%3ms</font>  Route: <font color='#22D3EE'>%4</font>")
-                      .arg(time)
-                      .arg(pingColor.name())
-                      .arg(QString::number(ping, 'f', 1))
-                      .arg(route);
-    addLogEntry(msg, QColor());
+            ping_chart_->addPoint(0.0);
+            loss_chart_->addPoint(lossPercent);
 
-    if (jitter > 3.0) {
-        msg = QString("[%1] Jitter: <font color='#EAB308'>%2ms</font>  Network unstable")
-                  .arg(time)
-                  .arg(QString::number(jitter, 'f', 1));
-        addLogEntry(msg, QColor());
-    }
-
-    if (loss > 0.1) {
-        msg = QString("[%1] Packet loss: <font color='#EF4444'>%2%</font>  Detecting congestion")
-                  .arg(time)
-                  .arg(QString::number(loss, 'f', 2));
-        addLogEntry(msg, QColor());
-    }
+            QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
+            addLogEntry(QString("[%1] <font color='#EF4444'>Тайм-аут — пакет потерян</font>").arg(time));
+        }
+    });
+    ping_monitor_.start("1.1.1.1", 1000);
 }
 
 void MonitoringWidget::addLogEntry(const QString& message, const QColor& color) {
@@ -534,3 +543,5 @@ void MonitoringWidget::addLogEntry(const QString& message, const QColor& color) 
         log_scroll_->verticalScrollBar()->setValue(log_scroll_->verticalScrollBar()->maximum());
     }, Qt::QueuedConnection);
 }
+
+} // namespace gno

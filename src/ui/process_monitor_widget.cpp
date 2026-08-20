@@ -31,16 +31,16 @@ void ProcessMonitorWidget::setupUI()
     mainLayout->setContentsMargins(24, 24, 24, 24);
     mainLayout->setSpacing(16);
 
-    auto* title = new QLabel("Process Monitor", this);
+    auto* title = new QLabel(QString::fromUtf8("Монитор процессов"), this);
     title->setObjectName("sectionTitle");
     mainLayout->addWidget(title);
 
-    auto* subtitle = new QLabel("Monitor and manage bandwidth-consuming processes", this);
+    auto* subtitle = new QLabel(QString::fromUtf8("Процессы, которые потребляют память и сеть. Обновление каждые 3 секунды."), this);
     subtitle->setObjectName("sectionSubtitle");
     mainLayout->addWidget(subtitle);
 
     auto* btnRow = new QHBoxLayout();
-    auto* refreshBtn = new QPushButton("Refresh", this);
+    auto* refreshBtn = new QPushButton(QString::fromUtf8("Обновить"), this);
     refreshBtn->setObjectName("boostButton");
     refreshBtn->setFixedWidth(120);
     connect(refreshBtn, &QPushButton::clicked, this, &ProcessMonitorWidget::refreshProcesses);
@@ -88,7 +88,7 @@ void ProcessMonitorWidget::refreshProcesses()
         nameLbl->setFixedWidth(200);
         cardLayout->addWidget(nameLbl);
 
-        auto* memLbl = new QLabel(QString("%1 MB").arg(proc.memory_mb), card);
+        auto* memLbl = new QLabel(QString("%1 МБ").arg(proc.memory_mb), card);
         memLbl->setObjectName("sectionSubtitle");
         memLbl->setFixedWidth(80);
         cardLayout->addWidget(memLbl);
@@ -99,14 +99,14 @@ void ProcessMonitorWidget::refreshProcesses()
         cardLayout->addWidget(pidLbl);
 
         if (proc.is_game) {
-            auto* gameTag = new QLabel("GAME", card);
+            auto* gameTag = new QLabel(QString::fromUtf8("ИГРА"), card);
             gameTag->setObjectName("gameCategory");
             cardLayout->addWidget(gameTag);
         }
 
         cardLayout->addStretch();
 
-        auto* blockBtn = new QPushButton("Block", card);
+        auto* blockBtn = new QPushButton(QString::fromUtf8("Блокировать"), card);
         blockBtn->setFixedWidth(70);
         blockBtn->setObjectName("sidebarButton");
         QString pname = QString::fromStdString(proc.name);
@@ -115,7 +115,7 @@ void ProcessMonitorWidget::refreshProcesses()
         });
         cardLayout->addWidget(blockBtn);
 
-        auto* killBtn = new QPushButton("Kill", card);
+        auto* killBtn = new QPushButton(QString::fromUtf8("Завершить"), card);
         killBtn->setFixedWidth(60);
         killBtn->setObjectName("sidebarButton");
         uint32_t pid = proc.pid;

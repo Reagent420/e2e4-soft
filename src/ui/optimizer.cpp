@@ -27,6 +27,7 @@ static QCheckBox* createOptCheckBox(const QString& text, const QString& desc, bo
 
     auto* descLabel = new QLabel(desc);
     descLabel->setStyleSheet("color:rgba(255,255,255,0.4); font-size:11px; background:transparent;");
+    descLabel->setWordWrap(true);
 
     grid->addWidget(cb, row, 0);
     grid->addWidget(descLabel, row, 1);
@@ -47,9 +48,9 @@ OptimizerWidget::OptimizerWidget(QWidget* parent)
 
     // header
     auto* headerRow = new QHBoxLayout;
-    auto* title = new QLabel("Game Optimizer");
+    auto* title = new QLabel("Оптимизация");
     title->setStyleSheet("font-size:20px; font-weight:700; color:white; background:transparent;");
-    auto* subtitle = new QLabel("Maximize your performance");
+    auto* subtitle = new QLabel("Настройки ускорения FPS и сети — выберите нужные и нажмите «Применить»");
     subtitle->setStyleSheet("color:rgba(255,255,255,0.4); font-size:12px; background:transparent;");
     headerRow->addWidget(title);
     headerRow->addStretch();
@@ -61,36 +62,36 @@ OptimizerWidget::OptimizerWidget(QWidget* parent)
     fpsGrid->setHorizontalSpacing(12);
     fpsGrid->setVerticalSpacing(8);
 
-    fps_checkboxes_[0] = createOptCheckBox("Disable Game DVR",
-        "Turns off Windows Game DVR recording", true, fpsGrid, 0);
-    fps_checkboxes_[1] = createOptCheckBox("Disable Fullscreen Optimizations",
-        "Prevents Windows from applying fullscreen hacks", true, fpsGrid, 1);
-    fps_checkboxes_[2] = createOptCheckBox("Disable Mouse Acceleration",
-        "Raw mouse input for precise aiming", true, fpsGrid, 2);
-    fps_checkboxes_[3] = createOptCheckBox("Disable Game Mode",
-        "Windows Game Mode can cause stuttering", false, fpsGrid, 3);
-    fps_checkboxes_[4] = createOptCheckBox("Optimize Power Plan",
-        "Switch to High Performance power plan", true, fpsGrid, 4);
-    fps_checkboxes_[5] = createOptCheckBox("Set High Process Priority",
-        "Give games CPU priority", true, fpsGrid, 5);
-    fps_checkboxes_[6] = createOptCheckBox("Optimize Virtual Memory",
-        "Adjust page file settings", true, fpsGrid, 6);
+    fps_checkboxes_[0] = createOptCheckBox("Отключить запись игр (Game DVR)",
+        "Останавливает фоновую запись Windows, которая отнимает FPS", true, fpsGrid, 0);
+    fps_checkboxes_[1] = createOptCheckBox("Отключить оптимизации полноэкранного режима",
+        "Убирает задержки ввода в играх (работает не со всеми играми)", true, fpsGrid, 1);
+    fps_checkboxes_[2] = createOptCheckBox("Отключить ускорение мыши",
+        "Прямой ввод с мыши — точнее прицеливание в шутерах", true, fpsGrid, 2);
+    fps_checkboxes_[3] = createOptCheckBox("Отключить игровой режим Windows",
+        "Иногда вызывает микролаги — отключаем для стабильности", false, fpsGrid, 3);
+    fps_checkboxes_[4] = createOptCheckBox("Максимальная производительность питания",
+        "Переключает Windows на план «Высокая производительность»", true, fpsGrid, 4);
+    fps_checkboxes_[5] = createOptCheckBox("Высокий приоритет процесса",
+        "Игра получает больше ресурсов CPU, чем остальные программы", true, fpsGrid, 5);
+    fps_checkboxes_[6] = createOptCheckBox("Оптимизация виртуальной памяти",
+        "Настраивает файл подкачки — меньше подтормаживаний", true, fpsGrid, 6);
 
-    root->addWidget(createSettingsGroup("FPS BOOST", fpsGrid));
+    root->addWidget(createSettingsGroup("УСКОРЕНИЕ FPS", fpsGrid));
 
     // --- Network Optimization section ---
     auto* netGrid = new QGridLayout;
     netGrid->setHorizontalSpacing(12);
     netGrid->setVerticalSpacing(8);
 
-    net_checkboxes_[0] = createOptCheckBox("Multipath Routing",
-        "Use multiple routes for best latency", true, netGrid, 0);
-    net_checkboxes_[1] = createOptCheckBox("Real-time Route Selection",
-        "Dynamically switch to fastest path", true, netGrid, 1);
-    net_checkboxes_[2] = createOptCheckBox("Packet Loss Compensation",
-        "Redundant packets for lossy connections", true, netGrid, 2);
-    net_checkboxes_[3] = createOptCheckBox("Custom DNS Server",
-        "Use fast DNS for game server resolution", false, netGrid, 3);
+    net_checkboxes_[0] = createOptCheckBox("Мультимаршрутный режим",
+        "Данные идут по нескольким путям — ниже пинг и меньше потерь", true, netGrid, 0);
+    net_checkboxes_[1] = createOptCheckBox("Автовыбор лучшего маршрута",
+        "Программа сама переключается на самый быстрый путь", true, netGrid, 1);
+    net_checkboxes_[2] = createOptCheckBox("Компенсация потерь пакетов",
+        "Отправляет дубликаты пакетов при нестабильном соединении", true, netGrid, 2);
+    net_checkboxes_[3] = createOptCheckBox("Свой DNS-сервер",
+        "Быстрый DNS ускоряет подключение к игровым серверам", false, netGrid, 3);
 
     // DNS input row
     auto* dnsRow = new QHBoxLayout;
@@ -106,10 +107,10 @@ OptimizerWidget::OptimizerWidget(QWidget* parent)
 
     connect(net_checkboxes_[3], &QCheckBox::toggled, this, &OptimizerWidget::onDnsToggled);
 
-    root->addWidget(createSettingsGroup("NETWORK OPTIMIZATION", netGrid));
+    root->addWidget(createSettingsGroup("ОПТИМИЗАЦИЯ СЕТИ", netGrid));
 
     // --- Apply button ---
-    apply_btn_ = new QPushButton("⚡  APPLY ALL OPTIMIZATIONS");
+    apply_btn_ = new QPushButton("⚡  ПРИМЕНИТЬ ВСЕ НАСТРОЙКИ");
     apply_btn_->setObjectName("boostButton");
     apply_btn_->setFixedHeight(52);
     apply_btn_->setCursor(Qt::PointingHandCursor);
@@ -117,7 +118,7 @@ OptimizerWidget::OptimizerWidget(QWidget* parent)
     root->addWidget(apply_btn_);
 
     // --- Status label ---
-    status_label_ = new QLabel("Status: Ready");
+    status_label_ = new QLabel("Готово к применению");
     status_label_->setStyleSheet("color:rgba(255,255,255,0.5); font-size:12px; background:transparent;");
     status_label_->setAlignment(Qt::AlignCenter);
     root->addWidget(status_label_);
@@ -160,12 +161,12 @@ void OptimizerWidget::setSettings(const FPSBoostSettings& s) {
 
 void OptimizerWidget::onApplyClicked() {
     apply_btn_->setEnabled(false);
-    apply_btn_->setText("⚡  APPLYING...");
+    apply_btn_->setText("⚡  ПРИМЕНЯЕМ…");
 
     QTimer::singleShot(1200, this, [this]() {
         apply_btn_->setEnabled(true);
-        apply_btn_->setText("⚡  APPLY ALL OPTIMIZATIONS");
-        status_label_->setText("Status: All optimizations applied ✓");
+        apply_btn_->setText("⚡  ПРИМЕНИТЬ ВСЕ НАСТРОЙКИ");
+        status_label_->setText("✓ Все настройки применены");
         status_label_->setStyleSheet("color:#22c55e; font-size:12px; font-weight:600; background:transparent;");
         emit optimizationsApplied();
     });

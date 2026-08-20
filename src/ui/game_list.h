@@ -9,6 +9,8 @@
 #include <QVector>
 #include <QWidget>
 
+#include "../core/game_detector.h"
+
 struct GameInfo {
     QString name;
     QString category;
@@ -28,11 +30,13 @@ signals:
 private slots:
     void onSearchChanged(const QString& text);
     void onGameCardClicked();
+    void onRefresh();
 
 private:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void buildGameCards();
     void updateStatus();
+    QColor categoryColor(const QString& category);
 
     QLineEdit* search_box_;
     QGridLayout* grid_layout_;
@@ -40,4 +44,5 @@ private:
     QVector<QWidget*> game_cards_;
     QWidget* grid_container_;
     QLabel* status_label_;
+    gno::GameDetector detector_;
 };

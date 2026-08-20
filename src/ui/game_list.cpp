@@ -3,9 +3,41 @@
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QMouseEvent>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QStyle>
+#include <QTimer>
 #include <QVBoxLayout>
+
+static QString translateCategory(const QString& cat) {
+    const QString c = cat.toLower();
+    if (c == "fps") return "Шутер";
+    if (c == "moba") return "MOBA";
+    if (c == "battle royale" || c == "br") return "Королевская битва";
+    if (c == "mmorpg" || c == "mmo") return "MMORPG";
+    if (c == "rpg") return "RPG";
+    if (c == "sports") return "Спорт";
+    if (c == "racing") return "Гонки";
+    if (c == "survival") return "Выживание";
+    if (c == "sandbox") return "Песочница";
+    if (c == "horror") return "Хоррор";
+    if (c == "party") return "Вечеринка";
+    if (c == "fighting") return "Файтинг";
+    if (c == "arpg") return "ARPG";
+    if (c == "simulation") return "Симулятор";
+    if (c == "strategy") return "Стратегия";
+    return cat;
+}
+
+QColor GameListWidget::categoryColor(const QString& category) {
+    const QString c = category.toLower();
+    if (c == "fps") return QColor(0, 200, 255);
+    if (c == "moba" || c == "mmorpg" || c == "mmo" || c == "rpg" || c == "arpg") return QColor(160, 80, 220);
+    if (c == "battle royale" || c == "br" || c == "party" || c == "sandbox") return QColor(0, 200, 100);
+    if (c == "racing" || c == "sports" || c == "survival") return QColor(220, 160, 0);
+    if (c == "horror" || c == "fighting" || c == "strategy" || c == "simulation") return QColor(220, 60, 60);
+    return QColor(100, 116, 139);
+}
 
 GameListWidget::GameListWidget(QWidget* parent)
     : QWidget(parent) {
@@ -14,19 +46,28 @@ GameListWidget::GameListWidget(QWidget* parent)
     main_layout->setSpacing(12);
 
     auto* header = new QHBoxLayout();
-    auto* title = new QLabel("Game Library");
+    auto* title = new QLabel("Игры");
     title->setObjectName("pageHeader");
-    auto* subtitle = new QLabel("Auto-detected games");
+    auto* subtitle = new QLabel("Обнаруженные и установленные игры (Steam / Epic / GOG)");
     subtitle->setObjectName("pageSubtitle");
     header->addWidget(title);
     header->addStretch();
     header->addWidget(subtitle);
     main_layout->addLayout(header);
 
+    auto* controlsRow = new QHBoxLayout();
     search_box_ = new QLineEdit();
     search_box_->setObjectName("searchBox");
-    search_box_->setPlaceholderText("Search games...");
-    main_layout->addWidget(search_box_);
+    search_box_->setPlaceholderText("Поиск игр…");
+    controlsRow->addWidget(search_box_);
+
+    auto* refreshBtn = new QPushButton("Обновить");
+    refreshBtn->setObjectName("sidebarButton");
+    refreshBtn->setFixedWidth(100);
+    connect(refreshBtn, &QPushButton::clicked, this, &GameListWidget::onRefresh);
+    controlsRow->addWidget(refreshBtn);
+    main_layout->addLayout(controlsRow);
+
     connect(search_box_, &QLineEdit::textChanged, this, &GameListWidget::onSearchChanged);
 
     auto* scroll = new QScrollArea();
@@ -52,29 +93,50 @@ GameListWidget::GameListWidget(QWidget* parent)
     updateStatus();
 }
 
+void GameListWidget::onRefresh() {
+    detector_.scanInstalledGames();
+    detector_.detectRunningGames();
+    buildGameCards();
+    updateStatus();
+}
+
 void GameListWidget::buildGameCards() {
-    games_ = {
-        {"Counter-Strike 2",  "FPS",       true,  false, QColor(0, 200, 255)},
-        {"Dota 2",            "MOBA",      true,  false, QColor(160, 80, 220)},
-        {"VALORANT",          "FPS",       true,  false, QColor(0, 200, 255)},
-        {"Fortnite",          "BR",        false, false, QColor(0, 200, 100)},
-        {"Apex Legends",      "BR",        false, false, QColor(0, 200, 100)},
-        {"PUBG",              "BR",        false, false, QColor(0, 200, 100)},
-        {"Overwatch 2",       "FPS",       false, false, QColor(0, 200, 255)},
-        {"League of Legends", "MOBA",      false, false, QColor(160, 80, 220)},
-        {"Rocket League",     "Racing",    false, false, QColor(220, 160, 0)},
-        {"Minecraft",         "Sandbox",   false, false, QColor(220, 160, 0)},
-        {"Rust",              "Survival",  false, false, QColor(220, 160, 0)},
-        {"Rainbow Six Siege", "FPS",       false, false, QColor(0, 200, 255)},
-        {"Escape from Tarkov","FPS",       false, false, QColor(0, 200, 255)},
-        {"Call of Duty: Warzone","FPS",    false, false, QColor(0, 200, 255)},
-        {"Destiny 2",         "FPS",       false, false, QColor(0, 200, 255)},
-        {"World of Warcraft", "MMO",       false, false, QColor(160, 80, 220)},
-        {"Final Fantasy XIV", "MMO",       false, false, QColor(160, 80, 220)},
-        {"Path of Exile",     "ARPG",      false, false, QColor(220, 160, 0)},
-        {"Dead by Daylight",  "Horror",    false, false, QColor(220, 60, 60)},
-        {"Fall Guys",         "Party",     false, false, QColor(0, 200, 100)},
-    };
+    games_.clear();
+    game_cards_.clear();
+
+    // clear grid
+    QLayoutItem* item;
+    while ((item = grid_layout_->takeAt(0)) != nullptr) {
+        if (item->widget()) item->widget()->deleteLater();
+        delete item;
+    }
+
+    // installed games from Steam/Epic/GOG first
+    auto installed = detector_.getInstalledGames();
+    QSet<QString> installedNames;
+    for (const auto& g : installed) {
+        GameInfo info;
+        info.name = QString::fromStdString(g.name);
+        info.category = translateCategory(QString::fromStdString(g.category));
+        info.installed = true;
+        info.running = g.is_running;
+        info.iconColor = categoryColor(info.category);
+        installedNames.insert(info.name);
+        games_.append(info);
+    }
+
+    // supported games (known library) not already listed
+    auto supported = detector_.getSupportedGames();
+    for (const auto& g : supported) {
+        GameInfo info;
+        info.name = QString::fromStdString(g.name);
+        if (installedNames.contains(info.name)) continue;
+        info.category = translateCategory(QString::fromStdString(g.category));
+        info.installed = false;
+        info.running = g.is_running;
+        info.iconColor = categoryColor(info.category);
+        games_.append(info);
+    }
 
     const int cols = 4;
     for (int i = 0; i < games_.size(); ++i) {
@@ -94,10 +156,6 @@ void GameListWidget::buildGameCards() {
         auto* icon = new QWidget();
         icon->setObjectName("gameIcon");
         icon->setFixedSize(48, 48);
-        QPalette pal = icon->palette();
-        pal.setColor(QPalette::Window, game.iconColor);
-        icon->setPalette(pal);
-        icon->setAutoFillBackground(true);
         icon->setStyleSheet(QString("border-radius: 8px; background-color: %1;").arg(game.iconColor.name()));
         card_layout->addWidget(icon, 0, Qt::AlignHCenter);
 
@@ -116,13 +174,13 @@ void GameListWidget::buildGameCards() {
         QString status_text;
         QString status_color;
         if (game.running) {
-            status_text = "● Running";
+            status_text = "● Запущена";
             status_color = "#00e676";
         } else if (game.installed) {
-            status_text = "● Installed";
+            status_text = "● Установлена";
             status_color = "#00bcd4";
         } else {
-            status_text = "● Detected";
+            status_text = "● Не установлена";
             status_color = "#888888";
         }
 
@@ -190,6 +248,6 @@ void GameListWidget::updateStatus() {
         }
     }
     status_label_->setText(
-        QString("Showing %1 games  |  %2 installed  |  %3 running")
+        QString("Показано игр: %1  |  установлено: %2  |  запущено: %3")
             .arg(total).arg(installed).arg(running));
 }

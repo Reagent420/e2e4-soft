@@ -31,11 +31,11 @@ void NetworkToolsWidget::setupUI()
     mainLayout->setContentsMargins(24, 24, 24, 24);
     mainLayout->setSpacing(16);
 
-    auto* title = new QLabel("Network Tools", this);
+    auto* title = new QLabel(QString::fromUtf8("Сетевые утилиты"), this);
     title->setObjectName("sectionTitle");
     mainLayout->addWidget(title);
 
-    auto* subtitle = new QLabel("Speedtest, DNS benchmark and configuration", this);
+    auto* subtitle = new QLabel(QString::fromUtf8("Спидтест, бенчмарк DNS и настройка серверов"), this);
     subtitle->setObjectName("sectionSubtitle");
     mainLayout->addWidget(subtitle);
 
@@ -49,14 +49,14 @@ void NetworkToolsWidget::setupUI()
     layout->setSpacing(16);
 
     // Speedtest section
-    auto* speedGroup = new QGroupBox("Speedtest", content);
+    auto* speedGroup = new QGroupBox(QString::fromUtf8("Спидтест"), content);
     auto* speedLayout = new QVBoxLayout(speedGroup);
 
-    m_speedResultLabel = new QLabel("Click to measure ping to servers worldwide", speedGroup);
+    m_speedResultLabel = new QLabel(QString::fromUtf8("Замер пинга до серверов по всему миру"), speedGroup);
     m_speedResultLabel->setObjectName("sectionSubtitle");
     speedLayout->addWidget(m_speedResultLabel);
 
-    auto* speedBtn = new QPushButton("Run Speedtest", speedGroup);
+    auto* speedBtn = new QPushButton(QString::fromUtf8("Запустить спидтест"), speedGroup);
     speedBtn->setObjectName("boostButton");
     speedBtn->setFixedWidth(180);
     connect(speedBtn, &QPushButton::clicked, this, &NetworkToolsWidget::runSpeedTest);
@@ -69,26 +69,26 @@ void NetworkToolsWidget::setupUI()
     layout->addWidget(speedGroup);
 
     // DNS section
-    auto* dnsGroup = new QGroupBox("DNS Settings", content);
+    auto* dnsGroup = new QGroupBox(QString::fromUtf8("Настройки DNS"), content);
     auto* dnsLayout = new QVBoxLayout(dnsGroup);
 
-    m_dnsResultLabel = new QLabel("Choose a fast DNS server for your connection", dnsGroup);
+    m_dnsResultLabel = new QLabel(QString::fromUtf8("Выберите быстрый DNS-сервер для вашего соединения"), dnsGroup);
     m_dnsResultLabel->setObjectName("sectionSubtitle");
     dnsLayout->addWidget(m_dnsResultLabel);
 
     auto* dnsBtnRow = new QHBoxLayout();
-    auto* dnsBenchBtn = new QPushButton("Benchmark DNS", dnsGroup);
+    auto* dnsBenchBtn = new QPushButton(QString::fromUtf8("Бенчмарк DNS"), dnsGroup);
     dnsBenchBtn->setObjectName("boostButton");
     dnsBenchBtn->setFixedWidth(180);
     connect(dnsBenchBtn, &QPushButton::clicked, this, &NetworkToolsWidget::runDNSBenchmark);
     dnsBtnRow->addWidget(dnsBenchBtn);
 
-    auto* dnsResetBtn = new QPushButton("Reset to DHCP", dnsGroup);
+    auto* dnsResetBtn = new QPushButton(QString::fromUtf8("Сброс на DHCP"), dnsGroup);
     dnsResetBtn->setObjectName("sidebarButton");
     dnsResetBtn->setFixedWidth(140);
     connect(dnsResetBtn, &QPushButton::clicked, this, [this]() {
         m_dnsManager->resetToDHCP();
-        m_dnsResultLabel->setText("DNS reset to DHCP");
+        m_dnsResultLabel->setText(QString::fromUtf8("DNS сброшен — настройки автоматические (DHCP)"));
     });
     dnsBtnRow->addWidget(dnsResetBtn);
     dnsBtnRow->addStretch();
@@ -107,7 +107,7 @@ void NetworkToolsWidget::setupUI()
 
 void NetworkToolsWidget::runSpeedTest()
 {
-    m_speedResultLabel->setText("Running speedtest...");
+    m_speedResultLabel->setText(QString::fromUtf8("Запуск спидтеста…"));
     m_speedTest->runBenchmark();
     m_pollTimer->start(500);
 
@@ -132,7 +132,7 @@ void NetworkToolsWidget::runSpeedTest()
         pingLbl->setProperty("server_ip", QString::fromStdString(srv.ip));
         grid->addWidget(pingLbl, row, 1);
 
-        auto* btn = new QPushButton("Ping", m_serverGrid);
+        auto* btn = new QPushButton(QString::fromUtf8("Пинг"), m_serverGrid);
         btn->setFixedWidth(80);
         btn->setProperty("server_ip", QString::fromStdString(srv.ip));
         connect(btn, &QPushButton::clicked, this, [this, btn]() {
@@ -141,9 +141,9 @@ void NetworkToolsWidget::runSpeedTest()
             for (auto* child : m_serverGrid->findChildren<QLabel*>()) {
                 if (child->property("server_ip").toString() == QString::fromStdString(ip)) {
                     if (result.success) {
-                        child->setText(QString("%1 ms").arg(result.latency_ms, 0, 'f', 1));
+                        child->setText(QString("%1 мс").arg(result.latency_ms, 0, 'f', 1));
                     } else {
-                        child->setText("Timeout");
+                        child->setText(QString::fromUtf8("Тайм-аут"));
                     }
                     break;
                 }
@@ -176,18 +176,18 @@ void NetworkToolsWidget::onSpeedTestResult()
 
     if (success > 0) {
         m_speedResultLabel->setText(
-            QString("Best: %1 (%2 ms) — %3 servers tested")
+            QString("Лучший: %1 (%2 мс) — проверено серверов: %3")
                 .arg(QString::fromStdString(best_server))
                 .arg(best_ping, 0, 'f', 1)
                 .arg(success));
     } else {
-        m_speedResultLabel->setText("No servers responded");
+        m_speedResultLabel->setText(QString::fromUtf8("Ни один сервер не ответил"));
     }
 }
 
 void NetworkToolsWidget::runDNSBenchmark()
 {
-    m_dnsResultLabel->setText("Benchmarking DNS servers...");
+    m_dnsResultLabel->setText(QString::fromUtf8("Тестируем DNS-серверы…"));
 
     std::thread([this]() {
         auto results = m_dnsManager->benchmarkAll();
@@ -196,11 +196,11 @@ void NetworkToolsWidget::runDNSBenchmark()
         QMetaObject::invokeMethod(this, [this, fastest]() {
             if (fastest.success) {
                 m_dnsResultLabel->setText(
-                    QString("Fastest DNS: %1 (%2 ms)")
+                    QString("Быстрый DNS: %1 (%2 мс)")
                         .arg(QString::fromStdString(fastest.server))
                         .arg(fastest.latency_ms, 0, 'f', 1));
             } else {
-                m_dnsResultLabel->setText("DNS benchmark failed");
+                m_dnsResultLabel->setText(QString::fromUtf8("Бенчмарк DNS не удался"));
             }
 
             QGridLayout* grid = qobject_cast<QGridLayout*>(m_dnsGrid->layout());
@@ -233,7 +233,7 @@ void NetworkToolsWidget::runDNSBenchmark()
                 pingLbl->setObjectName("sectionSubtitle");
                 grid->addWidget(pingLbl, row, 1);
 
-                auto* btn = new QPushButton("Apply", m_dnsGrid);
+                auto* btn = new QPushButton(QString::fromUtf8("Применить"), m_dnsGrid);
                 btn->setFixedWidth(80);
                 QString pri = QString::fromStdString(presets[i].primary);
                 QString sec = QString::fromStdString(presets[i].secondary);
@@ -254,7 +254,7 @@ void NetworkToolsWidget::onDNSResult()
 void NetworkToolsWidget::applyDNS(const QString& primary, const QString& secondary)
 {
     m_dnsManager->applyDNS(primary.toStdString(), secondary.toStdString());
-    m_dnsResultLabel->setText(QString("DNS set to %1").arg(primary));
+    m_dnsResultLabel->setText(QString("DNS установлен: %1").arg(primary));
 }
 
 } // namespace gno

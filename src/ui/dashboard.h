@@ -6,6 +6,10 @@
 #include <QLabel>
 #include <QPushButton>
 
+#include "../monitoring/ping_monitor.h"
+
+namespace gno {
+
 class PingGraphWidget : public QWidget {
     Q_OBJECT
 public:
@@ -24,10 +28,8 @@ class DashboardWidget : public QWidget {
     Q_OBJECT
 public:
     explicit DashboardWidget(QWidget* parent = nullptr);
-    void updatePing(double ms);
-    void updateJitter(double ms);
-    void updatePacketLoss(double percent);
-    void updateRouteCount(int count);
+    ~DashboardWidget() override;
+
     void setConnected(bool connected);
 
 signals:
@@ -35,17 +37,28 @@ signals:
 
 private slots:
     void onBoostClicked();
-    void onRefresh();
 
 private:
-    QTimer* refresh_timer_;
+    void onPingResult(const gno::ICMPResult& result);
+    void startMonitoring();
+
     PingGraphWidget* graph_;
     QLabel* ping_value_;
     QLabel* jitter_value_;
     QLabel* loss_value_;
     QLabel* route_value_;
+    QLabel* status_value_;
     QPushButton* boost_btn_;
     bool boosting_ = false;
 
+    gno::PingMonitor ping_monitor_;
+    QVector<double> jitter_history_;
+    QVector<double> loss_history_;
+    double last_ping_ = 0.0;
+    uint32_t packets_sent_ = 0;
+    uint32_t packets_lost_ = 0;
+
     QWidget* createMetricCard(const QString& label, QLabel** valueOut, QLabel** deltaOut, const QString& deltaColor);
 };
+
+} // namespace gno
