@@ -1,31 +1,18 @@
 #include "game_profiles.h"
 
 #include "input_validation.h"
+#include "json_persistence.h"
 
 #include <algorithm>
-#include <filesystem>
-#include <fstream>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <stdexcept>
-
-#ifdef PLATFORM_WINDOWS
-#include <shlobj.h>
-#include <windows.h>
-#endif
 
 namespace {
 
 constexpr std::size_t kMaxProfileBytes = 1024 * 1024;
 constexpr std::size_t kMaxProfiles = 256;
-
-bool ensureParentDirectory(const std::string& path) {
-    const auto parent = std::filesystem::path(path).parent_path();
-    if (parent.empty()) return true;
-
-    std::error_code error;
-    std::filesystem::create_directories(parent, error);
-    return !error;
-}
+constexpr int kProfileDocumentVersion = 1;
 
 gno::GameProfile profileFromJson(const nlohmann::json& value) {
     gno::GameProfile profile;
@@ -38,9 +25,9 @@ gno::GameProfile profileFromJson(const nlohmann::json& value) {
     profile.preferred_region = value.value("preferred_region", std::string{"auto"});
     profile.priority_class = std::clamp(value.value("priority_class", 0), 0, 10);
     profile.auto_apply = value.value("auto_apply", false);
-    if (profile.game_name.size() > 128 || profile.process_name.size() > 260 ||
-        profile.preferred_region.size() > 64) {
-        throw std::runtime_error("profile string too long");
+    if (profile.game_name.empty() || profile.game_name.size() > 128 ||
+        profile.process_name.size() > 260 || profile.preferred_region.size() > 64) {
+        throw std::runtime_error("invalid profile strings");
     }
     if (value.contains("custom_routes") &&
         (!value.at("custom_routes").is_array() || !value.at("custom_routes").empty())) {
@@ -65,97 +52,71 @@ std::optional<std::vector<gno::GameProfile>> parseProfilesDocument(const std::st
     try {
         const auto root = nlohmann::json::parse(content);
         const nlohmann::json* items = nullptr;
-        if (root.is_array()) items = &root;
-        if (root.is_object() && root.contains("profiles") && root.at("profiles").is_array()) {
+        if (root.is_array()) {
+            items = &root; // Legacy documents are version 1.
+        } else if (root.is_object() && root.contains("profiles") && root.at("profiles").is_array() &&
+                   root.value("version", kProfileDocumentVersion) == kProfileDocumentVersion) {
             items = &root.at("profiles");
         }
         if (!items || items->size() > kMaxProfiles) return std::nullopt;
 
         std::vector<gno::GameProfile> result;
         result.reserve(items->size());
-        for (const auto& item : *items) {
-            auto profile = profileFromJson(item);
-            if (profile.game_name.empty()) return std::nullopt;
-            result.push_back(std::move(profile));
-        }
+        for (const auto& item : *items) result.push_back(profileFromJson(item));
         return result;
     } catch (const std::exception&) {
         return std::nullopt;
     }
 }
 
+nlohmann::json profilesDocument(const std::vector<gno::GameProfile>& profiles) {
+    nlohmann::json items = nlohmann::json::array();
+    for (const auto& profile : profiles) items.push_back(profileToJson(profile));
+    return {{"version", kProfileDocumentVersion}, {"profiles", std::move(items)}};
+}
+
 } // namespace
 
 namespace gno {
 
-std::string GameProfiles::getAppDataPath() {
-#ifdef PLATFORM_WINDOWS
-    char path[MAX_PATH];
-    if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_APPDATA, nullptr, 0, path))) {
-        return std::string(path);
-    }
-#endif
-    return ".";
-}
-
-GameProfiles::GameProfiles() {
+GameProfiles::GameProfiles(std::filesystem::path storage_root)
+    : storage_root_(std::move(storage_root)) {
     load();
 }
 
-GameProfiles::~GameProfiles() {
-    save();
-}
-
 std::string GameProfiles::getSavePath() const {
-    return getAppDataPath() + "\\GNO\\profiles.json";
+    return persistence::storageFile(storage_root_, "profiles.json").string();
 }
 
-void GameProfiles::load() {
+bool GameProfiles::load() {
     const auto content = readBoundedFile(getSavePath(), kMaxProfileBytes);
-    if (!content) return;
-
+    if (!content) return false;
     auto parsed = parseProfilesDocument(*content);
-    if (parsed) profiles_ = std::move(*parsed);
+    if (!parsed) return false;
+    profiles_ = std::move(*parsed);
+    return true;
+}
+
+bool GameProfiles::saveProfiles(const std::vector<GameProfile>& profiles, const std::string& path) const {
+    if (profiles.size() > kMaxProfiles) return false;
+    return persistence::atomicWriteText(path, profilesDocument(profiles).dump(2));
 }
 
 bool GameProfiles::save() {
-    const std::string path = getSavePath();
-    if (profiles_.size() > kMaxProfiles || !ensureParentDirectory(path)) return false;
-
-    nlohmann::json items = nlohmann::json::array();
-    for (const auto& profile : profiles_) items.push_back(profileToJson(profile));
-
-    std::ofstream file(path);
-    if (!file.is_open()) return false;
-    file << items.dump(2);
-    file.flush();
-    file.close();
-    return static_cast<bool>(file);
+    return saveProfiles(profiles_, getSavePath());
 }
 
 bool GameProfiles::exportToFile(const std::string& path) const {
-    if (profiles_.size() > kMaxProfiles || !ensureParentDirectory(path)) return false;
-
-    nlohmann::json items = nlohmann::json::array();
-    for (const auto& profile : profiles_) items.push_back(profileToJson(profile));
-
-    std::ofstream file(path);
-    if (!file.is_open()) return false;
-    file << nlohmann::json{{"version", 1}, {"profiles", items}}.dump(2);
-    file.flush();
-    file.close();
-    return static_cast<bool>(file);
+    return saveProfiles(profiles_, path);
 }
 
 bool GameProfiles::importFromFile(const std::string& path) {
     const auto content = readBoundedFile(path, kMaxProfileBytes);
     if (!content) return false;
-
     auto parsed = parseProfilesDocument(*content);
-    if (!parsed) return false;
-
+    if (!parsed || !saveProfiles(*parsed, getSavePath())) return false;
     profiles_ = std::move(*parsed);
-    return save();
+    return true;
 }
 
 std::vector<GameProfile> GameProfiles::getAll() const { return profiles_; }
@@ -168,30 +129,33 @@ GameProfile GameProfiles::get(const std::string& game_name) const {
 }
 
 bool GameProfiles::has(const std::string& game_name) const {
-    for (const auto& profile : profiles_) {
-        if (profile.game_name == game_name) return true;
-    }
-    return false;
+    return std::any_of(profiles_.begin(), profiles_.end(), [&game_name](const GameProfile& profile) {
+        return profile.game_name == game_name;
+    });
 }
 
 bool GameProfiles::set(const GameProfile& profile) {
-    for (auto& existing : profiles_) {
-        if (existing.game_name == profile.game_name) {
-            existing = profile;
-            return save();
-        }
+    auto candidate = profiles_;
+    const auto existing = std::find_if(candidate.begin(), candidate.end(), [&profile](const GameProfile& item) {
+        return item.game_name == profile.game_name;
+    });
+    if (existing != candidate.end()) {
+        *existing = profile;
+    } else {
+        if (candidate.size() >= kMaxProfiles) return false;
+        candidate.push_back(profile);
     }
-    if (profiles_.size() >= kMaxProfiles) return false;
-    profiles_.push_back(profile);
-    return save();
+    if (!saveProfiles(candidate, getSavePath())) return false;
+    profiles_ = std::move(candidate);
+    return true;
 }
 
 void GameProfiles::remove(const std::string& game_name) {
-    profiles_.erase(
-        std::remove_if(profiles_.begin(), profiles_.end(),
-                       [&game_name](const GameProfile& profile) { return profile.game_name == game_name; }),
-        profiles_.end());
-    save();
+    auto candidate = profiles_;
+    candidate.erase(std::remove_if(candidate.begin(), candidate.end(), [&game_name](const GameProfile& profile) {
+        return profile.game_name == game_name;
+    }), candidate.end());
+    if (saveProfiles(candidate, getSavePath())) profiles_ = std::move(candidate);
 }
 
 GameProfile GameProfiles::detectForProcess(const std::string& process_name) const {

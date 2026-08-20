@@ -17,7 +17,7 @@ struct MultipathConfig {
     uint32_t probe_interval_ms = 1000;
     uint32_t switch_threshold_ms = 50;
     double loss_threshold_percent = 5.0;
-    bool auto_switch = true;
+    bool auto_switch = false;
     bool load_balance = false;
 };
 

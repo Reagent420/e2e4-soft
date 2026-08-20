@@ -1,30 +1,17 @@
 #include "session_history.h"
 
 #include "input_validation.h"
+#include "json_persistence.h"
 
 #include <ctime>
-#include <filesystem>
-#include <fstream>
 #include <nlohmann/json.hpp>
-
-#ifdef PLATFORM_WINDOWS
-#include <shlobj.h>
-#include <windows.h>
-#endif
+#include <optional>
 
 namespace {
 
 constexpr std::size_t kMaxHistoryBytes = 4 * 1024 * 1024;
 constexpr std::size_t kMaxHistoryRecords = 500;
-
-bool ensureParentDirectory(const std::string& path) {
-    const auto parent = std::filesystem::path(path).parent_path();
-    if (parent.empty()) return true;
-
-    std::error_code error;
-    std::filesystem::create_directories(parent, error);
-    return !error;
-}
+constexpr int kHistoryDocumentVersion = 1;
 
 nlohmann::json recordToJson(const gno::SessionRecord& record) {
     return {{"game", record.game_name},
@@ -52,6 +39,33 @@ gno::SessionRecord recordFromJson(const nlohmann::json& value) {
     return record;
 }
 
+std::optional<std::vector<gno::SessionRecord>> parseHistoryDocument(const std::string& content) {
+    try {
+        const auto root = nlohmann::json::parse(content);
+        const nlohmann::json* items = nullptr;
+        if (root.is_array()) {
+            items = &root; // Legacy documents are version 1.
+        } else if (root.is_object() && root.contains("records") && root.at("records").is_array() &&
+                   root.value("version", kHistoryDocumentVersion) == kHistoryDocumentVersion) {
+            items = &root.at("records");
+        }
+        if (!items || items->size() > kMaxHistoryRecords) return std::nullopt;
+
+        std::vector<gno::SessionRecord> records;
+        records.reserve(items->size());
+        for (const auto& item : *items) records.push_back(recordFromJson(item));
+        return records;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+nlohmann::json historyDocument(const std::vector<gno::SessionRecord>& records) {
+    nlohmann::json items = nlohmann::json::array();
+    for (const auto& record : records) items.push_back(recordToJson(record));
+    return {{"version", kHistoryDocumentVersion}, {"records", std::move(items)}};
+}
+
 std::string currentTimeStr() {
     const auto now = std::time(nullptr);
     char buffer[64];
@@ -63,26 +77,13 @@ std::string currentTimeStr() {
 
 namespace gno {
 
-SessionHistory::SessionHistory() {
+SessionHistory::SessionHistory(std::filesystem::path storage_root)
+    : storage_root_(std::move(storage_root)) {
     loadFromFile();
 }
 
-SessionHistory::~SessionHistory() {
-    saveToFile();
-}
-
-std::string SessionHistory::getAppDataPath() const {
-#ifdef PLATFORM_WINDOWS
-    char path[MAX_PATH];
-    if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_APPDATA, nullptr, 0, path))) {
-        return std::string(path);
-    }
-#endif
-    return ".";
-}
-
 std::string SessionHistory::getSavePath() const {
-    return getAppDataPath() + "\\GNO\\history.json";
+    return persistence::storageFile(storage_root_, "history.json").string();
 }
 
 void SessionHistory::recordStart(const std::string& game_name, bool boost) {
@@ -98,17 +99,21 @@ void SessionHistory::recordEnd(double avg_ping, double avg_jitter, double loss, 
     std::lock_guard<std::mutex> lock(mutex_);
     if (!recording_) return;
 
-    current_.end_time_str = currentTimeStr();
-    current_.avg_ping_ms = avg_ping;
-    current_.avg_jitter_ms = avg_jitter;
-    current_.avg_packet_loss = loss;
-    current_.max_ping_ms = max_ping;
-    current_.duration_seconds = 0;
-    records_.push_back(current_);
-    recording_ = false;
+    auto completed = current_;
+    completed.end_time_str = currentTimeStr();
+    completed.avg_ping_ms = avg_ping;
+    completed.avg_jitter_ms = avg_jitter;
+    completed.avg_packet_loss = loss;
+    completed.max_ping_ms = max_ping;
+    completed.duration_seconds = 0;
 
-    if (records_.size() > kMaxHistoryRecords) records_.erase(records_.begin());
-    saveToFileUnlocked(getSavePath());
+    auto candidate = records_;
+    candidate.push_back(std::move(completed));
+    if (candidate.size() > kMaxHistoryRecords) candidate.erase(candidate.begin());
+    if (!saveRecords(candidate, getSavePath())) return;
+
+    records_ = std::move(candidate);
+    recording_ = false;
 }
 
 std::vector<SessionRecord> SessionHistory::getAll() const {
@@ -118,14 +123,15 @@ std::vector<SessionRecord> SessionHistory::getAll() const {
 
 std::vector<SessionRecord> SessionHistory::getLast(int count) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (static_cast<int>(records_.size()) <= count) return records_;
+    if (count <= 0) return {};
+    if (static_cast<std::size_t>(count) >= records_.size()) return records_;
     return std::vector<SessionRecord>(records_.end() - count, records_.end());
 }
 
 void SessionHistory::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
-    records_.clear();
-    saveToFileUnlocked(getSavePath());
+    const std::vector<SessionRecord> candidate;
+    if (saveRecords(candidate, getSavePath())) records_ = candidate;
 }
 
 double SessionHistory::getAveragePing() const {
@@ -149,38 +155,24 @@ bool SessionHistory::saveToFile(const std::string& path) const {
     return saveToFileUnlocked(path.empty() ? getSavePath() : path);
 }
 
+bool SessionHistory::saveRecords(const std::vector<SessionRecord>& records, const std::string& path) const {
+    if (records.size() > kMaxHistoryRecords) return false;
+    return persistence::atomicWriteText(path, historyDocument(records).dump(2));
+}
+
 bool SessionHistory::saveToFileUnlocked(const std::string& path) const {
-    if (!ensureParentDirectory(path)) return false;
-
-    nlohmann::json records = nlohmann::json::array();
-    for (const auto& record : records_) records.push_back(recordToJson(record));
-
-    std::ofstream file(path);
-    if (!file.is_open()) return false;
-    file << records.dump(2);
-    file.flush();
-    file.close();
-    return static_cast<bool>(file);
+    return saveRecords(records_, path);
 }
 
 bool SessionHistory::loadFromFile(const std::string& path) {
     const auto content = readBoundedFile(path.empty() ? getSavePath() : path, kMaxHistoryBytes);
     if (!content) return false;
+    auto parsed = parseHistoryDocument(*content);
+    if (!parsed) return false;
 
-    try {
-        const auto root = nlohmann::json::parse(*content);
-        if (!root.is_array() || root.size() > kMaxHistoryRecords) return false;
-
-        std::vector<SessionRecord> parsed;
-        parsed.reserve(root.size());
-        for (const auto& item : root) parsed.push_back(recordFromJson(item));
-
-        std::lock_guard<std::mutex> lock(mutex_);
-        records_ = std::move(parsed);
-        return true;
-    } catch (const std::exception&) {
-        return false;
-    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    records_ = std::move(*parsed);
+    return true;
 }
 
 } // namespace gno

@@ -1,7 +1,9 @@
 #include "doctest.h"
 #include "core/game_profiles.h"
 #include "core/input_validation.h"
+#include "core/game_watcher.h"
 #include "core/session_history.h"
+#include "optimization/fps_optimizer.h"
 #include "diagnostics/diagnostic_types.h"
 #include "diagnostics/endpoint_observer.h"
 #include "diagnostics/network_sampler.h"
@@ -11,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -51,34 +54,54 @@ static_assert(std::has_virtual_destructor<gno::IProbeClient>::value);
 
 class RestoredGameProfiles {
 public:
-    RestoredGameProfiles() : profiles_(std::make_unique<gno::GameProfiles>()) {
-        path_ = profiles_->getSavePath();
-        std::ifstream input(path_, std::ios::binary);
-        existed_ = static_cast<bool>(input);
-        if (existed_) {
-            original_.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
-        }
+    RestoredGameProfiles()
+        : root_(std::filesystem::temp_directory_path() / "gno-restored-profile-tests"),
+          profiles_(std::make_unique<gno::GameProfiles>(root_)) {
+        std::error_code error;
+        std::filesystem::remove_all(root_, error);
+        std::filesystem::create_directories(root_, error);
+        profiles_ = std::make_unique<gno::GameProfiles>(root_);
     }
 
     ~RestoredGameProfiles() {
         profiles_.reset();
-        if (!existed_) {
-            std::remove(path_.c_str());
-            return;
-        }
-
-        std::ofstream output(path_, std::ios::binary | std::ios::trunc);
-        if (output) output.write(original_.data(), static_cast<std::streamsize>(original_.size()));
+        std::error_code error;
+        std::filesystem::remove_all(root_, error);
     }
 
     gno::GameProfiles& get() { return *profiles_; }
 
 private:
+    std::filesystem::path root_;
     std::unique_ptr<gno::GameProfiles> profiles_;
-    std::string path_;
-    std::string original_;
-    bool existed_ = false;
 };
+
+class TemporaryStorageRoot {
+public:
+    explicit TemporaryStorageRoot(const std::string& name)
+        : path_(std::filesystem::temp_directory_path() / name) {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+        std::filesystem::create_directories(path_);
+    }
+
+    ~TemporaryStorageRoot() {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+    }
+
+    const std::filesystem::path& path() const { return path_; }
+
+private:
+    std::filesystem::path path_;
+};
+
+void writeTextFile(const std::filesystem::path& path, const std::string& content) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    REQUIRE(output);
+    output << content;
+    REQUIRE(output);
+}
 
 } // namespace
 
@@ -87,6 +110,27 @@ TEST_CASE("diagnostic defaults are safe") {
     CHECK(report.outcome == gno::DiagnosticOutcome::InsufficientData);
     CHECK(report.confidence == gno::ConfidenceLevel::Low);
     CHECK(report.network_settings_changed == false);
+}
+
+TEST_CASE("profile mutation defaults are disabled") {
+    const gno::GameProfile profile;
+    CHECK_FALSE(profile.multipath_enabled);
+    CHECK_FALSE(profile.fps_boost_enabled);
+    CHECK_FALSE(profile.network_optimization);
+    CHECK_FALSE(profile.auto_apply);
+}
+
+TEST_CASE("mutating service defaults require explicit opt in") {
+    const gno::GameWatcherConfig watcher;
+    CHECK_FALSE(watcher.auto_apply_profiles);
+
+    const gno::FPSBoostConfig optimizer;
+    CHECK_FALSE(optimizer.disable_game_dvr);
+    CHECK_FALSE(optimizer.disable_fullscreen_optimizations);
+    CHECK_FALSE(optimizer.optimize_power_plan);
+    CHECK_FALSE(optimizer.set_high_priority);
+    CHECK_FALSE(optimizer.disable_mouse_acceleration);
+    CHECK_FALSE(optimizer.optimize_virtual_memory);
 }
 
 TEST_CASE("IPv4 parser accepts decimal address boundaries") {
@@ -304,4 +348,88 @@ TEST_CASE("session history preserves every record field through JSON") {
 
     std::remove(input.c_str());
     std::remove(output.c_str());
+}
+
+TEST_CASE("profile persistence rejects invalid documents without replacing valid state") {
+    TemporaryStorageRoot storage("gno-profile-persistence-regression");
+    gno::GameProfiles profiles(storage.path());
+    const auto expected_path = storage.path() / "GNO" / "profiles.json";
+    CHECK(std::filesystem::path(profiles.getSavePath()) == expected_path);
+
+    gno::GameProfile valid;
+    valid.game_name = "stable";
+    valid.process_name = "stable.exe";
+    REQUIRE(profiles.set(valid));
+
+    writeTextFile(expected_path, "{not-json");
+    CHECK_FALSE(profiles.load());
+    CHECK(profiles.has("stable"));
+
+    writeTextFile(expected_path, R"({"version":2,"profiles":[]})");
+    CHECK_FALSE(profiles.load());
+    CHECK(profiles.has("stable"));
+
+    writeTextFile(expected_path, std::string(1024 * 1024 + 1, 'x'));
+    CHECK_FALSE(profiles.load());
+    CHECK(profiles.has("stable"));
+}
+
+TEST_CASE("profile persistence rolls back memory and preserves prior file when temp write fails") {
+    TemporaryStorageRoot storage("gno-profile-write-rollback");
+    gno::GameProfiles profiles(storage.path());
+    gno::GameProfile stable;
+    stable.game_name = "stable";
+    stable.process_name = "stable.exe";
+    REQUIRE(profiles.set(stable));
+
+    const auto path = std::filesystem::path(profiles.getSavePath());
+    const auto before = *gno::readBoundedFile(path.string(), 1024 * 1024);
+    REQUIRE(std::filesystem::create_directory(path.string() + ".tmp"));
+
+    gno::GameProfile rejected;
+    rejected.game_name = "rejected";
+    rejected.process_name = "rejected.exe";
+    CHECK_FALSE(profiles.set(rejected));
+    CHECK(profiles.has("stable"));
+    CHECK_FALSE(profiles.has("rejected"));
+    CHECK(*gno::readBoundedFile(path.string(), 1024 * 1024) == before);
+}
+
+TEST_CASE("session persistence rejects invalid documents and negative history counts") {
+    TemporaryStorageRoot storage("gno-history-persistence-regression");
+    gno::SessionHistory history(storage.path());
+    const auto expected_path = storage.path() / "GNO" / "history.json";
+    CHECK(std::filesystem::path(history.getSavePath()) == expected_path);
+
+    history.recordStart("stable", false);
+    history.recordEnd(10.0, 1.0, 0.0, 12.0);
+    REQUIRE(history.getAll().size() == 1);
+    CHECK(history.getLast(-1).empty());
+
+    writeTextFile(expected_path, "{not-json");
+    CHECK_FALSE(history.loadFromFile());
+    CHECK(history.getAll().size() == 1);
+
+    writeTextFile(expected_path, R"({"version":2,"records":[]})");
+    CHECK_FALSE(history.loadFromFile());
+    CHECK(history.getAll().size() == 1);
+
+    writeTextFile(expected_path, std::string(4 * 1024 * 1024 + 1, 'x'));
+    CHECK_FALSE(history.loadFromFile());
+    CHECK(history.getAll().size() == 1);
+}
+
+TEST_CASE("session persistence leaves state and prior file intact when temp write fails") {
+    TemporaryStorageRoot storage("gno-history-write-rollback");
+    gno::SessionHistory history(storage.path());
+    history.recordStart("stable", false);
+    history.recordEnd(10.0, 1.0, 0.0, 12.0);
+    const auto path = std::filesystem::path(history.getSavePath());
+    const auto before = *gno::readBoundedFile(path.string(), 4 * 1024 * 1024);
+    REQUIRE(std::filesystem::create_directory(path.string() + ".tmp"));
+
+    history.recordStart("rejected", false);
+    history.recordEnd(20.0, 2.0, 0.0, 22.0);
+    CHECK(history.getAll().size() == 1);
+    CHECK(*gno::readBoundedFile(path.string(), 4 * 1024 * 1024) == before);
 }

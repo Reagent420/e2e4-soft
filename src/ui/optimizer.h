@@ -7,16 +7,16 @@
 #include <QLabel>
 
 struct FPSBoostSettings {
-    bool disable_game_dvr = true;
-    bool disable_fullscreen_opt = true;
-    bool disable_mouse_accel = true;
+    bool disable_game_dvr = false;
+    bool disable_fullscreen_opt = false;
+    bool disable_mouse_accel = false;
     bool disable_game_mode = false;
-    bool optimize_power_plan = true;
-    bool set_high_priority = true;
-    bool optimize_virtual_memory = true;
-    bool multipath_routing = true;
-    bool real_time_route = true;
-    bool packet_loss_compensation = true;
+    bool optimize_power_plan = false;
+    bool set_high_priority = false;
+    bool optimize_virtual_memory = false;
+    bool multipath_routing = false;
+    bool real_time_route = false;
+    bool packet_loss_compensation = false;
     bool custom_dns = false;
     QString dns_server = "1.1.1.1";
 };

@@ -13,7 +13,7 @@ namespace gno {
 struct GameWatcherConfig {
     bool enabled = true;
     uint32_t check_interval_ms = 2000;
-    bool auto_apply_profiles = true;
+    bool auto_apply_profiles = false;
     bool notify_on_game_start = true;
     bool notify_on_game_end = true;
 };

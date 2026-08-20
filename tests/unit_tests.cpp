@@ -11,6 +11,7 @@
 #include "monitoring/stats_collector.h"
 
 #include <chrono>
+#include <filesystem>
 #include <thread>
 #include <type_traits>
 
@@ -68,7 +69,10 @@ TEST_CASE("RouteAnalyzer::getRoutes") {
 }
 
 TEST_CASE("GameProfiles::save/load") {
-    GameProfiles profiles;
+    const auto storage_root = std::filesystem::path("unit-game-profiles-storage");
+    std::error_code error;
+    std::filesystem::remove_all(storage_root, error);
+    GameProfiles profiles(storage_root);
     profiles.remove("TestProfileGame");
     
     GameProfile p;
@@ -89,6 +93,7 @@ TEST_CASE("GameProfiles::save/load") {
     
     profiles.remove("TestProfileGame");
     REQUIRE(profiles.has("TestProfileGame") == false);
+    std::filesystem::remove_all(storage_root, error);
 }
 
 TEST_CASE("SpeedTest::servers") {

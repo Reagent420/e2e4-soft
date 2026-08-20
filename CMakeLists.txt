@@ -47,6 +47,14 @@ function(gno_enable_warnings target)
     endif()
 endfunction()
 
+function(gno_add_release_artifact_gate target)
+    add_test(
+        NAME GNO-ReleaseArtifact-${target}
+        COMMAND ${CMAKE_COMMAND}
+            "-DARTIFACT=$<TARGET_FILE:${target}>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/release_gate.cmake")
+endfunction()
+
 set(CORE_SOURCES
     src/core/route_analyzer.cpp
     src/core/game_detector.cpp
@@ -59,6 +67,7 @@ set(CORE_SOURCES
     src/core/game_watcher.cpp
     src/core/connection_grader.cpp
     src/core/input_validation.cpp
+    src/core/json_persistence.cpp
     src/diagnostics/diagnostic_types.cpp
 )
 
@@ -119,6 +128,15 @@ if(MINGW OR (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"))
     target_link_options(${PROJECT_NAME}-console PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
+if(GNO_TESTS)
+    add_test(
+        NAME GNO-ReleaseSourceGate
+        COMMAND ${CMAKE_COMMAND}
+            "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/release_gate.cmake")
+    gno_add_release_artifact_gate(${PROJECT_NAME}-console)
+endif()
+
 # GUI target (requires Qt6)
 if(NOT GNO_CONSOLE)
     find_package(Qt6 COMPONENTS Widgets Charts QUIET)
@@ -176,6 +194,7 @@ if(NOT GNO_CONSOLE)
             target_link_libraries(${PROJECT_NAME}-ui-tests PRIVATE ${COMMON_LIBS} Qt6::Widgets Qt6::Charts)
             gno_enable_warnings(${PROJECT_NAME}-ui-tests)
             set_target_properties(${PROJECT_NAME}-ui-tests PROPERTIES AUTOMOC ON)
+            gno_add_release_artifact_gate(${PROJECT_NAME})
             add_test(NAME GNO-UITests COMMAND ${PROJECT_NAME}-ui-tests)
             set_tests_properties(GNO-UITests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
         endif()

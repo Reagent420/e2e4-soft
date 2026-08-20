@@ -7,12 +7,12 @@
 namespace gno {
 
 struct FPSBoostConfig {
-    bool disable_game_dvr = true;
-    bool disable_fullscreen_optimizations = true;
-    bool disable_mouse_acceleration = true;
-    bool optimize_power_plan = true;
-    bool set_high_priority = true;
-    bool optimize_virtual_memory = true;
+    bool disable_game_dvr = false;
+    bool disable_fullscreen_optimizations = false;
+    bool disable_mouse_acceleration = false;
+    bool optimize_power_plan = false;
+    bool set_high_priority = false;
+    bool optimize_virtual_memory = false;
     uint32_t power_plan_mode = 1;
 };
 

@@ -3,28 +3,29 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <filesystem>
 
 namespace gno {
 
 struct GameProfile {
     std::string game_name;
     std::string process_name;
-    bool multipath_enabled = true;
-    bool fps_boost_enabled = true;
-    bool network_optimization = true;
+    bool multipath_enabled = false;
+    bool fps_boost_enabled = false;
+    bool network_optimization = false;
     int max_routes = 3;
     std::string preferred_region = "auto";
     int priority_class = 6;
     std::vector<std::string> custom_routes;
-    bool auto_apply = true;
+    bool auto_apply = false;
 };
 
 class GameProfiles {
 public:
-    GameProfiles();
-    ~GameProfiles();
+    explicit GameProfiles(std::filesystem::path storage_root = {});
+    ~GameProfiles() = default;
 
-    void load();
+    bool load();
     bool save();
 
     std::vector<GameProfile> getAll() const;
@@ -43,8 +44,9 @@ public:
     bool importFromFile(const std::string& path);
 
 private:
-    static std::string getAppDataPath();
+    bool saveProfiles(const std::vector<GameProfile>& profiles, const std::string& path) const;
 
+    std::filesystem::path storage_root_;
     std::vector<GameProfile> profiles_;
 };
 

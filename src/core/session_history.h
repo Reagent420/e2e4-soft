@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <chrono>
 #include <mutex>
+#include <filesystem>
 
 namespace gno {
 
@@ -22,8 +23,8 @@ struct SessionRecord {
 
 class SessionHistory {
 public:
-    SessionHistory();
-    ~SessionHistory();
+    explicit SessionHistory(std::filesystem::path storage_root = {});
+    ~SessionHistory() = default;
 
     void recordStart(const std::string& game_name, bool boost);
     void recordEnd(double avg_ping, double avg_jitter, double loss, double max_ping);
@@ -40,9 +41,10 @@ public:
     double getAverageJitter() const;
 
 private:
-    std::string getAppDataPath() const;
+    bool saveRecords(const std::vector<SessionRecord>& records, const std::string& path) const;
     bool saveToFileUnlocked(const std::string& path) const;
 
+    std::filesystem::path storage_root_;
     mutable std::mutex mutex_;
     std::vector<SessionRecord> records_;
     SessionRecord current_;
