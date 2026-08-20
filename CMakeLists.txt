@@ -69,6 +69,7 @@ set(CORE_SOURCES
     src/core/input_validation.cpp
     src/core/json_persistence.cpp
     src/diagnostics/diagnostic_types.cpp
+    src/remediation/fix_transaction.cpp
 )
 
 set(MON_SOURCES
@@ -210,6 +211,7 @@ if(GNO_TESTS)
     add_executable(${PROJECT_NAME}-tests
         tests/unit_tests.cpp
         tests/foundation_tests.cpp
+        tests/remediation_tests.cpp
         ${CORE_SOURCES}
         ${MON_SOURCES}
     )
