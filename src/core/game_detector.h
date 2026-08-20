@@ -26,6 +26,25 @@ struct GameRegion {
     std::vector<std::string> recommended_gateways;
 };
 
+enum class GameStore {
+    Unknown = 0,
+    Steam,
+    Epic,
+    GOG,
+    EA,
+    BattleNet,
+    Uplay,
+    Custom
+};
+
+struct GameInstallInfo {
+    std::string game_name;
+    std::string executable_path;
+    GameStore store;
+    std::string store_app_id;
+    std::string install_dir;
+};
+
 class GameDetector {
 public:
     GameDetector();
@@ -34,6 +53,12 @@ public:
     void loadGameDatabase(const std::string& json_path);
     void scanInstalledGames();
     void detectRunningGames();
+    
+    // Steam/Epic/GOG detection
+    void scanSteamLibrary();
+    void scanEpicLibrary();
+    void scanGOGLibrary();
+    std::vector<GameInstallInfo> findGameInstallations(const std::string& game_name);
 
     std::vector<GameInfo> getSupportedGames() const;
     std::vector<GameInfo> getInstalledGames() const;
@@ -51,6 +76,12 @@ public:
 private:
     bool isProcessRunning(const std::string& process_name) const;
     std::string findExecutablePath(const std::string& process_name) const;
+    std::string getSteamPath() const;
+    std::string getEpicPath() const;
+    std::string getGOGPath() const;
+    std::vector<std::string> getSteamLibraryFolders() const;
+    void parseVDF(const std::string& vdf_path, std::vector<std::string>& library_folders) const;
+    std::string findExecutableInDir(const std::string& dir, const std::string& process_name) const;
     
     std::vector<GameInfo> supported_games_;
     std::vector<GameInfo> installed_games_;

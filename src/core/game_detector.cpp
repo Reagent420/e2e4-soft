@@ -2,6 +2,8 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <filesystem>
+#include <regex>
 
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
@@ -9,7 +11,9 @@
 #include <psapi.h>
 #include <cstdlib>
 #include <cwchar>
+#include <shlobj.h>
 #pragma comment(lib, "psapi.lib")
+#pragma comment(lib, "shell32.lib")
 #endif
 
 namespace gno {
@@ -20,6 +24,14 @@ static std::wstring toWide(const std::string& s) {
     std::wstring ws(len - 1, 0);
     MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], len);
     return ws;
+}
+
+static std::string toNarrow(const std::wstring& ws) {
+    if (ws.empty()) return {};
+    int len = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string s(len - 1, 0);
+    WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, &s[0], len, nullptr, nullptr);
+    return s;
 }
 
 GameDetector::GameDetector() {
@@ -37,7 +49,7 @@ GameDetector::GameDetector() {
         {"Genshin Impact", "GenshinImpact.exe", "", {443, 443}, {"47.246.0.0/16"}, "RPG", ""},
         {"World of Warcraft", "Wow.exe", "", {3724, 3724}, {"195.12.0.0/16"}, "MMORPG", ""},
         {"EVE Online", "exefile.exe", "", {26000, 26004}, {"87.237.0.0/16"}, "MMORPG", ""},
-        {"RocketLeague.exe", "RocketLeague.exe", "", {7000, 7100}, {"23.52.0.0/16"}, "Sports", ""},
+        {"Rocket League", "RocketLeague.exe", "", {7000, 7100}, {"23.52.0.0/16"}, "Sports", ""},
         {"Dead by Daylight", "DeadByDaylight.exe", "", {7777, 7777}, {"23.52.0.0/16"}, "Horror", ""},
         {"Rust", "RustClient.exe", "", {28015, 28016}, {"162.244.52.0/24"}, "Survival", ""},
         {"Minecraft", "javaw.exe", "", {25565, 25565}, {"52.0.0.0/8"}, "Sandbox", ""},
@@ -55,18 +67,6 @@ void GameDetector::loadGameDatabase(const std::string& json_path) {
     
     std::stringstream buffer;
     buffer << file.rdbuf();
-}
-
-void GameDetector::scanInstalledGames() {
-    installed_games_.clear();
-    
-    for (auto& game : supported_games_) {
-        game.is_installed = !findExecutablePath(game.process_name).empty();
-        game.executable_path = findExecutablePath(game.process_name);
-        if (game.is_installed) {
-            installed_games_.push_back(game);
-        }
-    }
 }
 
 void GameDetector::detectRunningGames() {
@@ -220,6 +220,249 @@ std::string GameDetector::findExecutablePath(const std::string& process_name) co
     }
 #endif
     return "";
+}
+
+// ===== Steam/Epic/GOG Detection =====
+
+std::string GameDetector::getSteamPath() const {
+#ifdef PLATFORM_WINDOWS
+    HKEY hKey;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        char path[MAX_PATH] = {0};
+        DWORD size = MAX_PATH;
+        if (RegQueryValueExA(hKey, "SteamPath", nullptr, nullptr, (LPBYTE)path, &size) == ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            return std::string(path);
+        }
+        RegCloseKey(hKey);
+    }
+    char programFiles[MAX_PATH];
+    if (SHGetFolderPathA(nullptr, CSIDL_PROGRAM_FILESX86, nullptr, 0, programFiles) == S_OK) {
+        return std::string(programFiles) + "\\Steam";
+    }
+#endif
+    return "";
+}
+
+std::string GameDetector::getEpicPath() const {
+#ifdef PLATFORM_WINDOWS
+    char programFiles[MAX_PATH];
+    if (SHGetFolderPathA(nullptr, CSIDL_PROGRAM_FILESX86, nullptr, 0, programFiles) == S_OK) {
+        return std::string(programFiles) + "\\Epic Games";
+    }
+#endif
+    return "";
+}
+
+std::string GameDetector::getGOGPath() const {
+#ifdef PLATFORM_WINDOWS
+    char programFiles[MAX_PATH];
+    if (SHGetFolderPathA(nullptr, CSIDL_PROGRAM_FILESX86, nullptr, 0, programFiles) == S_OK) {
+        return std::string(programFiles) + "\\GOG Galaxy";
+    }
+#endif
+    return "";
+}
+
+std::vector<std::string> GameDetector::getSteamLibraryFolders() const {
+    std::vector<std::string> folders;
+    std::string steamPath = getSteamPath();
+    if (steamPath.empty()) return folders;
+    
+    folders.push_back(steamPath + "\\steamapps");
+    
+    std::string vdfPath = steamPath + "\\steamapps\\libraryfolders.vdf";
+    std::ifstream file(vdfPath);
+    if (file.is_open()) {
+        std::string line;
+        std::regex pathRegex(R"rx("path"\s*"([^"]+)")rx");
+        while (std::getline(file, line)) {
+            std::smatch match;
+            if (std::regex_search(line, match, pathRegex)) {
+                std::string path = match[1].str();
+                std::replace(path.begin(), path.end(), '/', '\\');
+                if (path.back() != '\\') path += "\\";
+                path += "steamapps";
+                folders.push_back(path);
+            }
+        }
+    }
+    return folders;
+}
+
+std::string GameDetector::findExecutableInDir(const std::string& dir, const std::string& process_name) const {
+    if (!std::filesystem::exists(dir)) return "";
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
+        if (entry.is_regular_file() && entry.path().filename().string() == process_name) {
+            return entry.path().string();
+        }
+    }
+    return "";
+}
+
+void GameDetector::scanSteamLibrary() {
+    auto folders = getSteamLibraryFolders();
+    if (folders.empty()) return;
+    
+    std::map<std::string, GameInfo*> appIdMap;
+    for (auto& game : supported_games_) {
+        if (game.name == "Counter-Strike 2") appIdMap["730"] = &game;
+        else if (game.name == "Dota 2") appIdMap["570"] = &game;
+        else if (game.name == "PUBG") appIdMap["578080"] = &game;
+        else if (game.name == "Apex Legends") appIdMap["1172470"] = &game;
+        else if (game.name == "Rust") appIdMap["252490"] = &game;
+    }
+    
+    for (const auto& folder : folders) {
+        std::string acfDir = folder + "\\appmanifest_*.acf";
+        WIN32_FIND_DATAA findData;
+        HANDLE hFind = FindFirstFileA(acfDir.c_str(), &findData);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            do {
+                if (findData.cFileName[0] != '.') {
+                    std::string acfPath = folder + "\\" + findData.cFileName;
+                    std::ifstream acfFile(acfPath);
+                    std::string content((std::istreambuf_iterator<char>(acfFile)), std::istreambuf_iterator<char>());
+                    
+                    std::smatch match;
+                    std::string appid, installdir;
+                    std::regex appidRegex(R"rx("appid"\s+"(\d+)")rx");
+                    std::regex installdirRegex(R"rx("installdir"\s+"([^"]+)")rx");
+                    
+                    if (std::regex_search(content, match, appidRegex)) appid = match[1].str();
+                    if (std::regex_search(content, match, installdirRegex)) installdir = match[1].str();
+                    
+                    if (!appid.empty() && appIdMap.count(appid) && appIdMap[appid]) {
+                        GameInfo* game = appIdMap[appid];
+                        std::string installPath = folder + "\\" + installdir;
+                        game->executable_path = findExecutableInDir(installPath, game->process_name);
+                        if (!game->executable_path.empty()) {
+                            game->is_installed = true;
+                        }
+                    }
+                }
+            } while (FindNextFileA(hFind, &findData));
+            FindClose(hFind);
+        }
+    }
+    
+    installed_games_.clear();
+    for (auto& game : supported_games_) {
+        if (game.is_installed) installed_games_.push_back(game);
+    }
+}
+
+void GameDetector::scanEpicLibrary() {
+    char localAppData[MAX_PATH];
+    if (SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, localAppData) != S_OK) return;
+    
+    std::string manifestDir = std::string(localAppData) + "\\EpicGamesLauncher\\Saved\\Manifests";
+    if (!std::filesystem::exists(manifestDir)) return;
+    
+    for (auto& game : supported_games_) {
+        std::string manifestPattern;
+        if (game.name == "Fortnite") manifestPattern = "Fortnite";
+        else if (game.name == "Rocket League") manifestPattern = "RocketLeague";
+        
+        if (manifestPattern.empty()) continue;
+        
+        for (const auto& entry : std::filesystem::directory_iterator(manifestDir)) {
+            if (entry.path().extension() == ".item") {
+                std::ifstream f(entry.path());
+                std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                if (content.find(manifestPattern) != std::string::npos && content.find("InstallLocation") != std::string::npos) {
+                    std::smatch match;
+                    std::regex locRegex(R"rx("InstallLocation"\s*:\s*"([^"]+)")rx");
+                    if (std::regex_search(content, match, locRegex)) {
+                        std::string installPath = match[1].str();
+                        std::replace(installPath.begin(), installPath.end(), '/', '\\');
+                        game.executable_path = findExecutableInDir(installPath, game.process_name);
+                        if (!game.executable_path.empty()) game.is_installed = true;
+                    }
+                }
+            }
+        }
+    }
+    
+    installed_games_.clear();
+    for (auto& game : supported_games_) {
+        if (game.is_installed) installed_games_.push_back(game);
+    }
+}
+
+void GameDetector::scanGOGLibrary() {
+    char localAppData[MAX_PATH];
+    if (SHGetFolderPathA(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, localAppData) != S_OK) return;
+    
+    std::string gogDir = std::string(localAppData) + "\\GOG.com\\Galaxy\\storage";
+    if (!std::filesystem::exists(gogDir)) return;
+    
+    for (auto& game : supported_games_) {
+        if (game.name == "The Witcher 3" || game.name == "Cyberpunk 2077") {
+            for (const auto& entry : std::filesystem::directory_iterator(gogDir)) {
+                if (entry.path().extension() == ".json") {
+                    std::ifstream f(entry.path());
+                    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                    if (content.find(game.name) != std::string::npos) {
+                        std::smatch match;
+                        std::regex pathRegex(R"rx("installation_path"\s*:\s*"([^"]+)")rx");
+                        if (std::regex_search(content, match, pathRegex)) {
+                            std::string installPath = match[1].str();
+                            std::replace(installPath.begin(), installPath.end(), '/', '\\');
+                            game.executable_path = findExecutableInDir(installPath, game.process_name);
+                            if (!game.executable_path.empty()) game.is_installed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    installed_games_.clear();
+    for (auto& game : supported_games_) {
+        if (game.is_installed) installed_games_.push_back(game);
+    }
+}
+
+std::vector<GameInstallInfo> GameDetector::findGameInstallations(const std::string& game_name) {
+    std::vector<GameInstallInfo> results;
+    
+    for (const auto& game : supported_games_) {
+        if (game.name != game_name) continue;
+        
+        if (game.is_installed && !game.executable_path.empty()) {
+            GameInstallInfo info;
+            info.game_name = game.name;
+            info.executable_path = game.executable_path;
+            info.store = GameStore::Steam;
+            info.install_dir = std::filesystem::path(game.executable_path).parent_path().string();
+            results.push_back(info);
+        }
+    }
+    
+    return results;
+}
+
+void GameDetector::scanInstalledGames() {
+    scanSteamLibrary();
+    scanEpicLibrary();
+    scanGOGLibrary();
+    
+    for (auto& game : supported_games_) {
+        if (!game.is_installed) {
+            game.executable_path = findExecutablePath(game.process_name);
+            if (!game.executable_path.empty()) {
+                game.is_installed = true;
+            }
+        }
+    }
+    
+    installed_games_.clear();
+    for (auto& game : supported_games_) {
+        if (game.is_installed) {
+            installed_games_.push_back(game);
+        }
+    }
 }
 
 } // namespace gno

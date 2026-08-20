@@ -1,0 +1,87 @@
+﻿name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-charts
+
+    - name: Configure CMake
+      shell: msys2 {0}
+      run: |
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      shell: msys2 {0}
+      run: |
+        cmake --build build --target GNO-console
+        cmake --build build --target GNO
+        cmake --build build --target GNO-tests
+
+    - name: Run unit tests
+      shell: msys2 {0}
+      run: |
+        ./build/bin/GNO-tests.exe
+
+    - name: Run console tests
+      shell: msys2 {0}
+      run: |
+        ./build/bin/GNO-console.exe
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gno-windows
+        path: build/bin/*.exe
+        retention-days: 7
+
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y g++ cmake ninja-build libqt6widgets6 libqt6charts6 qt6-base-dev qt6-charts-dev
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: |
+        cmake --build build --target GNO-console
+        cmake --build build --target GNO
+        cmake --build build --target GNO-tests
+
+    - name: Run unit tests
+      run: |
+        ./build/bin/GNO-tests
+
+    - name: Run console tests
+      run: |
+        ./build/bin/GNO-console
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gno-linux
+        path: build/bin/*
+        retention-days: 7

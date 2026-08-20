@@ -38,7 +38,15 @@ public:
 
     std::string getSavePath() const;
 
+    // Export/Import
+    bool exportToFile(const std::string& path) const;
+    bool importFromFile(const std::string& path);
+
 private:
+    static std::string getAppDataPath();
+    GameProfile parseProfile(const std::string& json);
+    static std::string escapeJson(const std::string& s);
+
     std::vector<GameProfile> profiles_;
 };
 

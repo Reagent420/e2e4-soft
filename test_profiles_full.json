@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "game_name": "Counter-Strike 2",
+      "process_name": "cs2.exe",
+      "multipath_enabled": true,
+      "fps_boost_enabled": true,
+      "network_optimization": true,
+      "max_routes": 3,
+      "auto_apply": true
+    }
+  ]
+}

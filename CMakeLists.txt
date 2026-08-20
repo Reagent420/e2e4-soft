@@ -9,6 +9,7 @@ set(CMAKE_AUTOUIC OFF)
 set(CMAKE_AUTORCC OFF)
 
 option(GNO_CONSOLE "Build console-only (no Qt)" OFF)
+option(GNO_TESTS "Build unit tests" ON)
 
 find_package(Threads REQUIRED)
 
@@ -34,6 +35,8 @@ set(CORE_SOURCES
     src/core/dns_manager.cpp
     src/core/process_monitor.cpp
     src/core/session_history.cpp
+    src/core/game_watcher.cpp
+    src/core/connection_grader.cpp
 )
 
 set(OPT_SOURCES
@@ -144,4 +147,43 @@ if(NOT GNO_CONSOLE)
     else()
         message(STATUS "Qt6 not found - GUI target will not be built")
     endif()
+endif()
+
+# Unit tests target
+if(GNO_TESTS)
+    message(STATUS "Building unit tests with doctest")
+    
+    add_executable(${PROJECT_NAME}-tests
+        tests/unit_tests.cpp
+        ${CORE_SOURCES}
+        ${OPT_SOURCES}
+        ${MON_SOURCES}
+        ${PLATFORM_SOURCES}
+    )
+    
+    target_include_directories(${PROJECT_NAME}-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/optimization
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/monitoring
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+    )
+    
+    target_link_libraries(${PROJECT_NAME}-tests PRIVATE ${COMMON_LIBS})
+    
+    if(WIN32)
+        target_compile_definitions(${PROJECT_NAME}-tests PRIVATE
+            WIN32_LEAN_AND_MEAN NOMINMAX _WINSOCK_DEPRECATED_NO_WARNINGS
+        )
+    endif()
+    
+    set_target_properties(${PROJECT_NAME}-tests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+    
+    if(MINGW OR (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"))
+        target_link_options(${PROJECT_NAME}-tests PRIVATE -static-libgcc -static-libstdc++ -static)
+    endif()
+    
+    add_test(NAME GNO-UnitTests COMMAND ${PROJECT_NAME}-tests)
 endif()

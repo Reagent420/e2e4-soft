@@ -1,0 +1,55 @@
+#pragma once
+
+#include <string>
+#include <vector>
+#include <functional>
+#include <atomic>
+#include <thread>
+#include <mutex>
+#include <unordered_set>
+
+namespace gno {
+
+struct GameWatcherConfig {
+    bool enabled = true;
+    uint32_t check_interval_ms = 2000;
+    bool auto_apply_profiles = true;
+    bool notify_on_game_start = true;
+    bool notify_on_game_end = true;
+};
+
+class GameWatcher {
+public:
+    GameWatcher();
+    ~GameWatcher();
+
+    void start(const GameWatcherConfig& config = {});
+    void stop();
+    bool isRunning() const;
+
+    using GameStartCallback = std::function<void(const std::string& game_name, const std::string& process_name, uint32_t pid)>;
+    using GameEndCallback = std::function<void(const std::string& game_name, const std::string& process_name)>;
+
+    void setGameStartCallback(GameStartCallback callback);
+    void setGameEndCallback(GameEndCallback callback);
+
+    // Manual check - returns list of newly detected running games
+    std::vector<std::pair<std::string, uint32_t>> checkNow();
+
+private:
+    void watchLoop();
+    void checkProcesses();
+
+    GameWatcherConfig config_;
+    std::atomic<bool> running_{false};
+    std::thread watch_thread_;
+    mutable std::mutex callback_mutex_;
+    
+    GameStartCallback start_callback_;
+    GameEndCallback end_callback_;
+    
+    std::unordered_set<uint32_t> known_game_pids_;
+    std::unordered_map<uint32_t, std::string> pid_to_game_name_;
+};
+
+} // namespace gno
