@@ -1,34 +1,17 @@
 # Build
 build/
-cmake-build-*/
-out/
-
-# Compiled
 *.o
 *.obj
-*.exe
-*.dll
-*.so
-*.dylib
-*.lib
-*.a
 
 # IDE
-.vs/
 .vscode/
 .idea/
 *.user
-*.suo
-*.sln
-*.vcxproj*
 
-# CMake
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-Makefile
+# Distribution zips
+*.zip
 
-# OS
-.DS_Store
-Thumbs.db
-Desktop.ini
+# Test artifacts
+test_profiles*.json
+profiles_with_data.json
+push_github.bat

@@ -1,94 +1,73 @@
-# Game Network Optimizer (GNO)
+# E2E4 Soft — Оптимизатор игровой сети
 
-Professional game network optimization tool for reducing latency, packet loss, and jitter in online games.
+Программа для снижения пинга и повышения FPS в играх. Реальный мониторинг сети, авто-обнаружение игр, профили оптимизации и ускорение FPS — всё в одном приложении.
 
-## Features
+## Возможности
 
-### Multipath Routing
-- Intelligent multi-route selection
-- Automatic route switching on failure
-- Real-time latency monitoring per path
-- Load balancing between routes
+- **Мониторинг сети в реальном времени** — пинг, джиттер, потери пакетов (замеры каждую секунду, без фейковых данных)
+- **Авто-обнаружение установленных игр** — сканирует библиотеки Steam / Epic / GOG
+- **Профили оптимизации для каждой игры** — настройки применяются автоматически при запуске игры
+- **Ускорение FPS** — отключение Game DVR, план питания «Высокая производительность», приоритет процесса, виртуальная память
+- **Оптимизация сети** — мультимаршрутное соединение, автовыбор маршрута, компенсация потерь, свой DNS
+- **Спидтест и бенчмарк DNS** — применение самого быстрого DNS в один клик
+- **Монитор процессов** — блокировка и завершение программ, пожирающих трафик
+- **История сессий** — статистика пинга/джиттера/потерь за игровые сессии
+- **Карта серверов** — маршруты по всему миру
+- **Тёмная/светлая тема**, системный трей
+- **CLI-режим** — 20+ команд: `--boost`, `--speedtest`, `--dns-benchmark`, `--watch`, экспорт/импорт профилей
 
-### FPS Boost
-- Disable Game DVR
-- Disable fullscreen optimizations
-- Disable mouse acceleration
-- Optimize power plan
-- Set game process priority
-- Optimize virtual memory
+## Установка (Windows)
 
-### Network Monitoring
-- Real-time ping monitoring
-- Packet loss detection
-- Jitter calculation
-- Historical data visualization
+Скачайте `GNO-v1.2.0.zip`, распакуйте и запустите `GNO.exe`. Всё работает без установки.
 
-### Game Support
-- 30+ popular games
-- Automatic game detection
-- Game-specific optimization profiles
-- Regional server selection
+Или соберите из исходников (см. ниже).
 
-## Building
+## Сборка из исходников
 
-### Prerequisites
-- CMake 3.20+
-- Qt6 (Widgets, Charts, Network)
-- C++20 compatible compiler
+Требуется: MSYS2 + MinGW GCC, CMake ≥ 3.20, Qt6 (Widgets, Charts).
 
-### Build Commands
 ```bash
-mkdir build
-cd build
-cmake ..
-cmake --build .
+mkdir build && cd build
+cmake .. -G Ninja
+cmake --build . --target GNO       # GUI
+cmake --build . --target GNO-console  # CLI (без Qt)
+cmake --build . --target GNO-tests # unit-тесты
 ```
 
-## Project Structure
+Распространение GUI: скопируйте DLL с помощью `windeployqt`:
+```bash
+windeployqt --release GNO.exe
+```
+
+## CLI-примеры
+
+```bash
+E2E4-console --target 1.1.1.1 --ping 10
+E2E4-console --boost --game "Counter-Strike 2"
+E2E4-console --speedtest
+E2E4-console --dns-benchmark
+E2E4-console --watch
+E2E4-console --export-profile profiles.json
+```
+
+## Тесты
+
+```bash
+./GNO-tests.exe   # 11 тестов, 25 проверок
+```
+
+## Структура
 
 ```
 src/
-├── core/                    # Core networking
-│   ├── route_analyzer.h/cpp    # Route analysis
-│   ├── multipath_engine.h/cpp  # Multipath routing
-│   ├── packet_capture.h/cpp    # Packet capture
-│   ├── game_detector.h/cpp     # Game detection
-│   └── network_utils.h/cpp     # Network utilities
-├── optimization/            # FPS Boost
-│   ├── fps_optimizer.h/cpp     # FPS optimization
-│   └── system_tweaks.h/cpp     # System tweaks
-├── monitoring/              # Network monitoring
-│   ├── ping_monitor.h/cpp      # Ping monitoring
-│   ├── packet_loss_monitor.h/cpp # Packet loss
-│   ├── jitter_calculator.h/cpp # Jitter calculation
-│   └── stats_collector.h/cpp   # Statistics
-└── ui/                      # User interface
-    ├── main_window.h/cpp       # Main window
-    ├── game_selector.h/cpp     # Game selection
-    ├── monitoring_panel.h/cpp  # Monitoring UI
-    └── settings_dialog.h/cpp   # Settings
+  core/          # детекция игр, DNS, спидтест, профили, история
+  monitoring/    # пинг, джиттер, потери пакетов
+  optimization/  # FPS-ускорение, системные твики
+  ui/            # интерфейс (Qt Widgets)
+tests/           # unit-тесты (doctest)
+.github/         # CI (Windows + Linux)
 ```
 
-## How It Works
+## Лицензия
 
-1. **Route Analysis**: Analyzes all possible routes to game servers
-2. **Multipath Engine**: Selects and maintains optimal routes
-3. **Real-time Monitoring**: Tracks latency, packet loss, jitter
-4. **FPS Boost**: Optimizes system settings for better performance
-5. **Auto-switching**: Automatically switches routes on failure
-
-## Comparison with Competitors
-
-| Feature | GNO | ExitLag | GearUP |
-|---------|-----|---------|--------|
-| Multipath Routing | ✓ | ✓ | ✗ |
-| FPS Boost | ✓ | ✓ | ✗ |
-| Multi-platform | ✓ | ✗ | ✓ |
-| Real-time Monitoring | ✓ | ✗ | ✗ |
-| Game Auto-detect | ✓ | ✓ | ✓ |
-| Open Source | ✓ | ✗ | ✗ |
-
-## License
-
-MIT License
+MIT
