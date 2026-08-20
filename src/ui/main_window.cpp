@@ -62,6 +62,28 @@ void MainWindow::setupUi()
     statusBarLayout->addWidget(m_statusLabel);
     statusBarLayout->addStretch();
 
+    auto metricStyle = QString("color: rgba(255,255,255,0.55); font-size: 11px; background: transparent;");
+
+    m_pingLabel = new QLabel(QString::fromUtf8("Пинг: --"), statusBarWidget);
+    m_pingLabel->setStyleSheet(metricStyle);
+    statusBarLayout->addWidget(m_pingLabel);
+    statusBarLayout->addSpacing(12);
+
+    m_jitterLabel = new QLabel(QString::fromUtf8("Джиттер: --"), statusBarWidget);
+    m_jitterLabel->setStyleSheet(metricStyle);
+    statusBarLayout->addWidget(m_jitterLabel);
+    statusBarLayout->addSpacing(12);
+
+    m_lossLabel = new QLabel(QString::fromUtf8("Потери: --"), statusBarWidget);
+    m_lossLabel->setStyleSheet(metricStyle);
+    statusBarLayout->addWidget(m_lossLabel);
+    statusBarLayout->addSpacing(12);
+
+    m_boostLabel = new QLabel(QString::fromUtf8("ОПТИМИЗАЦИЯ: ВЫКЛ"), statusBarWidget);
+    m_boostLabel->setObjectName("boostTag");
+    statusBarLayout->addWidget(m_boostLabel);
+    statusBarLayout->addSpacing(8);
+
     auto* hint = new QLabel(QString::fromUtf8("E2E4 Soft — оптимизация игровой сети"), statusBarWidget);
     hint->setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px; background: transparent;");
     statusBarLayout->addWidget(hint);
@@ -87,12 +109,40 @@ void MainWindow::setupPages()
 
     auto* settings = new SettingsPageWidget(this);
     connect(settings, &SettingsPageWidget::themeChanged, this, &MainWindow::themeChanged);
+    connect(settings, &SettingsPageWidget::overlayChanged,
+            this, &MainWindow::overlaySettingsChanged);
+    connect(settings, &SettingsPageWidget::soundChanged,
+            this, &MainWindow::soundSettingsChanged);
+    connect(settings, &SettingsPageWidget::notificationsChanged,
+            this, &MainWindow::notificationsSettingsChanged);
     m_stackedWidget->addWidget(settings);
 }
 
 void MainWindow::onNavigationChanged(int index)
 {
     m_stackedWidget->setCurrentIndex(index);
+}
+
+void MainWindow::updateLiveMetrics(int pingMs, int jitterMs, double lossPercent)
+{
+    m_pingLabel->setText(QString::fromUtf8("Пинг: %1 мс").arg(pingMs));
+    m_jitterLabel->setText(QString::fromUtf8("Джиттер: %1 мс").arg(jitterMs));
+    m_lossLabel->setText(QString::fromUtf8("Потери: %1%").arg(lossPercent, 0, 'f', 1));
+    m_statusLabel->setText(QString::fromUtf8("Онлайн"));
+    m_statusLabel->setObjectName("statusConnected");
+    m_statusLabel->style()->unpolish(m_statusLabel);
+    m_statusLabel->style()->polish(m_statusLabel);
+}
+
+void MainWindow::setBoostIndicator(bool on)
+{
+    m_boostLabel->setText(on ? QString::fromUtf8("ОПТИМИЗАЦИЯ: ВКЛ") : QString::fromUtf8("ОПТИМИЗАЦИЯ: ВЫКЛ"));
+}
+
+void MainWindow::showRecommendation(const QString& text)
+{
+    if (!text.isEmpty())
+        m_statusLabel->setText(text);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)

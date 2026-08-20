@@ -18,7 +18,10 @@ struct FPSBoostSettings {
     bool real_time_route = true;
     bool packet_loss_compensation = true;
     bool custom_dns = false;
+    bool tcp_optimization = true;
+    bool mtu_optimization = true;
     QString dns_server = "1.1.1.1";
+    int mtu_value = 1400;
 };
 
 class OptimizerWidget : public QWidget {
@@ -34,11 +37,16 @@ signals:
 private slots:
     void onApplyClicked();
     void onDnsToggled(bool checked);
+    void onMtuToggled(bool checked);
 
 private:
+    void loadSettings();
+    void saveSettings();
+
     QCheckBox* fps_checkboxes_[7];
-    QCheckBox* net_checkboxes_[4];
+    QCheckBox* net_checkboxes_[6];
     QLineEdit* dns_input_;
+    QLineEdit* mtu_input_;
     QPushButton* apply_btn_;
     QLabel* status_label_;
 };

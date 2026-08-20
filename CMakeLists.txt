@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GNO VERSION 1.1.0 LANGUAGES CXX)
+project(GNO VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,6 +37,7 @@ set(CORE_SOURCES
     src/core/session_history.cpp
     src/core/game_watcher.cpp
     src/core/connection_grader.cpp
+    src/core/pro_presets.cpp
 )
 
 set(OPT_SOURCES
@@ -65,6 +66,9 @@ set(UI_SOURCES
     src/ui/process_monitor_widget.cpp
     src/ui/session_history_widget.cpp
     src/ui/geo_map.cpp
+    src/ui/overlay.cpp
+    src/ui/report_export.cpp
+    src/monitoring/monitoring_service.cpp
 )
 
 set(COMMON_LIBS Threads::Threads)

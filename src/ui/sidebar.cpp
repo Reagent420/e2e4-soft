@@ -20,7 +20,7 @@ Sidebar::Sidebar(QWidget* parent)
     m_logoLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_logoLabel);
 
-    m_versionLabel = new QLabel("v1.0.0", this);
+    m_versionLabel = new QLabel("v1.3.0", this);
     m_versionLabel->setObjectName("versionLabel");
     m_versionLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_versionLabel);

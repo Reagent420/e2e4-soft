@@ -1,12 +1,17 @@
 #include "monitoring.h"
 #include "theme.h"
 #include "../monitoring/ping_monitor.h"
+#include "monitoring_service.h"
+#include "report_export.h"
 
 #include <QFrame>
 #include <QDateTime>
 #include <QScrollBar>
-
-#include <atomic>
+#include <QPushButton>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QDesktopServices>
+#include <QUrl>
 
 // ============================================================================
 // PingChartWidget
@@ -421,8 +426,16 @@ MonitoringWidget::MonitoringWidget(QWidget* parent) : QWidget(parent) {
     subtitleLabel->setFont(subFont);
     subtitleLabel->setStyleSheet("color: #64748B;");
 
+    auto* exportBtn = new QPushButton(QString::fromUtf8("Экспорт отчёта PNG"));
+    exportBtn->setObjectName("sidebarButton");
+    exportBtn->setFixedHeight(32);
+    exportBtn->setCursor(Qt::PointingHandCursor);
+    connect(exportBtn, &QPushButton::clicked, this, &MonitoringWidget::onExportClicked);
+
     headerRow->addWidget(titleLabel);
     headerRow->addStretch();
+    headerRow->addWidget(exportBtn);
+    headerRow->addSpacing(10);
     headerRow->addWidget(subtitleLabel);
     mainLayout->addLayout(headerRow);
 
@@ -469,57 +482,96 @@ MonitoringWidget::MonitoringWidget(QWidget* parent) : QWidget(parent) {
                                "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }");
     mainLayout->addWidget(log_scroll_);
 
-    // Real monitoring: ping callback drives the charts
-    ping_monitor_.setPingCallback([this](const ICMPResult& result) {
-        double ping = result.success ? result.latency_ms : -1.0;
+    // subscribe to the shared monitoring service
+    auto& svc = MonitoringService::instance();
+    connect(&svc, &MonitoringService::pingUpdated, this, &MonitoringWidget::onPingUpdated);
+    connect(&svc, &MonitoringService::jitterUpdated, this, &MonitoringWidget::onJitterUpdated);
+    connect(&svc, &MonitoringService::lossUpdated, this, &MonitoringWidget::onLossUpdated);
+    connect(&svc, &MonitoringService::gameStarted, this, &MonitoringWidget::onGameStarted);
+    connect(&svc, &MonitoringService::gameEnded, this, &MonitoringWidget::onGameEnded);
+}
 
-        if (ping >= 0) {
-            // jitter: deviation over last 10 samples
-            jitter_samples_.append(ping);
-            if (jitter_samples_.size() > 10) jitter_samples_.removeFirst();
-            double jitter = 0.0;
-            if (jitter_samples_.size() >= 2) {
-                double avg = 0;
-                for (double v : jitter_samples_) avg += v;
-                avg /= jitter_samples_.size();
-                double dev = 0;
-                for (double v : jitter_samples_) dev += qAbs(v - avg);
-                jitter = dev / jitter_samples_.size();
-            }
+void MonitoringWidget::onPingUpdated(double ms) {
+    if (ms >= 0) {
+        ping_chart_->addPoint(ms);
 
-            // loss: 0 or 1 per second, smoothed over 30s window
-            loss_window_.append(0.0);
-            while (loss_window_.size() > 30) loss_window_.removeFirst();
-            double lossSum = 0;
-            for (double v : loss_window_) lossSum += v;
-            double lossPercent = lossSum / loss_window_.size() * 100.0;
+        QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
+        QColor pingColor = ms < 35 ? QColor("#22C55E") : ms < 50 ? QColor("#EAB308") : QColor("#EF4444");
+        QString msg = QString("[%1] Пинг: <font color='%2'>%3мс</font>")
+                          .arg(time)
+                          .arg(pingColor.name())
+                          .arg(QString::number(ms, 'f', 1));
+        addLogEntry(msg);
+        last_ok_ = true;
+    } else {
+        ping_chart_->addPoint(0.0);
 
-            ping_chart_->addPoint(ping);
-            jitter_chart_->addPoint(jitter);
-            loss_chart_->addPoint(lossPercent);
+        QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
+        addLogEntry(QString("[%1] <font color='#EF4444'>Тайм-аут — пакет потерян</font>").arg(time));
+        last_ok_ = false;
+    }
+}
 
-            QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
-            QColor pingColor = ping < 35 ? QColor("#22C55E") : ping < 50 ? QColor("#EAB308") : QColor("#EF4444");
-            QString msg = QString("[%1] Пинг: <font color='%2'>%3мс</font>")
-                              .arg(time)
-                              .arg(pingColor.name())
-                              .arg(QString::number(ping, 'f', 1));
-            addLogEntry(msg);
-        } else {
-            loss_window_.append(1.0);
-            while (loss_window_.size() > 30) loss_window_.removeFirst();
-            double lossSum = 0;
-            for (double v : loss_window_) lossSum += v;
-            double lossPercent = lossSum / loss_window_.size() * 100.0;
+void MonitoringWidget::onJitterUpdated(double ms) {
+    jitter_chart_->addPoint(ms);
+}
 
-            ping_chart_->addPoint(0.0);
-            loss_chart_->addPoint(lossPercent);
+void MonitoringWidget::onLossUpdated(double percent) {
+    loss_chart_->addPoint(percent);
+}
 
-            QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
-            addLogEntry(QString("[%1] <font color='#EF4444'>Тайм-аут — пакет потерян</font>").arg(time));
-        }
-    });
-    ping_monitor_.start("1.1.1.1", 1000);
+void MonitoringWidget::onGameStarted(const QString& game) {
+    QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
+    addLogEntry(QString("[%1] <font color='#22C55E'>Игра запущена: %2 — запись сессии</font>")
+                    .arg(time, game),
+                QColor("#22C55E"));
+}
+
+void MonitoringWidget::onGameEnded(const QString& game) {
+    QString time = QDateTime::currentDateTime().toString("HH:mm:ss");
+    addLogEntry(QString("[%1] <font color='#F59E0B'>Игра завершена: %2 — сессия сохранена</font>")
+                    .arg(time, game),
+                QColor("#F59E0B"));
+}
+
+void MonitoringWidget::onExportClicked() {
+    auto& svc = MonitoringService::instance();
+    QString dir = report::defaultReportsDir();
+    QString path = QFileDialog::getSaveFileName(
+        this, QString::fromUtf8("Сохранить отчёт"),
+        dir + QString("/E2E4-monitoring-%1.png").arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss")),
+        "PNG (*.png)");
+    if (path.isEmpty()) return;
+
+    auto ping = svc.pingHistory();
+    auto jitter = svc.jitterHistory();
+    auto loss = svc.lossHistory();
+
+    auto avgOf = [](const QVector<double>& v) {
+        double s = 0.0;
+        int n = 0;
+        for (double x : v) { if (x >= 0) { s += x; ++n; } }
+        return n > 0 ? s / n : 0.0;
+    };
+    auto avgLoss = [](const QVector<double>& v) {
+        double s = 0.0;
+        for (double x : v) s += x;
+        return v.isEmpty() ? 0.0 : s / v.size();
+    };
+
+    bool ok = report::exportMonitoringReport(
+        path, ping, jitter, loss,
+        avgOf(ping), avgOf(jitter), avgLoss(loss),
+        svc.getRecommendations());
+
+    if (ok) {
+        QMessageBox::information(this, QString::fromUtf8("Отчёт сохранён"),
+                                 QString::fromUtf8("Отчёт сохранён:\n%1").arg(path));
+        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    } else {
+        QMessageBox::warning(this, QString::fromUtf8("Ошибка"),
+                             QString::fromUtf8("Не удалось сохранить отчёт."));
+    }
 }
 
 void MonitoringWidget::addLogEntry(const QString& message, const QColor& color) {

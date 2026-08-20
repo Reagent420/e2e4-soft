@@ -37,6 +37,13 @@ void SystemTray::buildMenu()
         emit boostToggled(checked);
     });
 
+    m_overlayAction = m_menu->addAction(QString::fromUtf8("ОВЕРЛЕЙ: ВЫКЛ"));
+    m_overlayAction->setCheckable(true);
+    connect(m_overlayAction, &QAction::triggered, this, [this](bool checked) {
+        m_overlayAction->setText(checked ? QString::fromUtf8("ОВЕРЛЕЙ: ВКЛ") : QString::fromUtf8("ОВЕРЛЕЙ: ВЫКЛ"));
+        emit overlayToggled(checked);
+    });
+
     m_menu->addSeparator();
 
     m_quitAction = m_menu->addAction(QString::fromUtf8("Выход"));
@@ -77,6 +84,27 @@ void SystemTray::setConnected(bool connected)
 {
     m_connected = connected;
     updateIcon();
+}
+
+void SystemTray::setBoostOn(bool on)
+{
+    m_boostOn = on;
+    m_boostAction->setChecked(on);
+    m_boostAction->setText(on ? QString::fromUtf8("ОПТИМИЗАЦИЯ: ВКЛ") : QString::fromUtf8("ОПТИМИЗАЦИЯ: ВЫКЛ"));
+    updateIcon();
+}
+
+void SystemTray::setOverlayOn(bool on)
+{
+    m_overlayAction->setChecked(on);
+    m_overlayAction->setText(on ? QString::fromUtf8("ОВЕРЛЕЙ: ВКЛ") : QString::fromUtf8("ОВЕРЛЕЙ: ВЫКЛ"));
+}
+
+void SystemTray::showMessage(const QString& title, const QString& message)
+{
+    if (!m_trayIcon->isVisible())
+        return;
+    m_trayIcon->showMessage(title, message, QSystemTrayIcon::Information, 4000);
 }
 
 void SystemTray::updateIcon()

@@ -37,10 +37,17 @@ signals:
 
 private slots:
     void onBoostClicked();
+    void onMeasureClicked();
+    void onMeasureTick();
+    void onPingUpdated(double ms);
+    void onJitterUpdated(double ms);
+    void onLossUpdated(double percent);
+    void refreshRecommendations();
 
 private:
-    void onPingResult(const gno::ICMPResult& result);
-    void startMonitoring();
+    QWidget* createMetricCard(const QString& label, QLabel** valueOut, QLabel** deltaOut, const QString& deltaColor);
+    void setMetricColor(QLabel* label, double value, double good, double warn);
+    void saveReportDialog(const QString& path);
 
     PingGraphWidget* graph_;
     QLabel* ping_value_;
@@ -49,16 +56,19 @@ private:
     QLabel* route_value_;
     QLabel* status_value_;
     QPushButton* boost_btn_;
+    QPushButton* measure_btn_;
+    QLabel* rec_card_;
+    QTimer* measure_timer_;
     bool boosting_ = false;
 
-    gno::PingMonitor ping_monitor_;
-    QVector<double> jitter_history_;
-    QVector<double> loss_history_;
     double last_ping_ = 0.0;
-    uint32_t packets_sent_ = 0;
-    uint32_t packets_lost_ = 0;
 
-    QWidget* createMetricCard(const QString& label, QLabel** valueOut, QLabel** deltaOut, const QString& deltaColor);
+    // comparison measurement state machine
+    int measure_phase_ = 0;   // 0 = idle, 1 = before, 2 = after
+    int measure_seconds_ = 0;
+    static constexpr int kMeasureDuration = 30;
+    QVector<double> measure_before_;
+    QVector<double> measure_after_;
 };
 
 } // namespace gno

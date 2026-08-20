@@ -19,12 +19,16 @@ public:
     void updateJitter(int jitterMs);
     void updatePacketLoss(double lossPercent);
     void setConnected(bool connected);
+    void setBoostOn(bool on);
+    void setOverlayOn(bool on);
+    void showMessage(const QString& title, const QString& message);
 
     bool isVisible() const { return m_trayIcon->isVisible(); }
 
 signals:
     void showRequested();
     void boostToggled(bool on);
+    void overlayToggled(bool on);
     void quitRequested();
 
 private slots:
@@ -38,6 +42,7 @@ private:
     QMenu* m_menu;
     QAction* m_showAction;
     QAction* m_boostAction;
+    QAction* m_overlayAction;
     QAction* m_quitAction;
 
     int m_ping = 0;

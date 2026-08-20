@@ -1,11 +1,13 @@
 #include "session_history_widget.h"
 #include "theme.h"
+#include "report_export.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QFrame>
+#include <QMessageBox>
 
 #include "../core/session_history.h"
 
@@ -43,6 +45,20 @@ void SessionHistoryWidget::setupUI()
     refreshBtn->setFixedWidth(120);
     connect(refreshBtn, &QPushButton::clicked, this, &SessionHistoryWidget::refreshHistory);
     btnRow->addWidget(refreshBtn);
+
+    auto* exportBtn = new QPushButton(QString::fromUtf8("Экспорт отчёта PNG"), this);
+    exportBtn->setObjectName("boostButton");
+    exportBtn->setFixedWidth(160);
+connect(exportBtn, &QPushButton::clicked, this, [this]() {
+        auto records = m_history->getAll();
+        QString path = gno::report::defaultReportsDir() + "/history_report.png";
+        bool ok = gno::report::exportHistoryReport(path, records,
+                    m_history->getAveragePing(), m_history->getAverageJitter());
+        QMessageBox::information(this, QString::fromUtf8("Экспорт отчёта"),
+            ok ? QString::fromUtf8("Отчёт сохранён:\n%1").arg(path)
+               : QString::fromUtf8("Не удалось сохранить отчёт."));
+    });
+    btnRow->addWidget(exportBtn);
 
     auto* clearBtn = new QPushButton(QString::fromUtf8("Очистить историю"), this);
     clearBtn->setObjectName("sidebarButton");

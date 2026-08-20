@@ -19,6 +19,7 @@ class PingChartWidget : public QWidget {
 public:
     explicit PingChartWidget(QWidget* parent = nullptr);
     void addPoint(double value);
+    QVector<double> data() const { return data_; }
 protected:
     void paintEvent(QPaintEvent* event) override;
 private:
@@ -32,6 +33,7 @@ class JitterChartWidget : public QWidget {
 public:
     explicit JitterChartWidget(QWidget* parent = nullptr);
     void addPoint(double value);
+    QVector<double> data() const { return data_; }
 protected:
     void paintEvent(QPaintEvent* event) override;
 private:
@@ -45,6 +47,7 @@ class PacketLossChartWidget : public QWidget {
 public:
     explicit PacketLossChartWidget(QWidget* parent = nullptr);
     void addPoint(double value);
+    QVector<double> data() const { return data_; }
 protected:
     void paintEvent(QPaintEvent* event) override;
 private:
@@ -75,6 +78,14 @@ class MonitoringWidget : public QWidget {
 public:
     explicit MonitoringWidget(QWidget* parent = nullptr);
 
+private slots:
+    void onPingUpdated(double ms);
+    void onJitterUpdated(double ms);
+    void onLossUpdated(double percent);
+    void onGameStarted(const QString& game);
+    void onGameEnded(const QString& game);
+    void onExportClicked();
+
 private:
     void addLogEntry(const QString& message, const QColor& color = QColor("#94A3B8"));
 
@@ -86,10 +97,7 @@ private:
     QScrollArea* log_scroll_;
     QWidget* log_container_;
     int log_count_ = 0;
-
-    PingMonitor ping_monitor_;
-    QVector<double> jitter_samples_;
-    QVector<double> loss_window_;
+    bool last_ok_ = false;
 };
 
 } // namespace gno

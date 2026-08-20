@@ -19,6 +19,14 @@ static std::string currentTimeStr() {
     return buf;
 }
 
+static std::time_t parseTimeStr(const std::string& str) {
+    std::tm tm = {};
+    std::istringstream ss(str);
+    ss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
+    if (ss.fail()) return 0;
+    return std::mktime(&tm);
+}
+
 SessionHistory::SessionHistory() {
     loadFromFile();
 }
@@ -60,8 +68,9 @@ void SessionHistory::recordEnd(double avg_ping, double avg_jitter, double loss, 
     current_.avg_packet_loss = loss;
     current_.max_ping_ms = max_ping;
 
-    auto start = std::chrono::system_clock::now();
-    current_.duration_seconds = 0;
+    auto start = parseTimeStr(current_.start_time_str);
+    auto end = parseTimeStr(current_.end_time_str);
+    current_.duration_seconds = (end > start) ? static_cast<int>(end - start) : 0;
 
     records_.push_back(current_);
     recording_ = false;

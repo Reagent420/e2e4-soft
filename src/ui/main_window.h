@@ -19,8 +19,15 @@ public:
 
     void forceShow();
 
+    void updateLiveMetrics(int pingMs, int jitterMs, double lossPercent);
+    void setBoostIndicator(bool on);
+    void showRecommendation(const QString& text);
+
 signals:
     void themeChanged(bool dark);
+    void overlaySettingsChanged(bool enabled, int corner, int opacity);
+    void soundSettingsChanged(bool enabled);
+    void notificationsSettingsChanged(bool enabled);
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -35,6 +42,10 @@ private:
     Sidebar* m_sidebar;
     QStackedWidget* m_stackedWidget;
     QLabel* m_statusLabel;
+    QLabel* m_pingLabel;
+    QLabel* m_jitterLabel;
+    QLabel* m_lossLabel;
+    QLabel* m_boostLabel;
 };
 
 } // namespace gno

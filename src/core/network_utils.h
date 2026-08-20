@@ -20,6 +20,12 @@ struct NetworkUtils {
     
     static bool setDNS(const std::string& interface_name, const std::string& primary_dns, const std::string& secondary_dns = "");
     static bool resetDNS(const std::string& interface_name);
+
+    // Local network improvements (no server needed)
+    static bool setMTU(const std::string& interface_name, uint32_t mtu);
+    static bool getMTU(const std::string& interface_name, uint32_t& mtu_out);
+    static bool applyTCPOptimizations(bool enable);
+    static uint32_t recommendMTU();
 };
 
 } // namespace gno
