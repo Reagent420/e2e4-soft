@@ -823,7 +823,8 @@ json writeTarget(const ActionTarget& target) {
             if constexpr (std::is_same<Value, std::monostate>::value) {
                 return {{"kind", "none"}};
             } else if constexpr (std::is_same<Value, InterfaceId>::value) {
-                return {{"kind", "interface"}, {"value", value.value}};
+                return {{"kind", "interface"}, {"value", value.value},
+                        {"luid", value.luid}};
             } else if constexpr (std::is_same<Value, ExecutableIdentity>::value) {
                 return {{"kind", "executable"}, {"path", value.canonical_path}};
             } else {
@@ -844,9 +845,14 @@ std::optional<ActionTarget> readTarget(const json& value) {
         if (kind == "none") return ActionTarget{std::monostate{}};
         if (kind == "interface") {
             std::string interface_id;
+            uint64_t luid = 0;
             if (!isString(value.at("value"), kMaxInterfaceIdLength, interface_id) ||
                 interface_id.empty()) return std::nullopt;
-            return ActionTarget{InterfaceId{std::move(interface_id)}};
+            if (value.contains("luid") &&
+                !isUnsigned(value.at("luid"), std::numeric_limits<uint64_t>::max(), luid)) {
+                return std::nullopt;
+            }
+            return ActionTarget{InterfaceId{std::move(interface_id), luid}};
         }
         if (kind == "executable") {
             std::string path;
@@ -899,7 +905,8 @@ json writeValue(const ActionValue& action_value) {
             } else if constexpr (std::is_same<Value, EnergyValue>::value) {
                 return {{"kind", "energy"}, {"mode", static_cast<unsigned>(value.mode)}};
             } else if constexpr (std::is_same<Value, RegistryValue>::value) {
-                json result = {{"kind", "registry"}, {"existed", value.existed}};
+                json result = {{"kind", "registry"}, {"existed", value.existed},
+                               {"key_existed", value.key_existed}};
                 std::visit(
                     [&result](const auto& scalar) {
                         using Scalar = std::decay_t<decltype(scalar)>;
@@ -918,9 +925,36 @@ json writeValue(const ActionValue& action_value) {
                     },
                     value.value);
                 return result;
+            } else if constexpr (std::is_same<Value, GameDvrValue>::value) {
+                const auto write_registry = [](const RegistryValue& registry) {
+                    json result = {{"existed", registry.existed},
+                                   {"key_existed", registry.key_existed}};
+                    std::visit(
+                        [&result](const auto& scalar) {
+                            using Scalar = std::decay_t<decltype(scalar)>;
+                            if constexpr (std::is_same<Scalar, std::monostate>::value) {
+                                result["value_kind"] = "none";
+                            } else if constexpr (std::is_same<Scalar, uint32_t>::value) {
+                                result["value_kind"] = "uint32";
+                                result["value"] = scalar;
+                            } else if constexpr (std::is_same<Scalar, int64_t>::value) {
+                                result["value_kind"] = "int64";
+                                result["value"] = scalar;
+                            } else {
+                                result["value_kind"] = "string";
+                                result["value"] = scalar;
+                            }
+                        },
+                        registry.value);
+                    return result;
+                };
+                return {{"kind", "game_dvr"},
+                        {"game_dvr_enabled", write_registry(value.game_dvr_enabled)},
+                        {"app_capture_enabled", write_registry(value.app_capture_enabled)}};
             } else if constexpr (std::is_same<Value, FullscreenValue>::value) {
                 return {{"kind", "fullscreen"}, {"existed", value.existed},
-                        {"flags", value.compatibility_flags}};
+                        {"flags", value.compatibility_flags},
+                        {"key_existed", value.key_existed}};
             } else if constexpr (std::is_same<Value, PriorityValue>::value) {
                 return {{"kind", "priority"}, {"value", static_cast<unsigned>(value)}};
             } else {
@@ -1009,13 +1043,74 @@ std::optional<ActionValue> readValue(const json& value) {
             } else {
                 return std::nullopt;
             }
-            return ActionValue{RegistryValue{value.at("existed").get<bool>(), std::move(scalar)}};
+            const bool key_existed = !value.contains("key_existed") ||
+                                     (value.at("key_existed").is_boolean() &&
+                                      value.at("key_existed").get<bool>());
+            if (value.contains("key_existed") &&
+                !value.at("key_existed").is_boolean()) return std::nullopt;
+            return ActionValue{RegistryValue{value.at("existed").get<bool>(),
+                                             std::move(scalar), key_existed}};
+        }
+        if (kind == "game_dvr") {
+            const auto read_registry = [](const json& item) -> std::optional<RegistryValue> {
+                if (!item.is_object() || !item.at("existed").is_boolean()) {
+                    return std::nullopt;
+                }
+                std::string value_kind;
+                if (!isString(item.at("value_kind"), 16, value_kind)) {
+                    return std::nullopt;
+                }
+                RegistryScalar scalar;
+                if (value_kind == "none") {
+                    scalar = std::monostate{};
+                } else if (value_kind == "uint32") {
+                    uint64_t number = 0;
+                    if (!isUnsigned(item.at("value"),
+                                    std::numeric_limits<uint32_t>::max(), number)) {
+                        return std::nullopt;
+                    }
+                    scalar = static_cast<uint32_t>(number);
+                } else if (value_kind == "int64") {
+                    int64_t number = 0;
+                    if (!isInt(item.at("value"),
+                               std::numeric_limits<int64_t>::min(),
+                               std::numeric_limits<int64_t>::max(), number)) {
+                        return std::nullopt;
+                    }
+                    scalar = number;
+                } else if (value_kind == "string") {
+                    std::string text;
+                    if (!isString(item.at("value"), kMaxRegistryStringLength, text)) {
+                        return std::nullopt;
+                    }
+                    scalar = std::move(text);
+                } else {
+                    return std::nullopt;
+                }
+                const bool key_existed = !item.contains("key_existed") ||
+                                         (item.at("key_existed").is_boolean() &&
+                                          item.at("key_existed").get<bool>());
+                if (item.contains("key_existed") &&
+                    !item.at("key_existed").is_boolean()) return std::nullopt;
+                return RegistryValue{item.at("existed").get<bool>(),
+                                     std::move(scalar), key_existed};
+            };
+            const auto game_dvr = read_registry(value.at("game_dvr_enabled"));
+            const auto app_capture = read_registry(value.at("app_capture_enabled"));
+            if (!game_dvr || !app_capture) return std::nullopt;
+            return ActionValue{GameDvrValue{*game_dvr, *app_capture}};
         }
         if (kind == "fullscreen") {
             if (!value.at("existed").is_boolean()) return std::nullopt;
             std::string flags;
             if (!isString(value.at("flags"), kMaxRegistryStringLength, flags)) return std::nullopt;
-            return ActionValue{FullscreenValue{value.at("existed").get<bool>(), std::move(flags)}};
+            const bool key_existed = !value.contains("key_existed") ||
+                                     (value.at("key_existed").is_boolean() &&
+                                      value.at("key_existed").get<bool>());
+            if (value.contains("key_existed") &&
+                !value.at("key_existed").is_boolean()) return std::nullopt;
+            return ActionValue{FullscreenValue{value.at("existed").get<bool>(),
+                                               std::move(flags), key_existed}};
         }
         if (kind == "priority") {
             PriorityValue priority;
@@ -1169,7 +1264,9 @@ bool compatibleActionValue(
     case ActionId::EnergyMode:
         return no_target && std::holds_alternative<EnergyValue>(value);
     case ActionId::GameDvr:
-        return no_target && std::holds_alternative<RegistryValue>(value);
+        return no_target &&
+               (std::holds_alternative<RegistryValue>(value) ||
+                std::holds_alternative<GameDvrValue>(value));
     case ActionId::FullscreenOptimizations:
         return std::holds_alternative<ExecutableIdentity>(target) &&
                std::holds_alternative<FullscreenValue>(value);
@@ -1228,6 +1325,17 @@ bool validActionValue(const ActionValue& value) noexcept {
                 }
                 const auto* text = std::get_if<std::string>(&nested.value);
                 return !text || isValidUtf8(*text);
+            } else if constexpr (std::is_same<Value, GameDvrValue>::value) {
+                const auto valid_registry = [](const RegistryValue& registry) {
+                    if (!registry.existed &&
+                        !std::holds_alternative<std::monostate>(registry.value)) {
+                        return false;
+                    }
+                    const auto* text = std::get_if<std::string>(&registry.value);
+                    return !text || isValidUtf8(*text);
+                };
+                return valid_registry(nested.game_dvr_enabled) &&
+                       valid_registry(nested.app_capture_enabled);
             } else if constexpr (std::is_same<Value, FullscreenValue>::value) {
                 return isValidUtf8(nested.compatibility_flags);
             } else if constexpr (std::is_same<Value, PriorityValue>::value) {

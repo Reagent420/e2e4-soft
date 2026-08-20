@@ -71,6 +71,9 @@ set(CORE_SOURCES
     src/diagnostics/diagnostic_types.cpp
     src/remediation/fix_transaction.cpp
     src/remediation/json_backup_store.cpp
+    src/remediation/platform_action_factory.cpp
+    src/remediation/windows/windows_fix_action.cpp
+    src/remediation/windows/windows_state_api.cpp
 )
 
 set(MON_SOURCES
@@ -95,7 +98,7 @@ set(UI_SOURCES
 set(COMMON_LIBS Threads::Threads nlohmann_json::nlohmann_json)
 
 if(WIN32)
-    list(APPEND COMMON_LIBS ws2_32 iphlpapi winmm)
+    list(APPEND COMMON_LIBS ws2_32 iphlpapi winmm powrprof ole32 advapi32)
 endif()
 
 # Console target (always built)
@@ -213,6 +216,7 @@ if(GNO_TESTS)
         tests/unit_tests.cpp
         tests/foundation_tests.cpp
         tests/remediation_tests.cpp
+        tests/remediation_windows_tests.cpp
         ${CORE_SOURCES}
         ${MON_SOURCES}
     )

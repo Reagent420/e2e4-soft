@@ -73,10 +73,11 @@ struct Result {
 
 struct InterfaceId {
     std::string value;
+    uint64_t luid = 0;
 };
 
 inline bool operator==(const InterfaceId& left, const InterfaceId& right) noexcept {
-    return left.value == right.value;
+    return left.value == right.value && left.luid == right.luid;
 }
 
 inline bool operator!=(const InterfaceId& left, const InterfaceId& right) noexcept {
@@ -183,22 +184,37 @@ using RegistryScalar = std::variant<std::monostate, uint32_t, int64_t, std::stri
 struct RegistryValue {
     bool existed = false;
     RegistryScalar value;
+    bool key_existed = true;
 };
 
 inline bool operator==(
     const RegistryValue& left, const RegistryValue& right) noexcept {
-    return left.existed == right.existed && left.value == right.value;
+    return left.existed == right.existed && left.value == right.value &&
+           left.key_existed == right.key_existed;
+}
+
+struct GameDvrValue {
+    RegistryValue game_dvr_enabled;
+    RegistryValue app_capture_enabled;
+};
+
+inline bool operator==(
+    const GameDvrValue& left, const GameDvrValue& right) noexcept {
+    return left.game_dvr_enabled == right.game_dvr_enabled &&
+           left.app_capture_enabled == right.app_capture_enabled;
 }
 
 struct FullscreenValue {
     bool existed = false;
     std::string compatibility_flags;
+    bool key_existed = true;
 };
 
 inline bool operator==(
     const FullscreenValue& left, const FullscreenValue& right) noexcept {
     return left.existed == right.existed &&
-           left.compatibility_flags == right.compatibility_flags;
+           left.compatibility_flags == right.compatibility_flags &&
+           left.key_existed == right.key_existed;
 }
 
 enum class PriorityValue { Idle, BelowNormal, Normal, AboveNormal, High, Realtime };
@@ -213,7 +229,8 @@ inline bool operator==(const NiceValue& left, const NiceValue& right) noexcept {
 
 using ActionValue = std::variant<std::monostate, DnsValue, MtuValue, TcpValue,
                                  PowerPlanValue, EnergyValue, RegistryValue,
-                                 FullscreenValue, PriorityValue, NiceValue>;
+                                 GameDvrValue, FullscreenValue, PriorityValue,
+                                 NiceValue>;
 
 struct ActionState {
     ActionId id = ActionId::PowerPlan;
@@ -316,6 +333,15 @@ inline bool isBounded(const ActionValue& action_value) noexcept {
                     return text->size() <= kMaxRegistryStringLength;
                 }
                 return true;
+            } else if constexpr (std::is_same<Value, GameDvrValue>::value) {
+                const auto bounded_registry = [](const RegistryValue& registry) {
+                    if (const auto* text = std::get_if<std::string>(&registry.value)) {
+                        return text->size() <= kMaxRegistryStringLength;
+                    }
+                    return true;
+                };
+                return bounded_registry(value.game_dvr_enabled) &&
+                       bounded_registry(value.app_capture_enabled);
             } else if constexpr (std::is_same<Value, FullscreenValue>::value) {
                 return value.compatibility_flags.size() <= kMaxRegistryStringLength;
             } else {

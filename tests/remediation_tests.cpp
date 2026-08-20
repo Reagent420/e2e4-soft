@@ -108,7 +108,7 @@ ActionTarget persistedTarget(std::size_t index) {
     switch (static_cast<ActionId>(index)) {
     case ActionId::Dns:
     case ActionId::Mtu:
-        return InterfaceId{"{01234567-89ab-cdef-0123-456789abcdef}"};
+        return InterfaceId{"{01234567-89ab-cdef-0123-456789abcdef}", 42};
     case ActionId::FullscreenOptimizations:
         return ExecutableIdentity{"C:/Games/example.exe"};
     case ActionId::ProcessPriority:
@@ -426,7 +426,7 @@ void requirePrepared(FixTransaction& transaction, const CancellationToken& token
 
 static_assert(std::has_virtual_destructor<FixAction>::value);
 static_assert(std::has_virtual_destructor<BackupStore>::value);
-static_assert(std::variant_size<ActionValue>::value == 10);
+static_assert(std::variant_size<ActionValue>::value == 11);
 
 } // namespace
 
@@ -1045,6 +1045,13 @@ TEST_CASE("JSON backups round-trip every ActionValue alternative") {
     setPersistedActionValue(
         nice, static_cast<std::size_t>(ActionId::ProcessPriority), NiceValue{-20});
     records.push_back(std::move(nice));
+
+    auto game_dvr = persistedRecord(transactionId(125));
+    setPersistedActionValue(
+        game_dvr, static_cast<std::size_t>(ActionId::GameDvr),
+        GameDvrValue{RegistryValue{true, uint32_t{1}},
+                     RegistryValue{false, std::monostate{}, false}});
+    records.push_back(std::move(game_dvr));
 
     auto prepared = recordWithAppliedPrefix(
         transactionId(124), 0, TransactionStatus::Prepared);
