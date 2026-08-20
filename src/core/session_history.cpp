@@ -3,6 +3,7 @@
 #include "input_validation.h"
 
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -15,6 +16,15 @@ namespace {
 
 constexpr std::size_t kMaxHistoryBytes = 4 * 1024 * 1024;
 constexpr std::size_t kMaxHistoryRecords = 500;
+
+bool ensureParentDirectory(const std::string& path) {
+    const auto parent = std::filesystem::path(path).parent_path();
+    if (parent.empty()) return true;
+
+    std::error_code error;
+    std::filesystem::create_directories(parent, error);
+    return !error;
+}
 
 nlohmann::json recordToJson(const gno::SessionRecord& record) {
     return {{"game", record.game_name},
@@ -140,10 +150,7 @@ bool SessionHistory::saveToFile(const std::string& path) const {
 }
 
 bool SessionHistory::saveToFileUnlocked(const std::string& path) const {
-    const std::string dir = path.substr(0, path.find_last_of("\\/"));
-#ifdef PLATFORM_WINDOWS
-    CreateDirectoryA(dir.c_str(), nullptr);
-#endif
+    if (!ensureParentDirectory(path)) return false;
 
     nlohmann::json records = nlohmann::json::array();
     for (const auto& record : records_) records.push_back(recordToJson(record));
@@ -151,6 +158,8 @@ bool SessionHistory::saveToFileUnlocked(const std::string& path) const {
     std::ofstream file(path);
     if (!file.is_open()) return false;
     file << records.dump(2);
+    file.flush();
+    file.close();
     return static_cast<bool>(file);
 }
 

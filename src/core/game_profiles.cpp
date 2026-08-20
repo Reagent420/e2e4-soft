@@ -3,6 +3,7 @@
 #include "input_validation.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -16,6 +17,15 @@ namespace {
 
 constexpr std::size_t kMaxProfileBytes = 1024 * 1024;
 constexpr std::size_t kMaxProfiles = 256;
+
+bool ensureParentDirectory(const std::string& path) {
+    const auto parent = std::filesystem::path(path).parent_path();
+    if (parent.empty()) return true;
+
+    std::error_code error;
+    std::filesystem::create_directories(parent, error);
+    return !error;
+}
 
 gno::GameProfile profileFromJson(const nlohmann::json& value) {
     gno::GameProfile profile;
@@ -110,10 +120,7 @@ void GameProfiles::load() {
 
 bool GameProfiles::save() {
     const std::string path = getSavePath();
-    const std::string dir = path.substr(0, path.find_last_of("\\/"));
-#ifdef PLATFORM_WINDOWS
-    CreateDirectoryA(dir.c_str(), nullptr);
-#endif
+    if (profiles_.size() > kMaxProfiles || !ensureParentDirectory(path)) return false;
 
     nlohmann::json items = nlohmann::json::array();
     for (const auto& profile : profiles_) items.push_back(profileToJson(profile));
@@ -121,14 +128,13 @@ bool GameProfiles::save() {
     std::ofstream file(path);
     if (!file.is_open()) return false;
     file << items.dump(2);
+    file.flush();
+    file.close();
     return static_cast<bool>(file);
 }
 
 bool GameProfiles::exportToFile(const std::string& path) const {
-    const std::string dir = path.substr(0, path.find_last_of("\\/"));
-#ifdef PLATFORM_WINDOWS
-    CreateDirectoryA(dir.c_str(), nullptr);
-#endif
+    if (profiles_.size() > kMaxProfiles || !ensureParentDirectory(path)) return false;
 
     nlohmann::json items = nlohmann::json::array();
     for (const auto& profile : profiles_) items.push_back(profileToJson(profile));
@@ -136,6 +142,8 @@ bool GameProfiles::exportToFile(const std::string& path) const {
     std::ofstream file(path);
     if (!file.is_open()) return false;
     file << nlohmann::json{{"version", 1}, {"profiles", items}}.dump(2);
+    file.flush();
+    file.close();
     return static_cast<bool>(file);
 }
 
@@ -166,16 +174,16 @@ bool GameProfiles::has(const std::string& game_name) const {
     return false;
 }
 
-void GameProfiles::set(const GameProfile& profile) {
+bool GameProfiles::set(const GameProfile& profile) {
     for (auto& existing : profiles_) {
         if (existing.game_name == profile.game_name) {
             existing = profile;
-            save();
-            return;
+            return save();
         }
     }
+    if (profiles_.size() >= kMaxProfiles) return false;
     profiles_.push_back(profile);
-    save();
+    return save();
 }
 
 void GameProfiles::remove(const std::string& game_name) {

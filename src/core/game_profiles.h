@@ -31,7 +31,7 @@ public:
     GameProfile get(const std::string& game_name) const;
     bool has(const std::string& game_name) const;
 
-    void set(const GameProfile& profile);
+    bool set(const GameProfile& profile);
     void remove(const std::string& game_name);
 
     GameProfile detectForProcess(const std::string& process_name) const;
