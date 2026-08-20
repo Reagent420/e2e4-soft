@@ -735,6 +735,7 @@ rtk git commit -m "fix: own workers and expose diagnostic-only UI"
 
 **Files:**
 - Create: `src/diagnostics/diagnostic_types.h`
+- Create: `src/diagnostics/diagnostic_types.cpp`
 - Create: `src/diagnostics/endpoint_observer.h`
 - Create: `src/diagnostics/network_sampler.h`
 - Create: `src/diagnostics/probe_client.h`
@@ -762,10 +763,24 @@ TEST_CASE("diagnostic defaults are safe") {
 }
 
 TEST_CASE("probe request contains no hostname or URL") {
-    gno::ProbeRequest request{"counter-strike-2", "155.133.226.10", 27015,
+    const auto endpoint = gno::Ipv4Address::parse("155.133.226.10");
+    REQUIRE(endpoint);
+    gno::ProbeRequest request{"counter-strike-2", *endpoint, 27015,
                               gno::TransportProtocol::Udp, 30};
     CHECK(request.game_id == "counter-strike-2");
     CHECK(request.duration_seconds == 30);
+    CHECK_FALSE(gno::Ipv4Address::parse("game.example.com"));
+    CHECK_FALSE(gno::Ipv4Address::parse("https://155.133.226.10"));
+}
+
+TEST_CASE("cancellation token owns its state") {
+    gno::CancellationToken token;
+    {
+        gno::CancellationSource source;
+        token = source.token();
+        source.cancel();
+    }
+    CHECK(token.isCancelled());
 }
 ```
 
@@ -780,9 +795,13 @@ Create `src/diagnostics/diagnostic_types.h` with:
 ```cpp
 #pragma once
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace gno {
@@ -795,13 +814,42 @@ enum class DiagnosticOutcome { ImprovementLikely, NoImprovementFound, LocalNetwo
 enum class ConfidenceLevel { Low, Medium, High };
 enum class TransportProtocol { Tcp, Udp };
 
-struct CancellationToken {
-    const std::atomic<bool>* cancelled = nullptr;
-    bool isCancelled() const noexcept { return cancelled && cancelled->load(); }
+class CancellationToken {
+public:
+    CancellationToken() = default;
+    bool isCancelled() const noexcept;
+private:
+    explicit CancellationToken(std::shared_ptr<const std::atomic<bool>> state);
+    std::shared_ptr<const std::atomic<bool>> state_;
+    friend class CancellationSource;
+};
+
+class CancellationSource {
+public:
+    CancellationSource();
+    CancellationToken token() const;
+    void cancel() noexcept;
+private:
+    std::shared_ptr<std::atomic<bool>> state_;
+};
+
+class Ipv4Address {
+public:
+    Ipv4Address() = default; // 0.0.0.0 means unspecified in default reports/targets
+    static std::optional<Ipv4Address> parse(std::string_view text) noexcept;
+    std::string toString() const;
+    const std::array<uint8_t, 4>& bytes() const noexcept { return bytes_; }
+    bool isUnspecified() const noexcept { return bytes_ == std::array<uint8_t, 4>{}; }
+    friend bool operator==(const Ipv4Address& left, const Ipv4Address& right) noexcept {
+        return left.bytes_ == right.bytes_;
+    }
+private:
+    explicit Ipv4Address(std::array<uint8_t, 4> bytes) : bytes_(bytes) {}
+    std::array<uint8_t, 4> bytes_{};
 };
 
 struct ObservedEndpoint {
-    std::string ip;
+    Ipv4Address ip;
     uint16_t port = 0;
     TransportProtocol protocol = TransportProtocol::Udp;
     uint32_t owner_pid = 0;
@@ -809,7 +857,7 @@ struct ObservedEndpoint {
 };
 
 struct SampleTarget {
-    std::string ip;
+    Ipv4Address ip;
     uint16_t port = 0;
     TransportProtocol protocol = TransportProtocol::Udp;
 };
@@ -831,7 +879,7 @@ struct MetricSummary {
 
 struct ProbeRequest {
     std::string game_id;
-    std::string endpoint_ip;
+    Ipv4Address endpoint_ip;
     uint16_t endpoint_port = 0;
     TransportProtocol protocol = TransportProtocol::Udp;
     uint32_t duration_seconds = 30;
@@ -853,10 +901,12 @@ struct DiagnosticReport {
     MetricSummary direct;
     std::vector<ProbeMeasurement> candidates;
     std::vector<std::string> evidence;
-    bool network_settings_changed = false;
+    static constexpr bool network_settings_changed = false;
 };
 }
 ```
+
+Implement `diagnostic_types.cpp` without platform socket APIs: parse exactly four decimal octets with no empty components, signs, whitespace, trailing data, or values above 255. Format from the stored octets. `CancellationSource` owns a shared atomic initialized to false; tokens retain shared const ownership after the source is destroyed, and `cancel()` stores true.
 
 - [ ] **Step 3: Define platform-neutral service contracts**
 
@@ -908,7 +958,7 @@ public:
 }
 ```
 
-Add `${CMAKE_CURRENT_SOURCE_DIR}/src/diagnostics` to client and test include directories.
+Add `src/diagnostics/diagnostic_types.cpp` to `CORE_SOURCES` and `${CMAKE_CURRENT_SOURCE_DIR}/src/diagnostics` to client and test include directories.
 
 - [ ] **Step 4: Run contract tests**
 
