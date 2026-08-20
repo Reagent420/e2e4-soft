@@ -12,6 +12,23 @@
 
 #include <chrono>
 #include <thread>
+#include <type_traits>
+
+namespace {
+
+template <typename T, typename = void>
+struct HasBenchmarkCallbackType : std::false_type {};
+
+template <typename T>
+struct HasBenchmarkCallbackType<T, std::void_t<typename T::BenchmarkCallback>> : std::true_type {};
+
+template <typename T, typename = void>
+struct HasBenchmarkCallbackSetter : std::false_type {};
+
+template <typename T>
+struct HasBenchmarkCallbackSetter<T, std::void_t<decltype(&T::setBenchmarkCallback)>> : std::true_type {};
+
+} // namespace
 
 using namespace gno;
 
@@ -79,6 +96,11 @@ TEST_CASE("SpeedTest::servers") {
     auto servers = st.getServers();
     REQUIRE(servers.size() == 10);
     REQUIRE(servers[0].name.empty() == false);
+}
+
+TEST_CASE("SpeedTest exposes no worker-thread callback API") {
+    CHECK_FALSE(HasBenchmarkCallbackType<SpeedTest>::value);
+    CHECK_FALSE(HasBenchmarkCallbackSetter<SpeedTest>::value);
 }
 
 #ifndef PLATFORM_WINDOWS

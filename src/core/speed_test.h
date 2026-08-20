@@ -3,7 +3,6 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include <functional>
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -38,9 +37,6 @@ public:
 
     PingResult benchmarkServer(const std::string& server_ip);
 
-    using BenchmarkCallback = std::function<void(const PingResult&)>;
-    void setBenchmarkCallback(BenchmarkCallback callback);
-
     std::vector<PingResult> getResults() const;
     PingResult getBestServer() const;
 
@@ -53,7 +49,6 @@ private:
     std::mutex worker_mutex_;
     std::atomic<bool> running_{false};
     std::thread bench_thread_;
-    BenchmarkCallback callback_;
 };
 
 } // namespace gno

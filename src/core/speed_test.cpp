@@ -124,7 +124,6 @@ void SpeedTest::runBenchmark(const std::string& target_ip) {
                     std::lock_guard<std::mutex> lock(results_mutex_);
                     results_.push_back(r);
                 }
-                if (callback_) callback_(r);
                 running_ = false;
             });
         } else {
@@ -190,7 +189,6 @@ void SpeedTest::benchmarkThread() {
             std::lock_guard<std::mutex> lock(results_mutex_);
             results_.push_back(result);
         }
-        if (callback_) callback_(result);
     }
     running_ = false;
 }
