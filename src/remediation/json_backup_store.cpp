@@ -595,12 +595,14 @@ Result<std::monostate> JsonBackupStore::save(const TransactionRecord& record) {
         if (error) continue;
         resolved.emplace_back(modified, entry.path());
     }
+    if (error) return backupFailure<std::monostate>("could not enumerate transaction backups for retention");
     std::sort(resolved.begin(), resolved.end(), [](const auto& left, const auto& right) {
         return left.first == right.first ? left.second < right.second : left.first < right.first;
     });
     while (resolved.size() > kMaxResolvedTransactions) {
-        std::filesystem::remove(resolved.front().second, error);
-        error.clear();
+        if (!std::filesystem::remove(resolved.front().second, error) || error) {
+            return backupFailure<std::monostate>("transaction backup saved but retention pruning failed");
+        }
         resolved.erase(resolved.begin());
     }
     return backupSuccess();
@@ -608,8 +610,8 @@ Result<std::monostate> JsonBackupStore::save(const TransactionRecord& record) {
 
 Result<TransactionRecord> JsonBackupStore::load(std::string_view transaction_id) const {
     if (!isTransactionId(transaction_id)) return backupFailure<TransactionRecord>("invalid transaction id");
-    const auto content = readBoundedFile(transactionPath(storage_root_, transaction_id).string(),
-                                         kMaxTransactionBytes);
+    const auto content = readBoundedRegularFile(transactionPath(storage_root_, transaction_id),
+                                                kMaxTransactionBytes);
     if (!content) return backupFailure<TransactionRecord>("transaction backup is unavailable or too large");
     try {
         const auto document = json::parse(*content, nullptr, false);

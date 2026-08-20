@@ -21,6 +21,10 @@
 #include <variant>
 #include <vector>
 
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+
 namespace {
 
 using namespace gno;
@@ -1082,5 +1086,27 @@ TEST_CASE("JSON backup retention keeps unresolved records and bounds only resolv
     REQUIRE(summaries.ok());
     CHECK(summaries.value.size() == 101);
 }
+
+#ifndef _WIN32
+TEST_CASE("JSON backups reject symlinks and FIFO records without blocking") {
+    TemporaryBackupRoot root("gno-json-backup-special-files");
+    JsonBackupStore store(root.path());
+    const auto external_id = transactionId(1200);
+    REQUIRE(store.save(persistedRecord(external_id)).ok());
+    const auto link_id = transactionId(1201);
+    const auto link = backupPath(root, link_id);
+    std::filesystem::create_directories(link.parent_path());
+    std::filesystem::create_symlink(backupPath(root, external_id), link);
+    CHECK_FALSE(store.load(link_id).ok());
+
+    const auto fifo_id = transactionId(1202);
+    const auto fifo = backupPath(root, fifo_id);
+    REQUIRE(::mkfifo(fifo.c_str(), 0600) == 0);
+    CHECK_FALSE(store.load(fifo_id).ok());
+    const auto summaries = store.list();
+    REQUIRE(summaries.ok());
+    CHECK(summaries.value.size() == 1);
+}
+#endif
 
 TEST_SUITE_END();
