@@ -453,31 +453,97 @@ std::optional<std::vector<ActionId>> readActionOrder(const json& value, std::siz
     }
 }
 
+bool compatibleActionValue(
+    ActionId id, const ActionTarget& target, const ActionValue& value) noexcept {
+    const bool no_target = std::holds_alternative<std::monostate>(target);
+    switch (id) {
+    case ActionId::PowerPlan:
+        return no_target && std::holds_alternative<PowerPlanValue>(value);
+    case ActionId::EnergyMode:
+        return no_target && std::holds_alternative<EnergyValue>(value);
+    case ActionId::GameDvr:
+        return no_target && std::holds_alternative<RegistryValue>(value);
+    case ActionId::FullscreenOptimizations:
+        return std::holds_alternative<ExecutableIdentity>(target) &&
+               std::holds_alternative<FullscreenValue>(value);
+    case ActionId::TcpParameters:
+        return no_target && std::holds_alternative<TcpValue>(value);
+    case ActionId::Dns:
+        return std::holds_alternative<InterfaceId>(target) &&
+               std::holds_alternative<DnsValue>(value);
+    case ActionId::Mtu:
+        return std::holds_alternative<InterfaceId>(target) &&
+               std::holds_alternative<MtuValue>(value);
+    case ActionId::ProcessPriority:
+        return std::holds_alternative<ProcessIdentity>(target) &&
+               (std::holds_alternative<PriorityValue>(value) ||
+                std::holds_alternative<NiceValue>(value));
+    }
+    return false;
+}
+
+bool hasCleanErrorDetail(RemediationError error, const std::string& detail) noexcept {
+    return error != RemediationError::None || detail.empty();
+}
+
+bool validOutcomeBookkeeping(
+    const ActionOutcome& outcome, const PreparedAction& action) noexcept {
+    if (!hasCleanErrorDetail(outcome.error, outcome.detail) ||
+        !hasCleanErrorDetail(outcome.rollback_error, outcome.rollback_detail) ||
+        (!outcome.rollback_attempted &&
+         (outcome.rollback_error != RemediationError::None ||
+          !outcome.rollback_detail.empty()))) {
+        return false;
+    }
+
+    const bool compatible_state =
+        compatibleActionValue(action.id, action.target, outcome.state.value);
+    switch (outcome.status) {
+    case ActionStatus::NotChecked:
+        return !outcome.attempted && outcome.error == RemediationError::None &&
+               outcome.detail.empty() && !outcome.rollback_attempted &&
+               outcome.state.status == ActionStatus::NotChecked &&
+               std::holds_alternative<std::monostate>(outcome.state.value) &&
+               outcome.state.detail.empty();
+    case ActionStatus::Applied:
+        return outcome.attempted && outcome.error == RemediationError::None &&
+               outcome.detail.empty() && compatible_state &&
+               (!outcome.rollback_attempted ||
+                outcome.rollback_error != RemediationError::None);
+    case ActionStatus::Failed:
+        return outcome.attempted && outcome.error != RemediationError::None &&
+               !outcome.rollback_attempted &&
+               ((std::holds_alternative<std::monostate>(outcome.state.value) &&
+                 outcome.state.status == ActionStatus::NotChecked &&
+                 outcome.state.detail.empty()) ||
+                compatible_state);
+    case ActionStatus::Reverted:
+        return outcome.attempted && outcome.error == RemediationError::None &&
+               outcome.detail.empty() && compatible_state &&
+               outcome.rollback_attempted &&
+               outcome.rollback_error == RemediationError::None &&
+               outcome.rollback_detail.empty();
+    case ActionStatus::Recommended:
+    case ActionStatus::AlreadyConfigured:
+    case ActionStatus::Unsupported:
+        return false;
+    }
+    return false;
+}
+
 bool validRecordShape(const TransactionRecord& record) {
     if (record.schema_version != kBackupVersion || !isTransactionId(record.transaction_id) ||
         static_cast<std::size_t>(record.status) >= 9 ||
         static_cast<std::size_t>(record.error) >= 14 ||
+        record.prepared_actions.empty() ||
         record.prepared_actions.size() > kMaxTransactionActions ||
         record.outcomes.size() != record.prepared_actions.size() ||
-        record.action_order.size() > 2 * kMaxTransactionActions ||
+        record.action_order.size() > kMaxTransactionActions ||
         record.applied_action_order.size() > record.prepared_actions.size() ||
-        record.detail.size() > kMaxDetailLength) return false;
+        record.detail.size() > kMaxDetailLength ||
+        !hasCleanErrorDetail(record.error, record.detail)) return false;
 
     std::array<bool, kMaxTransactionActions> seen{};
-    const auto compatible = [](ActionId id, const ActionTarget& target, const ActionValue& value) {
-        const bool no_target = std::holds_alternative<std::monostate>(target);
-        switch (id) {
-        case ActionId::PowerPlan: return no_target && std::holds_alternative<PowerPlanValue>(value);
-        case ActionId::EnergyMode: return no_target && std::holds_alternative<EnergyValue>(value);
-        case ActionId::GameDvr: return no_target && std::holds_alternative<RegistryValue>(value);
-        case ActionId::FullscreenOptimizations: return std::holds_alternative<ExecutableIdentity>(target) && std::holds_alternative<FullscreenValue>(value);
-        case ActionId::TcpParameters: return no_target && std::holds_alternative<TcpValue>(value);
-        case ActionId::Dns: return std::holds_alternative<InterfaceId>(target) && std::holds_alternative<DnsValue>(value);
-        case ActionId::Mtu: return std::holds_alternative<InterfaceId>(target) && std::holds_alternative<MtuValue>(value);
-        case ActionId::ProcessPriority: return std::holds_alternative<ProcessIdentity>(target) && (std::holds_alternative<PriorityValue>(value) || std::holds_alternative<NiceValue>(value));
-        }
-        return false;
-    };
     for (std::size_t index = 0; index < record.prepared_actions.size(); ++index) {
         const auto& action = record.prepared_actions[index];
         const auto id = static_cast<std::size_t>(action.id);
@@ -485,8 +551,8 @@ bool validRecordShape(const TransactionRecord& record) {
             action.proposed.id != action.id || !isBounded(action.target) ||
             static_cast<std::size_t>(action.before.status) >= 7 ||
             static_cast<std::size_t>(action.proposed.status) >= 7 ||
-            !compatible(action.id, action.target, action.before.value) ||
-            !compatible(action.id, action.target, action.proposed.value) ||
+            !compatibleActionValue(action.id, action.target, action.before.value) ||
+            !compatibleActionValue(action.id, action.target, action.proposed.value) ||
             !isBounded(action.before.value) || !isSafeProposed(action.proposed.value) ||
             action.before.detail.size() > kMaxDetailLength ||
             action.proposed.detail.size() > kMaxDetailLength) return false;
@@ -497,19 +563,146 @@ bool validRecordShape(const TransactionRecord& record) {
             static_cast<std::size_t>(outcome.error) >= 14 ||
             static_cast<std::size_t>(outcome.rollback_error) >= 14 ||
             static_cast<std::size_t>(outcome.state.status) >= 7 ||
-            !compatible(action.id, action.target, outcome.state.value) ||
             !isBounded(outcome.state.value) || outcome.state.detail.size() > kMaxDetailLength ||
             outcome.detail.size() > kMaxDetailLength ||
-            outcome.rollback_detail.size() > kMaxDetailLength) return false;
+            outcome.rollback_detail.size() > kMaxDetailLength ||
+            !validOutcomeBookkeeping(outcome, action)) return false;
     }
+
+    std::array<bool, kMaxTransactionActions> ordered{};
     for (const auto id : record.action_order) {
-        if (static_cast<std::size_t>(id) >= seen.size() ||
-            !seen[static_cast<std::size_t>(id)]) return false;
+        const auto index = static_cast<std::size_t>(id);
+        if (index >= seen.size() || !seen[index] || ordered[index]) return false;
+        ordered[index] = true;
     }
     for (std::size_t index = 0; index < record.applied_action_order.size(); ++index) {
         if (record.applied_action_order[index] != record.prepared_actions[index].id) return false;
     }
-    return true;
+
+    const auto applied_count = record.applied_action_order.size();
+    for (std::size_t index = 0; index < record.outcomes.size(); ++index) {
+        const auto status = record.outcomes[index].status;
+        if (index < applied_count) {
+            if (status != ActionStatus::Applied && status != ActionStatus::Reverted) {
+                return false;
+            }
+        } else if (status == ActionStatus::Applied || status == ActionStatus::Reverted) {
+            return false;
+        }
+    }
+
+    std::size_t unresolved_count = 0;
+    while (unresolved_count < applied_count &&
+           record.outcomes[unresolved_count].status == ActionStatus::Applied) {
+        ++unresolved_count;
+    }
+    for (std::size_t index = unresolved_count; index < applied_count; ++index) {
+        if (record.outcomes[index].status != ActionStatus::Reverted) return false;
+    }
+
+    const auto valid_suffix = [&]() {
+        std::size_t index = applied_count;
+        if (index < record.outcomes.size() &&
+            record.outcomes[index].status == ActionStatus::Failed) {
+            ++index;
+        }
+        for (; index < record.outcomes.size(); ++index) {
+            if (record.outcomes[index].status != ActionStatus::NotChecked) return false;
+        }
+        return true;
+    };
+    const auto apply_order_is_exact = [&]() {
+        return record.action_order == record.applied_action_order;
+    };
+    const auto rollback_order_is_exact = [&](bool allow_empty) {
+        if (record.action_order.empty()) return allow_empty;
+        const auto reverted_count = applied_count - unresolved_count;
+        if (record.action_order.size() > reverted_count) return false;
+        for (std::size_t index = 0; index < record.action_order.size(); ++index) {
+            const auto prepared_index =
+                unresolved_count + record.action_order.size() - index - 1;
+            if (record.action_order[index] !=
+                record.prepared_actions[prepared_index].id) return false;
+        }
+        return true;
+    };
+    const auto all_not_checked_after_prefix = [&]() {
+        for (std::size_t index = applied_count; index < record.outcomes.size(); ++index) {
+            if (record.outcomes[index].status != ActionStatus::NotChecked) return false;
+        }
+        return true;
+    };
+
+    switch (record.status) {
+    case TransactionStatus::Unprepared:
+        return false;
+    case TransactionStatus::Prepared:
+        return record.error == RemediationError::None && applied_count == 0 &&
+               record.action_order.empty() && all_not_checked_after_prefix();
+    case TransactionStatus::Applying:
+        return record.error == RemediationError::None && applied_count > 0 &&
+               applied_count < record.prepared_actions.size() &&
+               unresolved_count == applied_count && apply_order_is_exact() &&
+               all_not_checked_after_prefix();
+    case TransactionStatus::Applied:
+        return record.error == RemediationError::None &&
+               applied_count == record.prepared_actions.size() &&
+               unresolved_count == applied_count && apply_order_is_exact();
+    case TransactionStatus::Failed: {
+        if (record.error == RemediationError::None ||
+            record.error == RemediationError::Cancelled ||
+            record.error == RemediationError::RollbackFailed ||
+            unresolved_count != applied_count || !apply_order_is_exact() ||
+            !valid_suffix()) return false;
+        const bool has_failed_outcome =
+            applied_count < record.outcomes.size() &&
+            record.outcomes[applied_count].status == ActionStatus::Failed;
+        if (!has_failed_outcome) {
+            return record.error == RemediationError::BackupFailed && applied_count > 0;
+        }
+        const auto& failed = record.outcomes[applied_count];
+        return record.error == failed.error && record.detail == failed.detail;
+    }
+    case TransactionStatus::Cancelled: {
+        if (record.error != RemediationError::Cancelled || !valid_suffix()) return false;
+        const bool has_failed_outcome =
+            applied_count < record.outcomes.size() &&
+            record.outcomes[applied_count].status == ActionStatus::Failed;
+        const bool cancelled_during_apply =
+            unresolved_count == applied_count && apply_order_is_exact() &&
+            (!has_failed_outcome ||
+             (record.outcomes[applied_count].error == RemediationError::Cancelled &&
+              record.detail == record.outcomes[applied_count].detail));
+        const bool cancelled_during_rollback =
+            applied_count > 0 && unresolved_count > 0 &&
+            rollback_order_is_exact(true);
+        return cancelled_during_apply || cancelled_during_rollback;
+    }
+    case TransactionStatus::RollingBack:
+        return record.error == RemediationError::None && applied_count > 0 &&
+               unresolved_count > 0 && valid_suffix() &&
+               rollback_order_is_exact(true);
+    case TransactionStatus::RollbackFailed:
+        if (applied_count == 0 || !valid_suffix() ||
+            !rollback_order_is_exact(true)) return false;
+        if (record.error == RemediationError::BackupFailed) {
+            return !record.action_order.empty();
+        }
+        if (record.error != RemediationError::RollbackFailed || unresolved_count == 0) {
+            return false;
+        }
+        {
+            const auto& failed = record.outcomes[unresolved_count - 1];
+            return failed.rollback_attempted &&
+                   failed.rollback_error != RemediationError::None &&
+                   record.detail == failed.rollback_detail;
+        }
+    case TransactionStatus::Reverted:
+        return record.error == RemediationError::None && applied_count > 0 &&
+               unresolved_count == 0 && valid_suffix() &&
+               rollback_order_is_exact(false);
+    }
+    return false;
 }
 
 std::optional<TransactionRecord> readRecord(const json& value, std::string_view expected_id) {
@@ -581,8 +774,10 @@ bool sameRollbackPlan(const TransactionRecord& left, const TransactionRecord& ri
 
 } // namespace
 
-JsonBackupStore::JsonBackupStore(std::filesystem::path storage_root)
-    : storage_root_(std::move(storage_root)) {}
+JsonBackupStore::JsonBackupStore(
+    std::filesystem::path storage_root, FileRemover file_remover)
+    : storage_root_(std::move(storage_root)),
+      file_remover_(std::move(file_remover)) {}
 
 Result<std::monostate> JsonBackupStore::save(const TransactionRecord& record) {
     if (!validRecordShape(record)) return backupFailure<std::monostate>("invalid transaction record");
@@ -632,7 +827,10 @@ Result<std::monostate> JsonBackupStore::save(const TransactionRecord& record) {
         return left.first == right.first ? left.second < right.second : left.first < right.first;
     });
     while (resolved.size() > kMaxResolvedTransactions) {
-        if (!std::filesystem::remove(resolved.front().second, error) || error) {
+        const bool removed = file_remover_
+                                 ? file_remover_(resolved.front().second, error)
+                                 : std::filesystem::remove(resolved.front().second, error);
+        if (!removed || error) {
             return backupFailure<std::monostate>("transaction backup saved but retention pruning failed");
         }
         resolved.erase(resolved.begin());

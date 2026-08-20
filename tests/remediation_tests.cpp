@@ -4,6 +4,8 @@
 #include "remediation/fix_transaction.h"
 #include "remediation/json_backup_store.h"
 
+#include <nlohmann/json.hpp>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -133,7 +135,6 @@ TransactionRecord persistedRecord(std::string id, TransactionStatus status = Tra
     TransactionRecord record;
     record.transaction_id = std::move(id);
     record.status = status;
-    record.detail = "transaction detail";
     for (std::size_t index = 0; index < kMaxTransactionActions; ++index) {
         const auto action_id = static_cast<ActionId>(index);
         PreparedAction action;
@@ -153,11 +154,50 @@ TransactionRecord persistedRecord(std::string id, TransactionStatus status = Tra
         outcome.attempted = true;
         outcome.state = ActionState{action_id, outcome.status, persistedValueFor(action_id),
                                     "outcome detail"};
-        outcome.detail = "apply detail";
-        outcome.rollback_detail = "rollback detail";
+        outcome.rollback_attempted = status == TransactionStatus::Reverted;
         record.outcomes.push_back(std::move(outcome));
-        record.action_order.push_back(action_id);
         record.applied_action_order.push_back(action_id);
+    }
+    if (status == TransactionStatus::Reverted) {
+        for (std::size_t index = kMaxTransactionActions; index > 0; --index) {
+            record.action_order.push_back(static_cast<ActionId>(index - 1));
+        }
+    } else {
+        record.action_order = record.applied_action_order;
+    }
+    return record;
+}
+
+void resetOutcome(ActionOutcome& outcome) {
+    outcome.status = ActionStatus::NotChecked;
+    outcome.error = RemediationError::None;
+    outcome.attempted = false;
+    outcome.state = ActionState{outcome.id, ActionStatus::NotChecked, std::monostate{}, {}};
+    outcome.detail.clear();
+    outcome.rollback_error = RemediationError::None;
+    outcome.rollback_attempted = false;
+    outcome.rollback_detail.clear();
+}
+
+void revertOutcome(ActionOutcome& outcome) {
+    outcome.status = ActionStatus::Reverted;
+    outcome.error = RemediationError::None;
+    outcome.attempted = true;
+    outcome.state.status = ActionStatus::Recommended;
+    outcome.detail.clear();
+    outcome.rollback_error = RemediationError::None;
+    outcome.rollback_attempted = true;
+    outcome.rollback_detail.clear();
+}
+
+TransactionRecord recordWithAppliedPrefix(
+    std::string id, std::size_t applied_count, TransactionStatus status) {
+    auto record = persistedRecord(std::move(id));
+    record.status = status;
+    record.action_order.resize(applied_count);
+    record.applied_action_order.resize(applied_count);
+    for (std::size_t index = applied_count; index < record.outcomes.size(); ++index) {
+        resetOutcome(record.outcomes[index]);
     }
     return record;
 }
@@ -966,6 +1006,265 @@ TEST_CASE("JSON backups round-trip all typed remediation values") {
     }
 }
 
+TEST_CASE("JSON backups round-trip rollback crash bookkeeping") {
+    TemporaryBackupRoot root("gno-json-backup-crash-round-trip");
+    JsonBackupStore store(root.path());
+    auto record = persistedRecord(transactionId(1299));
+    record.status = TransactionStatus::RollbackFailed;
+    revertOutcome(record.outcomes[7]);
+    auto& failed = record.outcomes[6];
+    failed.rollback_attempted = true;
+    failed.rollback_error = RemediationError::VerificationMismatch;
+    failed.rollback_detail = "rollback observation differed";
+    record.action_order.clear();
+    record.error = RemediationError::RollbackFailed;
+    record.detail = failed.rollback_detail;
+
+    REQUIRE(store.save(record).ok());
+    const auto loaded = store.load(record.transaction_id);
+
+    REQUIRE(loaded.ok());
+    CHECK(loaded.value.error == record.error);
+    CHECK(loaded.value.detail == record.detail);
+    CHECK(loaded.value.action_order == record.action_order);
+    CHECK(loaded.value.applied_action_order == record.applied_action_order);
+    REQUIRE(loaded.value.outcomes.size() == record.outcomes.size());
+    for (std::size_t index = 0; index < record.outcomes.size(); ++index) {
+        const auto& actual = loaded.value.outcomes[index];
+        const auto& expected = record.outcomes[index];
+        CHECK(actual.id == expected.id);
+        CHECK(actual.status == expected.status);
+        CHECK(actual.error == expected.error);
+        CHECK(actual.attempted == expected.attempted);
+        CHECK(actual.state == expected.state);
+        CHECK(actual.detail == expected.detail);
+        CHECK(actual.rollback_error == expected.rollback_error);
+        CHECK(actual.rollback_attempted == expected.rollback_attempted);
+        CHECK(actual.rollback_detail == expected.rollback_detail);
+    }
+}
+
+TEST_CASE("JSON backups accept every durable transaction engine state") {
+    TemporaryBackupRoot root("gno-json-backup-legal-states");
+    JsonBackupStore store(root.path());
+    std::vector<TransactionRecord> records;
+
+    records.push_back(recordWithAppliedPrefix(
+        transactionId(1300), 0, TransactionStatus::Prepared));
+    records.push_back(recordWithAppliedPrefix(
+        transactionId(1301), 2, TransactionStatus::Applying));
+    records.push_back(persistedRecord(transactionId(1302), TransactionStatus::Applied));
+
+    auto failed = recordWithAppliedPrefix(
+        transactionId(1303), 2, TransactionStatus::Failed);
+    auto& failed_outcome = failed.outcomes[2];
+    failed_outcome.status = ActionStatus::Failed;
+    failed_outcome.error = RemediationError::ApplyFailed;
+    failed_outcome.attempted = true;
+    failed_outcome.detail = "apply failed";
+    failed.error = RemediationError::ApplyFailed;
+    failed.detail = failed_outcome.detail;
+    records.push_back(std::move(failed));
+
+    auto backup_failed = recordWithAppliedPrefix(
+        transactionId(1304), 2, TransactionStatus::Failed);
+    backup_failed.error = RemediationError::BackupFailed;
+    backup_failed.detail = "verified transition was not durably acknowledged";
+    records.push_back(std::move(backup_failed));
+
+    auto cancelled = recordWithAppliedPrefix(
+        transactionId(1305), 2, TransactionStatus::Cancelled);
+    cancelled.error = RemediationError::Cancelled;
+    cancelled.detail = "execution cancelled";
+    records.push_back(std::move(cancelled));
+
+    auto rollback_cancelled = persistedRecord(transactionId(1310));
+    rollback_cancelled.status = TransactionStatus::Cancelled;
+    revertOutcome(rollback_cancelled.outcomes[7]);
+    rollback_cancelled.action_order = {ActionId::ProcessPriority};
+    rollback_cancelled.error = RemediationError::Cancelled;
+    rollback_cancelled.detail = "rollback cancelled";
+    records.push_back(std::move(rollback_cancelled));
+
+    auto rolling_back = persistedRecord(transactionId(1306));
+    rolling_back.status = TransactionStatus::RollingBack;
+    rolling_back.action_order.clear();
+    records.push_back(std::move(rolling_back));
+
+    auto resumed_rollback = persistedRecord(transactionId(1307));
+    resumed_rollback.status = TransactionStatus::RollingBack;
+    revertOutcome(resumed_rollback.outcomes[7]);
+    revertOutcome(resumed_rollback.outcomes[6]);
+    resumed_rollback.action_order = {ActionId::Mtu};
+    records.push_back(std::move(resumed_rollback));
+
+    auto rollback_failed = persistedRecord(transactionId(1308));
+    rollback_failed.status = TransactionStatus::RollbackFailed;
+    revertOutcome(rollback_failed.outcomes[7]);
+    revertOutcome(rollback_failed.outcomes[6]);
+    auto& unresolved = rollback_failed.outcomes[5];
+    unresolved.rollback_attempted = true;
+    unresolved.rollback_error = RemediationError::VerificationMismatch;
+    unresolved.rollback_detail = "rollback verification failed";
+    rollback_failed.action_order = {ActionId::Mtu};
+    rollback_failed.error = RemediationError::RollbackFailed;
+    rollback_failed.detail = unresolved.rollback_detail;
+    records.push_back(std::move(rollback_failed));
+
+    records.push_back(persistedRecord(
+        transactionId(1309), TransactionStatus::Reverted));
+
+    for (const auto& record : records) {
+        CAPTURE(record.transaction_id);
+        REQUIRE(store.save(record).ok());
+        const auto loaded = store.load(record.transaction_id);
+        REQUIRE(loaded.ok());
+        CHECK(loaded.value.status == record.status);
+    }
+}
+
+TEST_CASE("JSON backups reject impossible transaction state-machine bookkeeping") {
+    TemporaryBackupRoot root("gno-json-backup-invalid-states");
+    JsonBackupStore store(root.path());
+    unsigned int next_id = 1400;
+    const auto rejected = [&](TransactionRecord record) {
+        record.transaction_id = transactionId(next_id++);
+        CAPTURE(record.transaction_id);
+        CHECK_FALSE(store.save(record).ok());
+    };
+
+    auto empty_applied = persistedRecord(transactionId(0));
+    empty_applied.prepared_actions.clear();
+    empty_applied.outcomes.clear();
+    empty_applied.action_order.clear();
+    empty_applied.applied_action_order.clear();
+    rejected(std::move(empty_applied));
+
+    auto duplicate_order = persistedRecord(transactionId(0));
+    duplicate_order.action_order.back() = duplicate_order.action_order.front();
+    rejected(std::move(duplicate_order));
+
+    auto non_prefix_order = persistedRecord(transactionId(0));
+    std::swap(non_prefix_order.applied_action_order[0],
+              non_prefix_order.applied_action_order[1]);
+    rejected(std::move(non_prefix_order));
+
+    auto misaligned_outcome = persistedRecord(transactionId(0));
+    misaligned_outcome.outcomes[0].id = ActionId::Dns;
+    rejected(std::move(misaligned_outcome));
+
+    auto prepared_with_history = persistedRecord(transactionId(0));
+    prepared_with_history.status = TransactionStatus::Prepared;
+    rejected(std::move(prepared_with_history));
+
+    auto applying_complete = persistedRecord(transactionId(0));
+    applying_complete.status = TransactionStatus::Applying;
+    rejected(std::move(applying_complete));
+
+    auto applied_partial = recordWithAppliedPrefix(
+        transactionId(0), 2, TransactionStatus::Applied);
+    rejected(std::move(applied_partial));
+
+    auto unattempted_applied = persistedRecord(transactionId(0));
+    unattempted_applied.outcomes[0].attempted = false;
+    rejected(std::move(unattempted_applied));
+
+    auto attempted_not_checked = recordWithAppliedPrefix(
+        transactionId(0), 0, TransactionStatus::Prepared);
+    attempted_not_checked.outcomes[0].attempted = true;
+    rejected(std::move(attempted_not_checked));
+
+    auto successful_with_error = persistedRecord(transactionId(0));
+    successful_with_error.outcomes[0].error = RemediationError::ApplyFailed;
+    rejected(std::move(successful_with_error));
+
+    auto detail_without_error = persistedRecord(transactionId(0));
+    detail_without_error.outcomes[0].detail = "impossible detail";
+    rejected(std::move(detail_without_error));
+
+    auto failed_with_fabricated_empty_state = recordWithAppliedPrefix(
+        transactionId(0), 0, TransactionStatus::Failed);
+    auto& fabricated_failure = failed_with_fabricated_empty_state.outcomes[0];
+    fabricated_failure.status = ActionStatus::Failed;
+    fabricated_failure.attempted = true;
+    fabricated_failure.error = RemediationError::ApplyFailed;
+    fabricated_failure.detail = "apply failed";
+    fabricated_failure.state.status = ActionStatus::Recommended;
+    fabricated_failure.state.detail = "state was never observed";
+    failed_with_fabricated_empty_state.error = fabricated_failure.error;
+    failed_with_fabricated_empty_state.detail = fabricated_failure.detail;
+    rejected(std::move(failed_with_fabricated_empty_state));
+
+    auto rollback_error_without_attempt = persistedRecord(transactionId(0));
+    rollback_error_without_attempt.outcomes[0].rollback_error =
+        RemediationError::RollbackFailed;
+    rejected(std::move(rollback_error_without_attempt));
+
+    auto reverted_without_rollback = persistedRecord(
+        transactionId(0), TransactionStatus::Reverted);
+    reverted_without_rollback.outcomes[0].rollback_attempted = false;
+    rejected(std::move(reverted_without_rollback));
+
+    auto successful_record_with_error = persistedRecord(transactionId(0));
+    successful_record_with_error.error = RemediationError::ApplyFailed;
+    rejected(std::move(successful_record_with_error));
+
+    auto failed_without_error = recordWithAppliedPrefix(
+        transactionId(0), 2, TransactionStatus::Failed);
+    rejected(std::move(failed_without_error));
+
+    auto failed_error_mismatch = recordWithAppliedPrefix(
+        transactionId(0), 1, TransactionStatus::Failed);
+    failed_error_mismatch.outcomes[1].status = ActionStatus::Failed;
+    failed_error_mismatch.outcomes[1].attempted = true;
+    failed_error_mismatch.outcomes[1].error = RemediationError::ApplyFailed;
+    failed_error_mismatch.error = RemediationError::PermissionDenied;
+    rejected(std::move(failed_error_mismatch));
+
+    auto resolved_rollback_failure = persistedRecord(
+        transactionId(0), TransactionStatus::Reverted);
+    resolved_rollback_failure.status = TransactionStatus::RollbackFailed;
+    resolved_rollback_failure.error = RemediationError::RollbackFailed;
+    resolved_rollback_failure.detail = "cannot fail resolved rollback";
+    rejected(std::move(resolved_rollback_failure));
+
+    auto reverted_with_unresolved = persistedRecord(
+        transactionId(0), TransactionStatus::Reverted);
+    reverted_with_unresolved.outcomes[0].status = ActionStatus::Applied;
+    reverted_with_unresolved.outcomes[0].rollback_attempted = false;
+    rejected(std::move(reverted_with_unresolved));
+
+    auto rollback_with_apply_order = persistedRecord(transactionId(0));
+    rollback_with_apply_order.status = TransactionStatus::RollingBack;
+    rejected(std::move(rollback_with_apply_order));
+
+    auto unknown_outcome_status = persistedRecord(transactionId(0));
+    unknown_outcome_status.outcomes[0].status = ActionStatus::Recommended;
+    rejected(std::move(unknown_outcome_status));
+}
+
+TEST_CASE("JSON backup load and list share state-machine validation") {
+    TemporaryBackupRoot root("gno-json-backup-shared-validation");
+    JsonBackupStore store(root.path());
+    const auto invalid_id = transactionId(1500);
+    const auto valid_id = transactionId(1501);
+    REQUIRE(store.save(persistedRecord(invalid_id)).ok());
+    REQUIRE(store.save(recordWithAppliedPrefix(
+        valid_id, 0, TransactionStatus::Prepared)).ok());
+
+    auto document = nlohmann::json::parse(readText(backupPath(root, invalid_id)));
+    document["transaction"]["action_order"][1] =
+        document["transaction"]["action_order"][0];
+    writeText(backupPath(root, invalid_id), document.dump());
+
+    CHECK_FALSE(store.load(invalid_id).ok());
+    const auto summaries = store.list();
+    REQUIRE(summaries.ok());
+    REQUIRE(summaries.value.size() == 1);
+    CHECK(summaries.value.front().transaction_id == valid_id);
+    CHECK(summaries.value.front().status == TransactionStatus::Prepared);
+}
+
 TEST_CASE("JSON backups reject unsafe identifiers and files beyond the transaction bound") {
     TemporaryBackupRoot root("gno-json-backup-bounds");
     JsonBackupStore store(root.path());
@@ -1058,17 +1357,13 @@ TEST_CASE("JSON backup retention keeps unresolved records and bounds only resolv
     TemporaryBackupRoot root("gno-json-backup-retention");
     JsonBackupStore store(root.path());
     const auto unresolved_id = transactionId(1000);
-    auto unresolved = persistedRecord(unresolved_id);
-    unresolved.status = TransactionStatus::Prepared;
-    for (auto& outcome : unresolved.outcomes) {
-        outcome.status = ActionStatus::NotChecked;
-        outcome.attempted = false;
-        outcome.state.status = ActionStatus::NotChecked;
-    }
+    auto unresolved = recordWithAppliedPrefix(
+        unresolved_id, 0, TransactionStatus::Prepared);
     REQUIRE(store.save(unresolved).ok());
 
-    const auto timestamp = std::filesystem::file_time_type::clock::now();
-    for (unsigned int index = 1; index <= 101; ++index) {
+    const auto timestamp = std::filesystem::file_time_type::clock::now() -
+                           std::chrono::hours(1);
+    for (unsigned int index = 1; index <= 100; ++index) {
         const auto id = transactionId(1000 + index);
         REQUIRE(store.save(persistedRecord(id, TransactionStatus::Reverted)).ok());
         std::error_code error;
@@ -1076,6 +1371,8 @@ TEST_CASE("JSON backup retention keeps unresolved records and bounds only resolv
             backupPath(root, id), timestamp + std::chrono::seconds(index), error);
         REQUIRE_FALSE(error);
     }
+    REQUIRE(store.save(persistedRecord(
+        transactionId(1101), TransactionStatus::Reverted)).ok());
 
     CHECK(store.load(unresolved_id).ok());
     CHECK_FALSE(store.load(transactionId(1001)).ok());
@@ -1083,6 +1380,53 @@ TEST_CASE("JSON backup retention keeps unresolved records and bounds only resolv
     const auto summaries = store.list();
     REQUIRE(summaries.ok());
     CHECK(summaries.value.size() == 101);
+}
+
+TEST_CASE("JSON backup reports deterministic retention deletion failure after durable save") {
+    TemporaryBackupRoot root("gno-json-backup-retention-failure");
+    JsonBackupStore store(root.path());
+    const auto unresolved_id = transactionId(2000);
+    REQUIRE(store.save(recordWithAppliedPrefix(
+        unresolved_id, 0, TransactionStatus::Prepared)).ok());
+
+    const auto timestamp = std::filesystem::file_time_type::clock::now() -
+                           std::chrono::hours(1);
+    for (unsigned int index = 1; index <= 100; ++index) {
+        const auto id = transactionId(2000 + index);
+        REQUIRE(store.save(persistedRecord(id, TransactionStatus::Reverted)).ok());
+        std::error_code error;
+        std::filesystem::last_write_time(
+            backupPath(root, id), timestamp + std::chrono::seconds(index), error);
+        REQUIRE_FALSE(error);
+    }
+
+    std::vector<std::filesystem::path> removal_attempts;
+    JsonBackupStore failing_store(
+        root.path(),
+        [&](const std::filesystem::path& path, std::error_code& error) {
+            removal_attempts.push_back(path);
+            error = std::make_error_code(std::errc::permission_denied);
+            return false;
+        });
+    const auto newest_id = transactionId(2101);
+
+    const auto saved = failing_store.save(
+        persistedRecord(newest_id, TransactionStatus::Reverted));
+
+    CHECK_FALSE(saved.ok());
+    REQUIRE(removal_attempts.size() == 1);
+    CHECK(removal_attempts.front() == backupPath(root, transactionId(2001)));
+    CHECK(failing_store.load(newest_id).ok());
+    CHECK(failing_store.load(transactionId(2001)).ok());
+    CHECK(failing_store.load(unresolved_id).ok());
+    const auto summaries = failing_store.list();
+    REQUIRE(summaries.ok());
+    CHECK(summaries.value.size() == 102);
+    CHECK(std::count_if(
+              summaries.value.begin(), summaries.value.end(),
+              [](const TransactionSummary& summary) {
+                  return summary.status == TransactionStatus::Reverted;
+              }) == 101);
 }
 
 #ifndef _WIN32
