@@ -81,8 +81,13 @@ std::string NetworkUtils::reverseDNS(const std::string& ip) {
 }
 
 bool NetworkUtils::isPortOpen(const std::string& host, uint16_t port, uint32_t timeout_ms) {
+#ifdef PLATFORM_WINDOWS
+    const SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == INVALID_SOCKET) return false;
+#else
     const int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return false;
+#endif
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -130,7 +135,11 @@ bool NetworkUtils::isPortOpen(const std::string& host, uint16_t port, uint32_t t
     timeval timeout{};
     timeout.tv_sec = static_cast<decltype(timeout.tv_sec)>(timeout_ms / 1000);
     timeout.tv_usec = static_cast<decltype(timeout.tv_usec)>((timeout_ms % 1000) * 1000);
+#ifdef PLATFORM_WINDOWS
+    const int selected = select(0, nullptr, &writefds, nullptr, &timeout);
+#else
     const int selected = select(sock + 1, nullptr, &writefds, nullptr, &timeout);
+#endif
 
     int socket_error = 1;
 #ifdef PLATFORM_WINDOWS
