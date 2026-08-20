@@ -32,37 +32,54 @@ void PingMonitor::start(const std::string& target_ip, uint32_t interval_ms) {
     std::thread completed_worker;
     {
         std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
-        if (running_ || (monitor_thread_.joinable() &&
-                         monitor_thread_.get_id() == std::this_thread::get_id())) {
+        if (lifecycle_state_ != LifecycleState::Stopped ||
+            (monitor_thread_.joinable() && monitor_thread_.get_id() == std::this_thread::get_id())) {
             return;
         }
         if (monitor_thread_.joinable()) {
+            lifecycle_state_ = LifecycleState::Stopping;
             completed_worker = std::move(monitor_thread_);
         }
     }
     if (completed_worker.joinable()) {
         completed_worker.join();
+        std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+        if (lifecycle_state_ == LifecycleState::Stopping) {
+            lifecycle_state_ = LifecycleState::Stopped;
+            lifecycle_cv_.notify_all();
+        }
     }
 
     std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
-    if (running_) {
+    if (lifecycle_state_ != LifecycleState::Stopped) {
         return;
     }
     target_ip_ = target_ip;
     interval_ms_ = std::clamp(interval_ms, 10u, 60000u);
-    running_ = true;
-    monitor_thread_ = std::thread(&PingMonitor::monitorLoop, this);
+    cancellation_source_ = CancellationSource{};
+    const auto cancellation = cancellation_source_.token();
+    lifecycle_state_ = LifecycleState::Running;
+    monitor_thread_ = std::thread([this, cancellation] { monitorLoop(cancellation); });
 }
 
 void PingMonitor::stop() {
     std::thread completed_worker;
+    CancellationSource cancellation;
     {
         std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
-        running_ = false;
+        if (lifecycle_state_ == LifecycleState::Stopped) {
+            if (monitor_thread_.joinable() && monitor_thread_.get_id() != std::this_thread::get_id()) {
+                completed_worker = std::move(monitor_thread_);
+            }
+        } else {
+            lifecycle_state_ = LifecycleState::Stopping;
+            cancellation = cancellation_source_;
+        }
         if (monitor_thread_.joinable() && monitor_thread_.get_id() != std::this_thread::get_id()) {
             completed_worker = std::move(monitor_thread_);
         }
     }
+    cancellation.cancel();
     wait_cv_.notify_all();
     if (completed_worker.joinable()) {
         completed_worker.join();
@@ -70,7 +87,13 @@ void PingMonitor::stop() {
 }
 
 bool PingMonitor::isRunning() const {
-    return running_;
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    return lifecycle_state_ == LifecycleState::Running;
+}
+
+bool PingMonitor::isStopping() const {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    return lifecycle_state_ == LifecycleState::Stopping;
 }
 
 ICMPResult PingMonitor::ping(const std::string& target_ip, uint32_t timeout_ms) {
@@ -163,9 +186,12 @@ void PingMonitor::setStatsCallback(StatsCallback callback) {
     stats_callback_ = std::move(callback);
 }
 
-void PingMonitor::monitorLoop() {
-    while (running_) {
+void PingMonitor::monitorLoop(const CancellationToken& cancellation) {
+    while (!cancellation.isCancelled()) {
         ICMPResult result = ping(target_ip_);
+        if (cancellation.isCancelled()) {
+            break;
+        }
         PingCallback ping_callback;
         {
             std::lock_guard<std::mutex> lock(callback_mutex_);
@@ -174,10 +200,24 @@ void PingMonitor::monitorLoop() {
         if (ping_callback) {
             ping_callback(result);
         }
+        if (cancellation.isCancelled()) {
+            break;
+        }
         updateStats(result);
 
         std::unique_lock<std::mutex> lock(wait_mutex_);
-        wait_cv_.wait_for(lock, std::chrono::milliseconds(interval_ms_), [this] { return !running_; });
+        wait_cv_.wait_for(lock, std::chrono::milliseconds(interval_ms_), [&cancellation] {
+            return cancellation.isCancelled();
+        });
+    }
+    finishWorker();
+}
+
+void PingMonitor::finishWorker() {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    if (lifecycle_state_ == LifecycleState::Stopping) {
+        lifecycle_state_ = LifecycleState::Stopped;
+        lifecycle_cv_.notify_all();
     }
 }
 
