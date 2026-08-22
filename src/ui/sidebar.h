@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QWidget>
 #include <QPushButton>
@@ -21,6 +21,7 @@ enum class NavPage {
     ProcessMonitor,
     History,
     Diagnostics,
+    Remediation,
     GeoMap,
     Settings,
     Count

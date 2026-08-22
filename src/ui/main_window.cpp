@@ -1,4 +1,4 @@
-#include "main_window.h"
+﻿#include "main_window.h"
 #include "sidebar.h"
 #include "theme.h"
 
@@ -15,6 +15,7 @@
 #include "process_monitor_widget.h"
 #include "session_history_widget.h"
 #include "diagnostics_widget.h"
+#include "remediation_widget.h"
 #include "geo_map.h"
 #include "settings_page.h"
 
@@ -107,6 +108,7 @@ void MainWindow::setupPages()
     m_stackedWidget->addWidget(new ProcessMonitorWidget(this));
     m_stackedWidget->addWidget(new SessionHistoryWidget(this));
     m_stackedWidget->addWidget(new DiagnosticsWidget(this));
+    m_stackedWidget->addWidget(new RemediationWidget(this));
     m_stackedWidget->addWidget(new GeoMapWidget(this));
 
     auto* settings = new SettingsPageWidget(this);

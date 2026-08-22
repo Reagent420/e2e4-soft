@@ -16,6 +16,7 @@ struct SessionRecord {
     double avg_jitter_ms = 0.0;
     double avg_packet_loss = 0.0;
     double max_ping_ms = 0.0;
+    double quality_score = 0.0;
     uint32_t duration_seconds = 0;
     bool boost_was_active = false;
 };
@@ -27,6 +28,7 @@ public:
 
     void recordStart(const std::string& game_name, bool boost);
     void recordEnd(double avg_ping, double avg_jitter, double loss, double max_ping);
+    void recordEndWithScore(double avg_ping, double avg_jitter, double loss, double max_ping, double quality_score);
 
     std::vector<SessionRecord> getAll() const;
     std::vector<SessionRecord> getLast(int count) const;

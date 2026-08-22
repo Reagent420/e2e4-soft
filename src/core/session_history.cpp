@@ -58,6 +58,12 @@ void SessionHistory::recordStart(const std::string& game_name, bool boost) {
     recording_ = true;
 }
 
+void SessionHistory::recordEndWithScore(double avg_ping, double avg_jitter, double loss, double max_ping, double quality_score) {
+    recordEnd(avg_ping, avg_jitter, loss, max_ping);
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!records_.empty()) records_.back().quality_score = quality_score;
+}
+
 void SessionHistory::recordEnd(double avg_ping, double avg_jitter, double loss, double max_ping) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!recording_) return;
@@ -134,6 +140,7 @@ bool SessionHistory::saveToFile(const std::string& path) const {
         file << "    \"start\": \"" << r.start_time_str << "\",\n";
         file << "    \"end\": \"" << r.end_time_str << "\",\n";
         file << "    \"avg_ping\": " << r.avg_ping_ms << ",\n";
+    file << "    \"quality_score\": " << r.quality_score << ",\n";
         file << "    \"avg_jitter\": " << r.avg_jitter_ms << ",\n";
         file << "    \"avg_loss\": " << r.avg_packet_loss << ",\n";
         file << "    \"max_ping\": " << r.max_ping_ms << ",\n";
@@ -189,6 +196,9 @@ bool SessionHistory::loadFromFile(const std::string& path) {
         } else if (line.find("\"avg_ping\"") != std::string::npos) {
             auto pos = line.find(':');
             if (pos != std::string::npos) current.avg_ping_ms = std::stod(line.substr(pos + 1));
+        } else if (line.find("\"quality_score\"") != std::string::npos) {
+            auto pos = line.find(':');
+            if (pos != std::string::npos) current.quality_score = std::stod(line.substr(pos + 1));
         } else if (line.find("\"avg_jitter\"") != std::string::npos) {
             auto pos = line.find(':');
             if (pos != std::string::npos) current.avg_jitter_ms = std::stod(line.substr(pos + 1));

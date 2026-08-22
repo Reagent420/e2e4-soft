@@ -6,6 +6,12 @@
 #include <sstream>
 #include <vector>
 #include <thread>
+#include <cstdlib>
+#include <filesystem>
+
+#include "remediation/legacy_bridge.h"
+#include "remediation/windows_state_api.h"
+#include "remediation/backup_store.h"
 
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
@@ -426,6 +432,17 @@ DiagnosticCheck LaunchDiagnostics::checkRuntimeLibraries() {
 }
 
 std::string LaunchDiagnostics::applyFix(const std::string& action_id) {
+    // v1.5: route allowlisted fixes through the transactional engine (backup + verify + rollback).
+    {
+        static gno::remediation::JsonBackupStore backup_store([] {
+            const char* app = std::getenv("APPDATA");
+            return (std::filesystem::path(app ? app : ".") / "GNO" / "Backups").string();
+        }());
+        gno::remediation::WindowsStateApi state_api;
+        std::string safe_result = gno::remediation::applySafeFix(action_id, state_api, backup_store);
+        if (!safe_result.empty())
+            return safe_result;
+    }
 #ifdef PLATFORM_WINDOWS
     if (action_id == "power_plan") {
         std::string out = runCmd("powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");

@@ -1,4 +1,5 @@
 #include "monitoring_service.h"
+#include "core/connection_grader.h"
 
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -353,7 +354,8 @@ void MonitoringService::handleGameEnd(const QString& game) {
         avgJitter = session_jitter_sum_ / session_samples_;
         avgLoss = session_loss_sum_ / session_samples_;
     }
-    history_.recordEnd(avgPing, avgJitter, avgLoss, session_max_ping_);
+    const auto grade = ConnectionGrader::evaluate(avgPing, avgJitter, avgLoss);
+    history_.recordEndWithScore(avgPing, avgJitter, avgLoss, session_max_ping_, static_cast<double>(grade.score));
     collector_.stop();
     current_game_.clear();
 

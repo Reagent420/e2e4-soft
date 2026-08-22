@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QString>
 #include <QColor>
@@ -7,7 +7,7 @@ namespace gno {
 namespace theme {
 
 constexpr const char* APP_NAME = "E2E4 Soft — Оптимизатор игровой сети";
-constexpr const char* APP_VERSION = "1.4.0";
+constexpr const char* APP_VERSION = "1.5.0";
 
 struct Colors {
     static constexpr auto BG_PRIMARY       = "#0D0D0F";
@@ -420,6 +420,150 @@ inline QString globalStyleSheet(bool dark = true) {
 
         QTabBar::tab:hover {
             color: %2;
+        }
+
+        /* Buttons (global baseline; objectName styles override where needed) */
+        QPushButton {
+            background-color: %3;
+            color: %2;
+            border: 1px solid %7;
+            border-radius: 8px;
+            padding: 9px 16px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        QPushButton:hover {
+            background-color: %5;
+            border-color: %6;
+        }
+
+        QPushButton:pressed {
+            background-color: %3;
+            border-color: %6;
+        }
+
+        QPushButton:focus {
+            border-color: %6;
+        }
+
+        QPushButton:disabled {
+            color: %8;
+            border-color: %7;
+        }
+
+        /* Text inputs */
+        QLineEdit {
+            background-color: %3;
+            border: 1px solid %7;
+            border-radius: 8px;
+            padding: 9px 12px;
+            color: %2;
+            font-size: 13px;
+            selection-background-color: %6;
+        }
+
+        QLineEdit:focus {
+            border-color: %6;
+        }
+
+        QLineEdit:disabled {
+            color: %8;
+        }
+
+        /* Tables: never overflow - columns shrink, content wraps */
+        QTableWidget, QTableView {
+            background-color: %3;
+            alternate-background-color: %1;
+            color: %2;
+            gridline-color: %7;
+            border: 1px solid %7;
+            border-radius: 8px;
+            selection-background-color: rgba(59,130,246,0.20);
+            selection-color: %2;
+            font-size: 12px;
+        }
+
+        QTableWidget::item, QTableView::item {
+            padding: 4px 6px;
+        }
+
+        QTableWidget::item:selected, QTableView::item:selected {
+            background-color: rgba(59,130,246,0.25);
+            color: %2;
+        }
+
+        QHeaderView::section {
+            background-color: %3;
+            color: %8;
+            padding: 8px 10px;
+            border: none;
+            border-right: 1px solid %7;
+            border-bottom: 1px solid %7;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        QTableCornerButton::section {
+            background-color: %3;
+            border: none;
+        }
+
+        /* Lists */
+        QListWidget {
+            background-color: transparent;
+            border: none;
+            color: %2;
+            font-size: 13px;
+        }
+
+        QListWidget::item {
+            padding: 8px 10px;
+            border-radius: 6px;
+            margin: 1px 0;
+        }
+
+        QListWidget::item:hover {
+            background-color: %5;
+        }
+
+        QListWidget::item:selected {
+            background-color: rgba(59,130,246,0.15);
+            color: %2;
+        }
+
+        /* Group box */
+        QGroupBox {
+            background-color: %3;
+            border: 1px solid %7;
+            border-radius: 10px;
+            margin-top: 14px;
+            padding: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            color: %2;
+        }
+
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 12px;
+            padding: 0 6px;
+            color: %8;
+        }
+
+        /* Progress bar */
+        QProgressBar {
+            background-color: %3;
+            border: 1px solid %7;
+            border-radius: 6px;
+            text-align: center;
+            color: %2;
+            font-size: 11px;
+        }
+
+        QProgressBar::chunk {
+            background-color: %6;
+            border-radius: 5px;
         }
 
         /* Tooltip */

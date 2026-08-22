@@ -13,6 +13,8 @@
 
 #include "../core/game_detector.h"
 #include "../core/system_audit.h"
+#include "../core/plain_language.h"
+#include <QTextEdit>
 
 namespace gno {
 
@@ -132,6 +134,12 @@ void DiagnosticsWidget::setupUI()
     problemsTitle->setObjectName("sectionTitle");
     mainLayout->addWidget(problemsTitle);
 
+    m_problemSearch_ = new QLineEdit(this);
+    m_problemSearch_->setObjectName("searchBox");
+    m_problemSearch_->setPlaceholderText(QString::fromUtf8("\xD0\x9F\xD0\xBE\xD0\xB8\xD1\x81\xD0\xBA \xD0\xBF\xD0\xBE \xD0\xBF\xD1\x80\xD0\xBE\xD0\xB1\xD0\xBB\xD0\xB5\xD0\xBC\xD0\xB0\xD0\xBC..."));
+    mainLayout->addWidget(m_problemSearch_);
+
+
     auto* problemsScroll = new QScrollArea(this);
     problemsScroll->setWidgetResizable(true);
     problemsScroll->setFrameShape(QFrame::NoFrame);
@@ -155,6 +163,19 @@ void DiagnosticsWidget::setupUI()
     m_capabilitiesList_->layout()->setSpacing(6);
     capsScroll->setWidget(m_capabilitiesList_);
     mainLayout->addWidget(capsScroll);
+
+    auto* plainBtn = new QPushButton(QString::fromUtf8("\xD0\x9E\xD0\xB1\xD1\x8A\xD1\x8F\xD0\xB2\xD0\xBD\xD0\xB8\xD1\x82\xD1\x8C \xD0\xBF\xD1\x80\xD0\xBE\xD1\x81\xD1\x82\xD1\x8B\xD0\xBC\xD0\xB8 \xD1\x81\xD0\xBB\xD0\xBE\xD0\xB2\xD0\xB0\xD0\xBC\xD0\xB8"), this);
+    plainBtn->setObjectName("boostButton");
+    plainBtn->setFixedHeight(34);
+    m_plainText_ = new QTextEdit(this);
+    m_plainText_->setReadOnly(true);
+    m_plainText_->setMaximumHeight(230);
+    m_plainText_->setVisible(false);
+    mainLayout->addWidget(plainBtn);
+    mainLayout->addWidget(m_plainText_);
+
+    connect(plainBtn, &QPushButton::clicked, this, &DiagnosticsWidget::onPlainLanguageClicked);
+    connect(m_problemSearch_, &QLineEdit::textChanged, this, &DiagnosticsWidget::onSearchChanged);
 
     connect(m_runBtn_, &QPushButton::clicked, this, [this]() {
         runDiagnostics(m_gameCombo_->currentText(),
@@ -311,6 +332,8 @@ void DiagnosticsWidget::renderResults(const GameDiagnostics& diag)
 
 void DiagnosticsWidget::renderProblems(const QString& gameName)
 {
+    m_lastGameName = gameName;
+    m_lastGameName = gameName;
     auto* layout = qobject_cast<QVBoxLayout*>(m_problemsList_->layout());
     if (!layout) return;
 
@@ -329,7 +352,7 @@ void DiagnosticsWidget::renderProblems(const QString& gameName)
         return;
     }
 
-    auto problems = ProblemDb::getForGame(gameName.toStdString());
+    auto problems = ProblemDb::search(gameName.toStdString(), m_problemQuery_.toStdString());
     if (problems.empty()) {
         auto* hint = new QLabel(QString::fromUtf8("Для этой игры пока нет записей в базе решений."), this);
         hint->setObjectName("sectionSubtitle");
@@ -417,6 +440,8 @@ void DiagnosticsWidget::runDiagnostics(const QString& gameName, const QString& p
         QMetaObject::invokeMethod(this, [this, diag]() {
             m_running_.store(false);
             m_runBtn_->setEnabled(true);
+            m_lastDiag_ = diag;
+            m_hasDiag_ = true;
             renderResults(diag);
             m_runningLabel_->setText(QString::fromUtf8(
                 "Готово. Диагностика выполнена в %1.").arg(QDateTime::currentDateTime().toString("HH:mm:ss")));
@@ -424,4 +449,28 @@ void DiagnosticsWidget::runDiagnostics(const QString& gameName, const QString& p
     }).detach();
 }
 
+void DiagnosticsWidget::onSearchChanged(const QString& text)
+{
+    m_problemQuery_ = text;
+    renderProblems(m_lastGameName);
+}
+
+void DiagnosticsWidget::onPlainLanguageClicked()
+{
+    auto& svc = MonitoringService::instance();
+    const bool net_ok = svc.hasPing() && svc.currentLossPercent() < 5.0;
+    auto sections = PlainLanguageReport::build(
+        svc.currentPing(), svc.currentJitter(), svc.currentLossPercent(), net_ok,
+        m_hasDiag_ ? &m_lastDiag_ : nullptr, SystemAudit::isAdmin());
+
+    QString out;
+    for (const auto& s : sections) {
+        out += QString::fromUtf8("=== ") + QString::fromStdString(s.title) + QString::fromUtf8(" ===") + "\n";
+        for (const auto& l : s.lines)
+            out += QString::fromUtf8("- ") + QString::fromStdString(l) + "\n";
+        out += "\n";
+    }
+    m_plainText_->setPlainText(out);
+    m_plainText_->setVisible(true);
+}
 } // namespace gno

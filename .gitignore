@@ -16,3 +16,4 @@ test_profiles*.json
 profiles_with_data.json
 push_github.bat
 deploy/
+build-msys/

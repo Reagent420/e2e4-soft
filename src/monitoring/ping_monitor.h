@@ -8,6 +8,9 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
+
+#include "diagnostics/diagnostic_types.h"
 
 namespace gno {
 
@@ -17,6 +20,7 @@ struct ICMPResult {
     uint32_t ttl = 0;
     uint32_t bytes = 0;
     std::chrono::steady_clock::time_point timestamp;
+    DiagnosticError error = DiagnosticError::InternalFailure;
 };
 
 struct PingStats {
@@ -34,12 +38,17 @@ struct PingStats {
 
 class PingMonitor {
 public:
-    PingMonitor();
+    using Probe = std::function<bool(const Ipv4Address&, uint32_t timeout_ms)>;
+
+    explicit PingMonitor(Probe probe = {});
     ~PingMonitor();
+
+    static bool isSupported() noexcept;
 
     void start(const std::string& target_ip, uint32_t interval_ms = 1000);
     void stop();
     bool isRunning() const;
+    bool isStopping() const;
 
     ICMPResult ping(const std::string& target_ip, uint32_t timeout_ms = 3000);
     std::vector<ICMPResult> pingBatch(const std::string& target_ip, uint32_t count, uint32_t timeout_ms = 3000);
@@ -54,18 +63,29 @@ public:
     void setStatsCallback(StatsCallback callback);
 
 private:
-    void monitorLoop();
+    enum class LifecycleState { Stopped, Running, Stopping };
+
+    void monitorLoop(const CancellationToken& cancellation);
+    void finishWorker();
     void updateStats(const ICMPResult& result);
 
     std::string target_ip_;
-    std::atomic<bool> running_{false};
     std::thread monitor_thread_;
+    mutable std::mutex lifecycle_mutex_;
+    std::condition_variable lifecycle_cv_;
+    LifecycleState lifecycle_state_ = LifecycleState::Stopped;
+    CancellationSource cancellation_source_;
+    uint32_t interval_ms_ = 1000;
+    std::mutex wait_mutex_;
+    std::condition_variable wait_cv_;
     
     mutable std::mutex stats_mutex_;
+    mutable std::mutex callback_mutex_;
     PingStats stats_;
     
     PingCallback ping_callback_;
     StatsCallback stats_callback_;
+    Probe probe_;
 };
 
 } // namespace gno

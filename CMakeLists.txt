@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.20)
 project(GNO VERSION 1.4.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
@@ -15,7 +15,7 @@ find_package(Threads REQUIRED)
 
 if(WIN32)
     add_definitions(-DPLATFORM_WINDOWS)
-    set(PLATFORM_SOURCES src/core/platform_windows.cpp src/optimization/fps_optimizer_windows.cpp)
+    set(PLATFORM_SOURCES src/core/platform_windows.cpp src/optimization/fps_optimizer_windows.cpp src/remediation/windows_state_api.cpp)
 elseif(APPLE)
     add_definitions(-DPLATFORM_MACOS)
     set(PLATFORM_SOURCES src/core/platform_macos.cpp src/optimization/fps_optimizer_macos.cpp)
@@ -41,6 +41,17 @@ set(CORE_SOURCES
     src/core/system_audit.cpp
     src/core/launch_diagnostics.cpp
     src/core/problem_db.cpp
+    src/core/input_validation.cpp
+    src/core/json_persistence.cpp
+    src/core/capability_matrix.cpp
+    src/core/plain_language.cpp
+    src/diagnostics/diagnostic_types.cpp
+    src/remediation/backup_store.cpp
+    src/remediation/windows_fix_action.cpp
+    src/remediation/fix_transaction.cpp
+    src/remediation/remediation_service.cpp
+    src/remediation/target_discovery.cpp
+    src/remediation/legacy_bridge.cpp
 )
 
 set(OPT_SOURCES
@@ -72,13 +83,14 @@ set(UI_SOURCES
     src/ui/geo_map.cpp
     src/ui/overlay.cpp
     src/ui/report_export.cpp
+    src/ui/remediation_widget.cpp
     src/monitoring/monitoring_service.cpp
 )
 
 set(COMMON_LIBS Threads::Threads)
 
 if(WIN32)
-    list(APPEND COMMON_LIBS ws2_32 iphlpapi winmm)
+    list(APPEND COMMON_LIBS ws2_32 iphlpapi winmm powrprof)
 endif()
 
 # Console target (always built)

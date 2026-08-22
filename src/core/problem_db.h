@@ -26,6 +26,9 @@ public:
     // List of games that have a known-problems entry.
     static std::vector<std::string> getKnownGames();
 
+    // Case-insensitive substring search over title/symptoms/cause/solution.
+    static std::vector<ProblemEntry> search(const std::string& game_name, const std::string& query);
+
     // Applies the auto-fix for an entry; returns a human-readable result string.
     static std::string applyAutoFix(const ProblemEntry& entry);
 };

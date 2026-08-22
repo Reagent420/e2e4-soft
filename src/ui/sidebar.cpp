@@ -20,7 +20,7 @@ Sidebar::Sidebar(QWidget* parent)
     m_logoLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_logoLabel);
 
-    m_versionLabel = new QLabel("v1.4.0", this);
+    m_versionLabel = new QLabel("v1.5.0", this);
     m_versionLabel->setObjectName("versionLabel");
     m_versionLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_versionLabel);
@@ -30,17 +30,18 @@ Sidebar::Sidebar(QWidget* parent)
     m_buttonGroup = new QButtonGroup(this);
     m_buttonGroup->setExclusive(true);
 
-    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard,       "Главная"),          0);
-    m_buttonGroup->addButton(createNavButton(NavPage::Games,           "Игры"),             1);
-    m_buttonGroup->addButton(createNavButton(NavPage::Profiles,        "Профили игр"),      2);
-    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring,      "Мониторинг"),       3);
-    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "Оптимизация"),      4);
-    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "Сетевые утилиты"),  5);
-    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "Процессы"),         6);
-m_buttonGroup->addButton(createNavButton(NavPage::History,         "История"),         7);
-    m_buttonGroup->addButton(createNavButton(NavPage::Diagnostics,     "Диагностика"),     8);
-    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "Карта серверов"),  9);
-    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "Настройки"),       10);
+    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard,       "Р“Р»Р°РІРЅР°СЏ"),          0);
+    m_buttonGroup->addButton(createNavButton(NavPage::Games,           "РРіСЂС‹"),             1);
+    m_buttonGroup->addButton(createNavButton(NavPage::Profiles,        "РџСЂРѕС„РёР»Рё РёРіСЂ"),      2);
+    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring,      "РњРѕРЅРёС‚РѕСЂРёРЅРі"),       3);
+    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "РћРїС‚РёРјРёР·Р°С†РёСЏ"),      4);
+    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "РЎРµС‚РµРІС‹Рµ СѓС‚РёР»РёС‚С‹"),  5);
+    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "РџСЂРѕС†РµСЃСЃС‹"),         6);
+m_buttonGroup->addButton(createNavButton(NavPage::History,         "РСЃС‚РѕСЂРёСЏ"),         7);
+    m_buttonGroup->addButton(createNavButton(NavPage::Diagnostics,     "Р”РёР°РіРЅРѕСЃС‚РёРєР°"),     8);
+    m_buttonGroup->addButton(createNavButton(NavPage::Remediation,   "Оптимизация Win"),  9);
+    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "РљР°СЂС‚Р° СЃРµСЂРІРµСЂРѕРІ"), 10);
+    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "РќР°СЃС‚СЂРѕР№РєРё"), 11);
 
     for (int i = 0; i < BUTTON_COUNT; ++i) {
         layout->addWidget(m_buttonGroup->button(i));
@@ -175,6 +176,14 @@ QIcon Sidebar::makeIcon(NavPage page, const QColor& color)
         break;
     }
 
+    case NavPage::Remediation: {
+        // wrench-like: rounded rect + diagonal handle
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        p.drawRoundedRect(m + 2, sz / 2 - 3, s - 8, 6, 3, 3);
+        p.drawRect(sz / 2 - 3, m + 4, 6, s - 8);
+        break;
+    }
     case NavPage::GeoMap: {
         p.setPen(QPen(color, 1.5));
         p.setBrush(Qt::NoBrush);

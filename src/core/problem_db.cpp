@@ -1,4 +1,4 @@
-#include "problem_db.h"
+﻿#include "problem_db.h"
 #include "launch_diagnostics.h"
 
 #include <algorithm>
@@ -242,6 +242,25 @@ std::string ProblemDb::applyAutoFix(const ProblemEntry& entry) {
                LaunchDiagnostics::applyFix("fullscreen_opt");
     }
     return LaunchDiagnostics::applyFix(entry.fix_action);
+}
+
+} // namespace gno
+namespace gno {
+
+std::vector<ProblemEntry> ProblemDb::search(const std::string& game_name, const std::string& query) {
+    auto entries = getForGame(game_name);
+    if (query.empty()) return entries;
+    const std::string q = lower(query);
+    std::vector<ProblemEntry> hits;
+    for (const auto& e : entries) {
+        if (lower(e.title).find(q) != std::string::npos ||
+            lower(e.symptoms).find(q) != std::string::npos ||
+            lower(e.cause).find(q) != std::string::npos ||
+            lower(e.solution).find(q) != std::string::npos) {
+            hits.push_back(e);
+        }
+    }
+    return hits;
 }
 
 } // namespace gno
