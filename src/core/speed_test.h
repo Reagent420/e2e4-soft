@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <string>
 #include <vector>
@@ -36,7 +36,7 @@ public:
     void stop();
     bool isRunning() const;
 
-    PingResult benchmarkServer(const std::string& server_ip);
+    PingResult benchmarkServer(const std::string& server_ip, int probes = 5);
 
     using BenchmarkCallback = std::function<void(const PingResult&)>;
     void setBenchmarkCallback(BenchmarkCallback callback);

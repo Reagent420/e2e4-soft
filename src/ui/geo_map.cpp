@@ -18,10 +18,11 @@ namespace {
 
 QString gradeTag(int latency) {
     switch (ServerMapModel::grade(latency)) {
-        case MapGrade::Good:   return QString::fromUtf8("[OK] ");
-        case MapGrade::Medium: return QString::fromUtf8("[MED]");
-        case MapGrade::Bad:    return QString::fromUtf8("[BAD]");
-        default:               return QStringLiteral("[?]  ");
+        case MapGrade::Good:    return QString::fromUtf8("[OK] ");
+        case MapGrade::Medium:  return QString::fromUtf8("[MED]");
+        case MapGrade::Bad:     return QString::fromUtf8("[BAD]");
+        case MapGrade::Offline: return QString::fromUtf8("[OFF]");
+        default:                return QStringLiteral("[?]  ");
     }
 }
 
@@ -31,6 +32,7 @@ QColor gradeColor(int latency, bool* is_neon = nullptr) {
         case MapGrade::Good:   return QColor(theme::Colors::SUCCESS);
         case MapGrade::Medium: return QColor(theme::Colors::WARNING);
         case MapGrade::Bad:    return QColor(0xFF, 0x2E, 0x88);
+        case MapGrade::Offline:return QColor(theme::Colors::TEXT_TERTIARY);
         default:               break;
     }
     if (is_neon) *is_neon = true;
@@ -305,6 +307,10 @@ void GeoMapWidget::updateDetailsCard() {
         html += QString::fromUtf8("\xD0\xA1\xD1\x80\xD0\xB5\xD0\xB4\xD0\xBD\xD0\xB8\xD0\xB9 \xD0\xBF\xD0\xB8\xD0\xBD\xD0\xB3 \x2D \xD0\xB8\xD0\xB3\xD1\x80\xD0\xB0\xD1\x82\xD1\x8C \xD0\xBC\xD0\xBE\xD0\xB6\xD0\xBD\xD0\xBE.");
         else
             html += QString::fromUtf8("\xD0\x92\xD1\x8B\xD1\x81\xD0\xBE\xD0\xBA\xD0\xB8\xD0\xB9 \xD0\xBF\xD0\xB8\xD0\xBD\xD0%B3.");
+    } else if (s.latency_ms == -2) {
+        html += gradeTag(-2) + QString::fromUtf8(
+            "\xD0\x9D\xD0\xB5\xD0\xB4\xD0\xBE\xD1\x81\xD1\x82\xD1\x83\xD0\xBF\xD0\xB5\xD0\xBD<br><i>"
+            "\xD0\xA3\xD0%B7\xD0\xB5\xD0\xBB \xD0\xBD\xD0\xB5 \xD0\xBE\xD1\x82\xD0\xB2\xD0\xB5\xD1\x87\xD0\xB0\xD0\xB5\xD1\x82 \xD0\xBD\xD0\xB0 ICMP.</i>");
     } else {
         html += QString::fromUtf8("\xD0\x9D\xD0\xB5\x20\xD0\xBF\xD1\x80\xD0\xBE\xD0\xB2\xD0\xB5\xD1\x80\xD0\xB5\xD0\xBD");
     }
@@ -337,22 +343,34 @@ void GeoMapWidget::startProbeThread(bool all) {
         if (!busy.compare_exchange_strong(expected, true)) return;
 
         SpeedTest speedtest;
+        std::vector<std::pair<int, int>> results;
         int done = 0;
-        for (int idx : targets) {
-            auto& s = servers_[static_cast<std::size_t>(idx)];
-            const auto res = speedtest.benchmarkServer(s.ip);
-            s.latency_ms = res.success ? static_cast<int>(std::lround(res.latency_ms)) : -2;
-            ++done;
-            emit probeProgress(QStringLiteral("%1 / %2").arg(done).arg(targets.size()));
-            update();
+        try {
+            for (int idx : targets) {
+                const auto& s = servers_[static_cast<std::size_t>(idx)];
+                const auto res = speedtest.benchmarkServer(s.ip, /*probes*/ 3);
+                results.emplace_back(idx, res.success
+                                             ? static_cast<int>(std::lround(res.latency_ms))
+                                             : -2);
+                ++done;
+                emit probeProgress(QStringLiteral("%1 / %2").arg(done).arg(targets.size()));
+            }
+        } catch (...) {
+            // never leave the busy-flag stuck
         }
-
         busy = false;
-        emit probeFinished();
-        QMetaObject::invokeMethod(this, [this]() {
+
+        // Apply everything on the GUI thread - no cross-thread writes to servers_.
+        QMetaObject::invokeMethod(this, [this, results]() {
+            ServerMapModel::applyProbeResults(servers_, results);
+            best_ = ServerMapModel::bestServer(servers_);
+            rebuildVisibleServers();
+            updateDetailsCard();
+            update();
             m_check_all_btn_->setEnabled(true);
             m_check_sel_btn_->setEnabled(true);
         }, Qt::QueuedConnection);
+        emit probeFinished();
     }).detach();
 }
 

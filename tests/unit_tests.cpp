@@ -227,6 +227,7 @@ TEST_CASE("LaunchDiagnostics::checks cover categories") {
 #include "core/plain_language.h"
 #include "remediation/legacy_bridge.h"
 #include "core/server_map_model.h"
+#include "core/autopilot_plan.h"
 
 #include <filesystem>
 #include <map>
@@ -455,4 +456,42 @@ TEST_CASE("ServerMapModel grade, region filter, best server") {
     CHECK(ServerMapModel::filterByRegion(servers, "all").size() == 4);
     CHECK(ServerMapModel::bestServer(servers) == 3);
     CHECK(ServerMapModel::regionOf("Japan") == "ASIA");
+}
+TEST_CASE("MapGrade distinguishes offline probes and results merge safely") {
+    using namespace gno;
+    CHECK(ServerMapModel::grade(-2) == MapGrade::Offline);
+    CHECK(ServerMapModel::grade(-1) == MapGrade::Unknown);
+
+    std::vector<MapServer> servers = {
+        {"a", "a", "Germany", "1.1.1.1", 50, 8, -1},
+        {"b", "b", "USA", "2.2.2.2", 40, -74, -1},
+        {"c", "c", "Japan", "3.3.3.3", 35, 139, -1},
+    };
+    ServerMapModel::applyProbeResults(servers, {{0, 25}, {2, -2}});
+    CHECK(servers[0].latency_ms == 25);
+    CHECK(servers[1].latency_ms == -1);
+    CHECK(servers[2].latency_ms == -2);
+    CHECK(ServerMapModel::bestServer(servers) == 0);
+}
+
+TEST_CASE("AutopilotPlan maps profile flags to safe fix ids") {
+    using namespace gno;
+    GameProfile p;
+    p.game_name = "test";
+    p.power_plan_opt = true;
+    p.game_dvr_opt = false;
+    p.mtu_opt = false;
+    p.tcp_opt = true;
+    p.custom_dns = false;
+    p.high_priority_opt = true;
+
+    auto ids = AutopilotPlan::actionIdsFor(p);
+    REQUIRE(ids.size() == 3);
+    CHECK(ids[0] == "power_plan");
+    CHECK(ids[1] == "tcp");
+    CHECK(ids[2] == "priority");
+
+    p.custom_dns = true;
+    ids = AutopilotPlan::actionIdsFor(p);
+    CHECK(std::find(ids.begin(), ids.end(), "dns") != ids.end());
 }

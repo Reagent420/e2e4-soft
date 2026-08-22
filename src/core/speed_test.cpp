@@ -1,4 +1,4 @@
-#include "speed_test.h"
+﻿#include "speed_test.h"
 #include <thread>
 #include <chrono>
 #include <algorithm>
@@ -36,7 +36,7 @@ bool SpeedTest::isRunning() const { return running_; }
 
 std::vector<ServerNode> SpeedTest::getServers() const { return servers_; }
 
-PingResult SpeedTest::benchmarkServer(const std::string& server_ip) {
+PingResult SpeedTest::benchmarkServer(const std::string& server_ip, int probes) {
     PingResult result;
     result.server_name = "Custom";
     result.server_ip = server_ip;
@@ -53,7 +53,7 @@ PingResult SpeedTest::benchmarkServer(const std::string& server_ip) {
         double total = 0;
         int ok = 0;
 
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < probes && i < 10; ++i) {
             auto start = std::chrono::steady_clock::now();
             DWORD reply = IcmpSendEcho(icmp, addr.S_un.S_addr,
                 send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), 2000);

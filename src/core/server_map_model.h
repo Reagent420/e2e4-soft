@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // Pure-logic model behind the server map page: real server nodes, region
 // filtering, latency grading and best-server selection. No Qt, unit-testable.
@@ -19,11 +19,12 @@ struct MapServer {
     int latency_ms = -1; // -1 = not measured yet
 };
 
-enum class MapGrade { Unknown, Good, Medium, Bad };
+enum class MapGrade { Unknown, Offline, Good, Medium, Bad };
 
 class ServerMapModel {
 public:
     static MapGrade grade(int latency_ms) {
+        if (latency_ms == -2) return MapGrade::Offline; // probed, no reply
         if (latency_ms < 0) return MapGrade::Unknown;
         if (latency_ms <= 40) return MapGrade::Good;
         if (latency_ms <= 100) return MapGrade::Medium;
@@ -60,6 +61,14 @@ public:
         return out;
     }
 
+    // Merge probe results produced on a worker thread (index -> latency or -2).
+    static void applyProbeResults(std::vector<MapServer>& servers,
+                                  const std::vector<std::pair<int, int>>& results) {
+        for (const auto& [index, latency] : results) {
+            if (index >= 0 && index < static_cast<int>(servers.size()))
+                servers[static_cast<std::size_t>(index)].latency_ms = latency;
+        }
+    }
     // Index of the lowest-latency measured server, or -1.
     static int bestServer(const std::vector<MapServer>& servers) {
         int best = -1;

@@ -1,5 +1,7 @@
 #include "monitoring_service.h"
 #include <QSettings>
+#include <thread>
+#include "../core/autopilot_plan.h"
 #include "core/connection_grader.h"
 
 #include <QDateTime>
@@ -287,56 +289,22 @@ void MonitoringService::handleGameStart(const QString& game, const QString& proc
             GameProfile p = profiles.get(game.toStdString());
             if (p.auto_apply &&
                 QSettings().value(QStringLiteral("remediation/autopilot"), true).toBool()) {
-                QStringList notes;
-                if (p.power_plan_opt) {
-                    LaunchDiagnostics::applyFix("power_plan");
-                    notes << QString::fromUtf8("план питания");
-                }
-                if (p.game_dvr_opt)
-                    notes << QString::fromUtf8("Game DVR");
-                if (p.tcp_opt) {
-                    NetworkUtils::applyTCPOptimizations(true);
-                    notes << QString::fromUtf8("TCP");
-                }
-                if (p.mtu_opt) {
-                    std::string iface = NetworkUtils::getNetworkInterfaceName();
-                    if (iface != "default") {
-                        NetworkUtils::setMTU(iface, 1400);
-                        notes << QString::fromUtf8("MTU");
+                // v1.6.1: apply on a worker thread - never freeze the UI at game launch.
+                std::thread([this, game, process, p]() {
+                    QStringList notes;
+                    for (const auto& id : AutopilotPlan::actionIdsFor(p)) {
+                        LaunchDiagnostics::applyFix(id);
+                        notes << QString::fromUtf8(AutopilotPlan::displayName(id));
                     }
-                }
-                if (p.custom_dns) {
-                    std::string iface = NetworkUtils::getNetworkInterfaceName();
-                    if (iface != "default") {
-                        NetworkUtils::setDNS(iface, p.dns_server);
-                        notes << QString::fromUtf8("DNS");
-                    }
-                }
-                if (p.high_priority_opt && !process.isEmpty()) {
-#ifdef PLATFORM_WINDOWS
-                    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-                    if (snap != INVALID_HANDLE_VALUE) {
-                        PROCESSENTRY32W pe;
-                        pe.dwSize = sizeof(pe);
-                        std::wstring target = process.toStdWString();
-                        for (BOOL ok = Process32FirstW(snap, &pe); ok; ok = Process32NextW(snap, &pe)) {
-                            if (target == pe.szExeFile) {
-                                HANDLE hProc = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pe.th32ProcessID);
-                                if (hProc) {
-                                    SetPriorityClass(hProc, HIGH_PRIORITY_CLASS);
-                                    CloseHandle(hProc);
-                                }
-                                break;
-                            }
-                        }
-                        CloseHandle(snap);
-                        notes << QString::fromUtf8("приоритет процесса");
-                    }
-#endif
-                }
-                emit gameStarted(game + (notes.isEmpty() ? QString()
-                    : QString::fromUtf8(" · профиль применён: ") + notes.join(", ")));
-                emit remediationApplied(QString::fromUtf8("\xD0\x90\xD0\xB2\xD1\x82\xD0\xBE\xD0\xBF\xD0\xB8\xD0\xBB\xD0\xBE\xD1\x82\x3A\x20") + game + QString::fromUtf8("\x3A\x20") + notes.join(", ") + QString::fromUtf8("\x20\x28\xD1\x81\x20\xD0\xB1\xD1\x8D\xD0\xBA\xD0\xB0\xD0\xBF\xD0\xBE\xD0\xBC\x29"));            } else {
+                    QMetaObject::invokeMethod(this, [this, game, notes]() {
+                        emit gameStarted(game + (notes.isEmpty() ? QString()
+                            : QString::fromUtf8("\x20\x2D\x20\xD0\xBF\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD1\x8C\x20\xD0\xBF\xD1\x80\xD0\xB8\xD0\xBC\xD0\xB5\xD0\xBD\xD1\x91\xD0\xBD\x3A\x20") + notes.join(", ")));
+                        emit remediationApplied(QString::fromUtf8("\xD0\x90\xD0\xB2\xD1\x82\xD0\xBE\xD0\xBF\xD0\xB8\xD0\xBB\xD0\xBE\xD1\x82\x3A\x20") + game +
+                            QString::fromUtf8("\x3A\x20") + notes.join(", ") +
+                            QString::fromUtf8("\x20\x28\xD1\x81\x20\xD0\xB1\xD1\x8D\xD0\xBA\xD0\xB0\xD0\xBF\xD0\xBE\xD0\xBC\x29"));
+                    }, Qt::QueuedConnection);
+                }).detach();
+} else {
                 emit gameStarted(game);
             }
         } else {
