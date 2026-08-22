@@ -1,4 +1,4 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+﻿#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "core/game_detector.h"
 #include "core/route_analyzer.h"
@@ -228,6 +228,7 @@ TEST_CASE("LaunchDiagnostics::checks cover categories") {
 #include "remediation/legacy_bridge.h"
 #include "core/server_map_model.h"
 #include "core/autopilot_plan.h"
+#include "core/net_utils.h"
 
 #include <filesystem>
 #include <map>
@@ -494,4 +495,85 @@ TEST_CASE("AutopilotPlan maps profile flags to safe fix ids") {
     p.custom_dns = true;
     ids = AutopilotPlan::actionIdsFor(p);
     CHECK(std::find(ids.begin(), ids.end(), "dns") != ids.end());
+}
+TEST_CASE("NetUtils: probes, wlan parse, stun/dns codecs, mtu, bloat") {
+    using namespace gno::netutils;
+
+    HopStats s;
+    summarizeProbes(s, {12.0, 14.0, -1, 16.0});
+    CHECK(s.sent == 4);
+    CHECK(s.lost == 1);
+    CHECK(s.avg_ms == doctest::Approx(14.0));
+    CHECK(s.jitter_ms == doctest::Approx(2.0));
+    CHECK(std::string(hopVerdict(s)) == "BAD");
+
+    const std::string sample =
+        "SSID 1 : MyHome\n"
+        "     BSSID 1 : aa:bb:cc:dd:ee:01\n"
+        "     Channel : 6\n"
+        "     Signal : 80%\n"
+        "SSID 1 : MyHome\n"
+        "     BSSID 1 : aa:bb:cc:dd:ee:02\n"
+        "     Channel : 11\n"
+        "     Signal : 40%\n";
+    auto nets = parseNetshWlan(sample);
+    REQUIRE(nets.size() == 2);
+    CHECK(nets[0].channel == 6);
+    CHECK(nets[0].bssid == "aa:bb:cc:dd:ee:01");
+    CHECK(nets[1].rssi < nets[0].rssi);
+    const int ch = bestChannel24(nets, -1);
+    CHECK((ch == 1 || ch == 6 || ch == 11));
+
+    std::uint8_t tid[12] = {1,2,3,4,5,6,7,8,9,10,11,12};
+    auto req = buildBindingRequest(tid);
+    CHECK(req.size() == 20);
+    CHECK(req[0] == 0x00);
+    CHECK(req[1] == 0x01);
+    CHECK(req[4] == 0x21);
+    CHECK(req[7] == 0x42);
+
+    // Synthetic XOR-MAPPED-ADDRESS for 192.168.1.5:3074
+    std::uint8_t resp[32] = {};
+    resp[0]=0x01; resp[1]=0x01; resp[2]=0x00; resp[3]=0x0C;   // binding ok, msg len 12
+    resp[20]=0x00; resp[21]=0x20;                              // XOR-MAPPED-ADDRESS
+    resp[22]=0x00; resp[23]=0x08;                              // attr length 8
+    resp[24]=0x00;                                             // zero byte
+    resp[25]=0x01;                                             // family IPv4
+    static const std::uint8_t M[4]={0x21,0x12,0xA4,0x42};
+    resp[26]=0x0C^M[0]; resp[27]=0x02^M[1];                    // port 3074
+    resp[28]=192^M[0]; resp[29]=168^M[1]; resp[30]=1^M[2]; resp[31]=5^M[3];
+    std::string ip; std::uint16_t port=0;
+    REQUIRE(parseXorMappedAddress(resp, sizeof(resp), ip, port));
+    CHECK(ip == "192.168.1.5");
+    CHECK(port == 3074);
+
+    auto q = buildDnsQueryA("example.com", 0xABCD);
+    CHECK(q.size() == 12 + 13 + 4);
+    CHECK(q[0] == 0xAB);
+    CHECK(q[1] == 0xCD);
+    CHECK(q[2] == 0x01);
+
+    std::uint8_t dns[45] = {};
+    dns[5] = 1;
+    dns[7] = 1;                       // ANCOUNT=1
+    std::size_t o = 12; dns[o++] = 0; // root question name
+    dns[o++]=0; dns[o++]=1; dns[o++]=0; dns[o++]=1;
+    dns[o++]=0xC0; dns[o++]=12;       // pointer
+    dns[o++]=0; dns[o++]=1; dns[o++]=0; dns[o++]=1;
+    dns[o++]=0;dns[o++]=0;dns[o++]=0;dns[o++]=60;
+    dns[o++]=0; dns[o++]=4;
+    dns[o++]=1;dns[o++]=2;dns[o++]=3;dns[o++]=4;
+    auto recs = parseDnsARecords(dns, sizeof(dns));
+    REQUIRE(recs.size() == 1);
+    CHECK(recs[0] == "1.2.3.4");
+
+    int lo = 1000, hi = 1501;
+    int mid = nextMtuProbe(lo, hi);
+    hi = mid;                        // simulate fail at 1250
+    mid = nextMtuProbe(lo, hi);      // ~1125
+    CHECK(mid < 1250);
+
+    CHECK(gradeBufferbloat(20, 22).tag == std::string("OK"));
+    CHECK(gradeBufferbloat(20, 28).tag == std::string("MED"));
+    CHECK(gradeBufferbloat(20, 50).tag == std::string("BAD"));
 }

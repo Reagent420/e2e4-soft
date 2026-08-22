@@ -52,6 +52,7 @@ set(CORE_SOURCES
     src/remediation/remediation_service.cpp
     src/remediation/target_discovery.cpp
     src/remediation/legacy_bridge.cpp
+    src/core/platform_netscan.cpp
 )
 
 set(OPT_SOURCES

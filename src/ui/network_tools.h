@@ -1,6 +1,9 @@
-#pragma once
+﻿#pragma once
 
 #include <QWidget>
+#include <QLineEdit>
+#include <QTextEdit>
+#include <QPushButton>
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QTimer>
@@ -25,6 +28,19 @@ private slots:
 
 private:
     void setupUI();
+    void addUtilitySections(class QVBoxLayout* layout);
+    static QString resolveToIp(const QString& host);
+
+    QLineEdit* m_target_ = nullptr;
+    QLineEdit* m_dnsHosts_ = nullptr;
+    QTextEdit* m_mtr_ = nullptr;
+    QTextEdit* m_wifi_ = nullptr;
+    QTextEdit* m_conns_ = nullptr;
+    QTextEdit* m_mtu_ = nullptr;
+    QTextEdit* m_nat_ = nullptr;
+    QTextEdit* m_ports_ = nullptr;
+    QTextEdit* m_dnsCmp_ = nullptr;
+    QTextEdit* m_bloat_ = nullptr;
 
     SpeedTest* m_speedTest;
     DNSManager* m_dnsManager;
