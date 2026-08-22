@@ -1,4 +1,5 @@
 #include "monitoring_service.h"
+#include <QSettings>
 #include "core/connection_grader.h"
 
 #include <QDateTime>
@@ -284,7 +285,8 @@ void MonitoringService::handleGameStart(const QString& game, const QString& proc
         GameProfiles profiles;
         if (profiles.has(game.toStdString())) {
             GameProfile p = profiles.get(game.toStdString());
-            if (p.auto_apply) {
+            if (p.auto_apply &&
+                QSettings().value(QStringLiteral("remediation/autopilot"), true).toBool()) {
                 QStringList notes;
                 if (p.power_plan_opt) {
                     LaunchDiagnostics::applyFix("power_plan");
@@ -334,7 +336,7 @@ void MonitoringService::handleGameStart(const QString& game, const QString& proc
                 }
                 emit gameStarted(game + (notes.isEmpty() ? QString()
                     : QString::fromUtf8(" · профиль применён: ") + notes.join(", ")));
-            } else {
+                emit remediationApplied(QString::fromUtf8("\xD0\x90\xD0\xB2\xD1\x82\xD0\xBE\xD0\xBF\xD0\xB8\xD0\xBB\xD0\xBE\xD1\x82\x3A\x20") + game + QString::fromUtf8("\x3A\x20") + notes.join(", ") + QString::fromUtf8("\x20\x28\xD1\x81\x20\xD0\xB1\xD1\x8D\xD0\xBA\xD0\xB0\xD0\xBF\xD0\xBE\xD0\xBC\x29"));            } else {
                 emit gameStarted(game);
             }
         } else {

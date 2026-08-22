@@ -1,4 +1,5 @@
 #include "system_tray.h"
+#include "../core/connection_grader.h"
 #include "theme.h"
 
 #include <QPainter>
@@ -78,6 +79,23 @@ void SystemTray::updateJitter(int jitterMs)
 void SystemTray::updatePacketLoss(double lossPercent)
 {
     m_packetLoss = lossPercent;
+
+    // v1.6: live quality score in tooltip + one-shot degradation alert.
+    const int score = static_cast<int>(ConnectionGrader::evaluate(
+        m_ping, m_jitter, m_packetLoss).score);
+    m_trayIcon->setToolTip(QString::fromUtf8("E2E4 Soft - %1/100 | %2 ms | %3%")
+        .arg(score).arg(m_ping).arg(m_packetLoss, 0, 'f', 1));
+
+    const bool degraded = (m_packetLoss > 5.0 || m_ping > 150);
+    if (degraded && !m_degrade_notified_) {
+        m_degrade_notified_ = true;
+        showMessage(QString::fromUtf8("\xD0\x9A\xD0\xB0\xD1\x87\xD0\xB5\xD1\x81\xD1\x82\xD0\xB2\xD0\xBE \xD1\x81\xD0\xB5\xD1\x82\xD0\xB8"),
+            QString::fromUtf8("\xD0\x9F\xD0\xBE%D0\xB2\xD1\x8B\xD1\x88\xD0\xB5\xD0\xBD\xD0\xBD\xD1\x8B\xD0\xB5 \xD0\xBF\xD0\xBE\xD1\x82\xD0\xB5\xD1\x80\xD0\xB8 \xD0\xB8\xD0\xBB\xD0\xB8 \xD0\xB7\xD0\xB0\xD0\xB4\xD0\xB5\xD1\x80\xD0\xB6\xD0\xBA\xD0\xB0 - \xD0\xBF\xD1\x80\xD0\xBE\xD0\xB2\xD0\xB5\xD1\x80\xD1\x8C\xD1\x82\xD0\xB5 \xD0\xB4\xD0\xB8\xD0\xB0\xD0\xB3\xD0\xBD\xD0\xBE\xD1\x81\xD1\x82\xD0\xB8\xD0\xBA\xD1\x83"));
+    } else if (!degraded && m_packetLoss < 2.0 && m_ping < 80) {
+        m_degrade_notified_ = false;
+    }
+
+    updateIcon();
 }
 
 void SystemTray::setConnected(bool connected)

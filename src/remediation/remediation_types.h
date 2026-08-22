@@ -249,6 +249,7 @@ struct TransactionRecord {
 struct TransactionSummary {
     std::string transaction_id;
     TransactionStatus status = TransactionStatus::Unprepared;
+    std::string created_at;
 };
 
 // ---------------------------------------------------------------- validation

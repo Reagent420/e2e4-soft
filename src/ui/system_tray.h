@@ -48,6 +48,7 @@ private:
     int m_ping = 0;
     int m_jitter = 0;
     double m_packetLoss = 0.0;
+    bool m_degrade_notified_ = false;
     bool m_connected = false;
     bool m_boostOn = false;
 };

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "remediation/backup_store.h"
 #include "remediation/fix_transaction.h"
@@ -43,6 +43,9 @@ public:
 
     Result<std::vector<ActionView>> observeAll() const;
     Result<ApplyOutcome> applyAll();
+
+    // Applies only the listed actions (skips ids without resolvable targets).
+    Result<ApplyOutcome> applyIds(const std::vector<ActionId>& ids);
     Result<ApplyOutcome> rollback(const std::string& transaction_id);
     Result<std::vector<TransactionSummary>> history() const;
 

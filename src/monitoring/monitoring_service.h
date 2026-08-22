@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QObject>
 #include <QTimer>
@@ -59,6 +59,7 @@ public:
     QStringList getRecommendations() const;
 
 signals:
+    void remediationApplied(const QString& summary);
     void pingUpdated(double ms);
     void jitterUpdated(double ms);
     void lossUpdated(double percent);

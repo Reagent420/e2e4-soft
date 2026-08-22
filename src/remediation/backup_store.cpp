@@ -1,7 +1,9 @@
 ﻿#include "remediation/backup_store.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -546,8 +548,14 @@ Result<std::vector<TransactionSummary>> JsonBackupStore::list() {
         std::ostringstream buffer;
         buffer << file.rdbuf();
         TransactionRecord record;
-        if (deserializeRecord(buffer.str(), record))
-            result.push_back({record.transaction_id, record.status});
+        if (deserializeRecord(buffer.str(), record)) {
+            const auto wtime = std::filesystem::last_write_time(entry.path());
+            const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(wtime);
+            const std::time_t tt = std::chrono::system_clock::to_time_t(sys);
+            char time_buf[32] = {};
+            std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M", std::localtime(&tt));
+            result.push_back({record.transaction_id, record.status, time_buf});
+        }
     }
     std::sort(result.begin(), result.end(),
               [](const TransactionSummary& a, const TransactionSummary& b) { return a.transaction_id > b.transaction_id; });

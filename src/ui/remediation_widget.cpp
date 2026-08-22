@@ -9,6 +9,7 @@
 
 #include <QApplication>
 #include <QBrush>
+#include <QHeaderView>
 #include <QColor>
 #include <QFrame>
 #include <QGroupBox>
@@ -96,6 +97,16 @@ void RemediationWidget::setupUI() {
     }
     buttons->addStretch();
 
+    m_autopilot_ = new QCheckBox(QString::fromUtf8(
+        "\xD0\x90\xD0\xB2\xD1\x82\xD0\xBE\xD0\xBF\xD0\xB8\xD0\xBB\xD0\xBE\xD1\x82\x3A\x20"
+        "\xD0\xBF\xD1\x80\xD0\xB8\xD0\xBC\xD0\xB5\xD0\xBD\xD1\x8F\xD1\x82\xD1\x8C\x20\xD0\xBF\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD1\x8C\x20"
+        "\xD0\xB8\xD0\xB3\xD1\x80\xD1\x8B\x20\xD0\xBF\xD1\x80\xD0\xB8\x20\xD0\xB7\xD0\xB0\xD0\xBF\xD1\x83\xD1\x81\xD0\xBA\xD0\xB5"), this);
+    m_autopilot_->setChecked(QSettings().value(QStringLiteral("remediation/autopilot"), true).toBool());
+    connect(m_autopilot_, &QCheckBox::toggled, this, [](bool on) {
+        QSettings().setValue(QStringLiteral("remediation/autopilot"), on);
+    });
+    layout->addWidget(m_autopilot_);
+
     m_status_label_ = new QLabel(
         QString::fromUtf8("Нажмите «Проверить состояние», чтобы увидеть, что можно улучшить."), this);
     m_status_label_->setStyleSheet(QString("color: %1;").arg(theme::Colors::TEXT_SECONDARY));
@@ -171,7 +182,45 @@ void RemediationWidget::setupUI() {
         CapabilityMatrix::cannotDo(), QColor(0xEF,0x44,0x44).name()), 1);
     layout->addLayout(capsRow);
 
+    auto* histRow = new QHBoxLayout();
+    auto* histTitle = new QLabel(QString::fromUtf8(
+        "\xD0\x98\xD1\x81\xD1\x82\xD0\xBE\xD1\x80\xD0\xB8\xD1\x8F\x20\xD0\xB8\xD0\xB7\xD0\xBC\xD0\xB5\xD0\xBD\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB9"), this);
+    histTitle->setStyleSheet(QString("font-size: 15px; font-weight: 600; color: %1; background: transparent;")
+                                 .arg(theme::Colors::TEXT_PRIMARY));
+    m_rollback_sel_btn_ = new QPushButton(QString::fromUtf8(
+        "\xD0\x9E\xD1\x82\xD0\xBA\xD0\xB0\xD1\x82\xD0\xB8\xD1\x82\xD1\x8C\x20\xD0\xB2\xD1\x8B\xD0\xB1\xD1\x80\xD0\xB0\xD0\xBD\xD0\xBD\xD1\x83\xD1\x8E"), this);
+    m_rollback_sel_btn_->setEnabled(false);
+    histRow->addWidget(histTitle);
+    histRow->addStretch();
+    histRow->addWidget(m_rollback_sel_btn_);
+
+    m_history_ = new QTableWidget(0, 3, this);
+    m_history_->setHorizontalHeaderLabels({QString::fromUtf8("\xD0\x92\xD1\x80\xD0\xB5\xD0\xBC\xD1\x8F"),
+                                           QString::fromUtf8("\xD0\xA2\xD1\x80\xD0\xB0\xD0\xBD\xD0\xB7\xD0\xB0\xD0\xBA\xD1\x86\xD0\xB8\xD1\x8F"),
+                                           QString::fromUtf8("\xD0\xA1\xD1\x82\xD0\xB0\xD1\x82\xD1\x83\xD1\x81")});
+    m_history_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    m_history_->setColumnWidth(0, 150);
+    m_history_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_history_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    m_history_->setColumnWidth(2, 130);
+    m_history_->setMaximumHeight(170);
+    m_history_->verticalHeader()->setVisible(false);
+    m_history_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_history_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_history_->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_history_->setAlternatingRowColors(true);
+    m_history_->setStyleSheet(m_table_->styleSheet());
+    m_history_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    layout->addLayout(histRow);
+    layout->addWidget(m_history_);
     layout->addWidget(m_result_label_);
+
+    connect(m_rollback_sel_btn_, &QPushButton::clicked,
+            this, &RemediationWidget::onRollbackSelectedClicked);
+    connect(m_history_, &QTableWidget::itemSelectionChanged, this, [this]() {
+        m_rollback_sel_btn_->setEnabled(m_history_->currentRow() >= 0);
+    });
 
     connect(m_observe_btn_, &QPushButton::clicked, this, &RemediationWidget::onObserveClicked);
     connect(m_apply_btn_, &QPushButton::clicked, this, &RemediationWidget::onApplyClicked);
@@ -250,6 +299,7 @@ void RemediationWidget::onObserveClicked() {
             QString note = QString::fromUtf8("Рекомендуется к изменению: %1. Недоступно сейчас: %2.")
                                .arg(recommended)
                                .arg(unavailable);
+            refreshHistory();
             m_status_label_->setText(note);
             m_result_label_->append(QString::fromUtf8("[%1] Проверка состояния: рекомендовано %2.")
                                         .arg(QTime::currentTime().toString("HH:mm:ss"))
@@ -355,4 +405,64 @@ void RemediationWidget::onRollbackClicked() {
     }).detach();
 }
 
+QString RemediationWidget::backupDir()
+{
+    const char* app = std::getenv("APPDATA");
+    return (std::filesystem::path(app ? app : ".") / "GNO" / "Backups").string().c_str();
+}
+
+void RemediationWidget::refreshHistory()
+{
+    JsonBackupStore store(backupDir().toStdString());
+    auto history = store.list();
+    if (!history.ok()) return;
+
+    m_history_->setRowCount(static_cast<int>(history.value().size()));
+    for (int row = 0; row < static_cast<int>(history.value().size()); ++row) {
+        const auto& summary = history.value()[static_cast<std::size_t>(row)];
+        QString status;
+        switch (summary.status) {
+            case TransactionStatus::Applied:    status = QString::fromUtf8("\xD0\x9F\xD1\x80\xD0\xB8\xD0\xBC\xD0\xB5\xD0\xBD\xD0\xB5\xD0\xBD\xD0\xBE"); break;
+            case TransactionStatus::Reverted:   status = QString::fromUtf8("\xD0\x9E\xD1\x82\xD0\xBA\xD0\xB0\xD1\x82\xD0\xB5\xD0\xBD\xD0\xBE"); break;
+            case TransactionStatus::Failed:     status = QString::fromUtf8("\xD0\x9E\xD1\x88\xD0\xB8\xD0\xB1\xD0\xBA\xD0\xB0"); break;
+            default:                            status = QString::fromUtf8("\xD0\x94\xD1\x80\xD1\x83\xD0\xB3\xD0\xBE\xD0\xB5"); break;
+        }
+        m_history_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(summary.created_at)));
+        m_history_->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(summary.transaction_id)));
+        m_history_->setItem(row, 2, new QTableWidgetItem(status));
+    }
+}
+
+void RemediationWidget::onRollbackSelectedClicked()
+{
+    const int row = m_history_->currentRow();
+    if (row < 0) return;
+    const auto* id_item = m_history_->item(row, 1);
+    if (!id_item) return;
+    const QString transaction_id = id_item->text();
+
+    m_rollback_sel_btn_->setEnabled(false);
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    std::thread([this, transaction_id]() {
+        WindowsStateApi api;
+        JsonBackupStore store(backupDir().toStdString());
+        RemediationService service(api, store);
+        auto rolled = service.rollback(transaction_id.toStdString());
+
+        QMetaObject::invokeMethod(this, [this, rolled]() {
+            QApplication::restoreOverrideCursor();
+            m_rollback_sel_btn_->setEnabled(true);
+            if (rolled.ok() && rolled.value().succeeded) {
+                m_result_label_->append(QString::fromUtf8("[%1] \xD0\x9E\xD1\x82\xD0\xBA\xD0\xB0\xD1\x82 \xD0\xB2\xD1\x8B\xD0\xB1\xD1\x80\xD0\xB0\xD0\xBD\xD0\xBD\xD0\xBE\xD0\xB9 \xD1\x82\xD1\x80\xD0\xB0\xD0\xBD\xD0\xB7\xD0\xB0\xD0\xBA\xD1\x86\xD0\xB8\xD0\xB8 \xD0\xB2\xD1\x8B\xD0\xBF\xD0\xBE\xD0\xBB\xD0\xBD\xD0\xB5\xD0\xBD.")
+                    .arg(QTime::currentTime().toString("HH:mm:ss")));
+            } else {
+                const QString detail = rolled.ok() ? QString::fromStdString(rolled.value().detail)
+                                                   : QString::fromStdString(rolled.error().detail);
+                m_result_label_->append(QString::fromUtf8("[%1] \xD0\x9E\xD1\x88\xD0\xB8\xD0\xB1\xD0\xBA\xD0\xB0 \xD0\xBE\xD1\x82\xD0\xBA\xD0\xB0\xD1\x82\xD0\xB0: %2")
+                    .arg(QTime::currentTime().toString("HH:mm:ss"), detail));
+            }
+            refreshHistory();
+        }, Qt::QueuedConnection);
+    }).detach();
+}
 } // namespace gno

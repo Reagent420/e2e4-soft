@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <sstream>
+#include <algorithm>
 
 namespace gno {
 namespace remediation {
@@ -153,7 +154,7 @@ Result<std::vector<ActionView>> RemediationService::observeAll() const {
     return views;
 }
 
-Result<ApplyOutcome> RemediationService::applyAll() {
+Result<ApplyOutcome> RemediationService::applyIds(const std::vector<ActionId>& ids) {
     auto actions = createActions(api_);
     std::vector<FixAction*> raw;
     for (auto& a : actions) raw.push_back(a.get());
@@ -161,8 +162,11 @@ Result<ApplyOutcome> RemediationService::applyAll() {
     auto resolved = resolver_(raw);
     std::vector<std::unique_ptr<FixAction>> selected;
     std::vector<ActionTarget> targets;
+    const auto wanted = [&ids](ActionId id) {
+        return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
     for (std::size_t i = 0; i < raw.size(); ++i) {
-        if (i < resolved.size() && resolved[i]) {
+        if (i < resolved.size() && resolved[i] && wanted(raw[i]->id())) {
             selected.push_back(std::move(actions[i]));
             targets.push_back(*resolved[i]);
         }
@@ -198,6 +202,12 @@ Result<ApplyOutcome> RemediationService::applyAll() {
     return outcome;
 }
 
+
+Result<ApplyOutcome> RemediationService::applyAll() {
+    std::vector<ActionId> every;
+    for (auto& a : createActions(api_)) every.push_back(a->id());
+    return applyIds(every);
+}
 Result<ApplyOutcome> RemediationService::rollback(const std::string& transaction_id) {
     auto loaded = backup_store_.load(transaction_id);
     if (!loaded) {

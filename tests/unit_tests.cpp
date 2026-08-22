@@ -226,6 +226,7 @@ TEST_CASE("LaunchDiagnostics::checks cover categories") {
 #include "core/capability_matrix.h"
 #include "core/plain_language.h"
 #include "remediation/legacy_bridge.h"
+#include "core/server_map_model.h"
 
 #include <filesystem>
 #include <map>
@@ -422,4 +423,36 @@ TEST_CASE("Legacy bridge routes mapped fixes through transactions") {
 
     CHECK(gno::remediation::applySafeFix("totally_unknown", api, store).empty());
     CHECK(store.records.size() == 1);
+}
+TEST_CASE("applyIds applies only requested subset") {
+    FakeStateApi api;
+    MemoryBackupStore store;
+    RemediationService service(api, store, testTargets);
+
+    auto r = service.applyIds({ActionId::PowerPlan});
+    REQUIRE(r.ok());
+    CHECK(r.value().succeeded);
+    CHECK(api.plan.identifier == "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
+    CHECK(api.dns.empty());
+    CHECK(api.mtu.empty());
+    CHECK(r.value().outcomes.size() == 1);
+}
+TEST_CASE("ServerMapModel grade, region filter, best server") {
+    using namespace gno;
+    CHECK(ServerMapModel::grade(-1) == MapGrade::Unknown);
+    CHECK(ServerMapModel::grade(20) == MapGrade::Good);
+    CHECK(ServerMapModel::grade(80) == MapGrade::Medium);
+    CHECK(ServerMapModel::grade(250) == MapGrade::Bad);
+
+    std::vector<MapServer> servers = {
+        {"a", "a", "Germany", "1.1.1.1", 50, 8, 20},
+        {"b", "b", "USA", "2.2.2.2", 40, -74, 60},
+        {"c", "c", "Japan", "3.3.3.3", 35, 139, 90},
+        {"d", "d", "Brazil", "4.4.4.4", -23, -46, 15},
+    };
+    auto eu = ServerMapModel::filterByRegion(servers, "EU");
+    CHECK(eu.size() == 1);
+    CHECK(ServerMapModel::filterByRegion(servers, "all").size() == 4);
+    CHECK(ServerMapModel::bestServer(servers) == 3);
+    CHECK(ServerMapModel::regionOf("Japan") == "ASIA");
 }

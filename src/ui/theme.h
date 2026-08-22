@@ -7,26 +7,27 @@ namespace gno {
 namespace theme {
 
 constexpr const char* APP_NAME = "E2E4 Soft — Оптимизатор игровой сети";
-constexpr const char* APP_VERSION = "1.5.0";
+constexpr const char* APP_VERSION = "1.6.0";
 
 struct Colors {
-    static constexpr auto BG_PRIMARY       = "#0D0D0F";
-    static constexpr auto BG_SURFACE       = "#1A1A2E";
-    static constexpr auto BG_ELEVATED      = "#252540";
-    static constexpr auto BG_HOVER         = "#2E2E4A";
-    static constexpr auto ACCENT_BLUE      = "#3B82F6";
-    static constexpr auto ACCENT_CYAN      = "#06B6D4";
+    static constexpr auto BG_PRIMARY       = "#0A0E17";
+    static constexpr auto BG_SURFACE       = "#101A2B";
+    static constexpr auto BG_ELEVATED      = "#16233A";
+    static constexpr auto BG_HOVER         = "#1B2C47";
+    static constexpr auto ACCENT_BLUE      = "#0EA5E9";
+    static constexpr auto ACCENT_CYAN      = "#22D3EE";
+    static constexpr auto ACCENT_NEON      = "#00F0FF";
     static constexpr auto ACCENT_VIOLET    = "#7C3AED";
-    static constexpr auto SUCCESS          = "#22C55E";
-    static constexpr auto WARNING          = "#F59E0B";
-    static constexpr auto ERROR            = "#EF4444";
-    static constexpr auto TEXT_PRIMARY     = "#F8FAFC";
-    static constexpr auto TEXT_SECONDARY   = "#94A3B8";
-    static constexpr auto TEXT_TERTIARY    = "#64748B";
-    static constexpr auto BORDER           = "rgba(255,255,255,0.08)";
-    static constexpr auto BORDER_ACTIVE    = "rgba(59,130,246,0.5)";
-    static constexpr auto GLOW_BLUE        = "rgba(59,130,246,0.3)";
-    static constexpr auto GLOW_GREEN       = "rgba(34,197,94,0.3)";
+    static constexpr auto SUCCESS          = "#39FF14";
+    static constexpr auto WARNING          = "#FFB000";
+    static constexpr auto ERROR            = "#FF2E88";
+    static constexpr auto TEXT_PRIMARY     = "#EAF6FF";
+    static constexpr auto TEXT_SECONDARY   = "#9DB8D6";
+    static constexpr auto TEXT_TERTIARY    = "#54708C";
+    static constexpr auto BORDER           = "rgba(0,240,255,0.14)";
+    static constexpr auto BORDER_ACTIVE    = "rgba(0,240,255,0.55)";
+    static constexpr auto GLOW_BLUE        = "rgba(0,240,255,0.30)";
+    static constexpr auto GLOW_GREEN       = "rgba(57,255,20,0.25)";
 };
 
 struct LightColors {
@@ -109,8 +110,9 @@ inline QString globalStyleSheet(bool dark = true) {
         }
 
         #sidebarButton:checked {
-            background-color: rgba(59,130,246,0.15);
-            color: %6;
+            background-color: rgba(0,240,255,0.12);
+            color: #00F0FF;
+            border-left: 3px solid #00F0FF;
             font-weight: 600;
         }
 
@@ -148,6 +150,11 @@ inline QString globalStyleSheet(bool dark = true) {
             letter-spacing: 1px;
         }
 
+#metricValue, #metricValueGood, #metricValueWarn, #metricValueBad {
+            font-family: "Consolas", monospace;
+            letter-spacing: 1px;
+        }
+
         #metricValue {
             font-size: 36px;
             font-weight: 700;
@@ -180,8 +187,8 @@ inline QString globalStyleSheet(bool dark = true) {
         /* Boost button */
         #boostButton {
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 %6, stop:1 #2563EB);
-            color: white;
+                stop:0 #00F0FF, stop:1 #0284C7);
+            color: #06121F;
             border: none;
             border-radius: 12px;
             padding: 16px 32px;
@@ -191,14 +198,14 @@ inline QString globalStyleSheet(bool dark = true) {
             min-height: 24px;
         }
 
-        #boostButton:hover {
+#boostButton:hover {
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 #4F8EF7, stop:1 #3B82F6);
+                stop:0 #5FF7FF, stop:1 #0EA5E9);
         }
 
-        #boostButton:pressed {
+#boostButton:pressed {
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 #2563EB, stop:1 #1D4ED8);
+                stop:0 #0284C7, stop:1 #075985);
         }
 
         #boostButtonActive {
@@ -278,7 +285,7 @@ inline QString globalStyleSheet(bool dark = true) {
         }
 
         QScrollBar::handle:vertical {
-            background: rgba(255,255,255,0.15);
+            background: rgba(0,240,255,0.22);
             border-radius: 4px;
             min-height: 30px;
         }
@@ -298,7 +305,7 @@ inline QString globalStyleSheet(bool dark = true) {
         }
 
         QScrollBar::handle:horizontal {
-            background: rgba(255,255,255,0.15);
+            background: rgba(0,240,255,0.22);
             border-radius: 4px;
             min-width: 30px;
         }
@@ -479,7 +486,7 @@ inline QString globalStyleSheet(bool dark = true) {
             gridline-color: %7;
             border: 1px solid %7;
             border-radius: 8px;
-            selection-background-color: rgba(59,130,246,0.20);
+            selection-background-color: rgba(0,240,255,0.18);
             selection-color: %2;
             font-size: 12px;
         }
@@ -489,7 +496,7 @@ inline QString globalStyleSheet(bool dark = true) {
         }
 
         QTableWidget::item:selected, QTableView::item:selected {
-            background-color: rgba(59,130,246,0.25);
+            background-color: rgba(0,240,255,0.22);
             color: %2;
         }
 
@@ -528,7 +535,7 @@ inline QString globalStyleSheet(bool dark = true) {
         }
 
         QListWidget::item:selected {
-            background-color: rgba(59,130,246,0.15);
+            background-color: rgba(0,240,255,0.14);
             color: %2;
         }
 
