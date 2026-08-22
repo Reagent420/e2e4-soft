@@ -78,12 +78,12 @@ static void applyBoost(bool on, gno::MainWindow& window) {
 int main(int argc, char* argv[]) {
     qInstallMessageHandler(myMessageHandler);
 
-    fprintf(stderr, "=== E2E4 Soft v1.6.0 Starting ===\n");
+    fprintf(stderr, "=== E2E4 Soft v%s Starting ===\n", gno::theme::APP_VERSION);
     fprintf(stderr, "App dir: %s\n", QDir::currentPath().toUtf8().constData());
 
     QApplication app(argc, argv);
     app.setApplicationName("GNO");
-    app.setApplicationVersion("1.6.0");
+    app.setApplicationVersion(gno::theme::APP_VERSION);
     app.setOrganizationName("GNO");
 
     fprintf(stderr, "Platform: %s\n", QApplication::platformName().toUtf8().constData());

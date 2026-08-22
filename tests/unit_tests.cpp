@@ -1,4 +1,4 @@
-﻿#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "core/game_detector.h"
 #include "core/route_analyzer.h"
@@ -229,6 +229,7 @@ TEST_CASE("LaunchDiagnostics::checks cover categories") {
 #include "core/server_map_model.h"
 #include "core/autopilot_plan.h"
 #include "core/net_utils.h"
+#include "core/report_exporter.h"
 
 #include <filesystem>
 #include <map>
@@ -576,4 +577,12 @@ TEST_CASE("NetUtils: probes, wlan parse, stun/dns codecs, mtu, bloat") {
     CHECK(gradeBufferbloat(20, 22).tag == std::string("OK"));
     CHECK(gradeBufferbloat(20, 28).tag == std::string("MED"));
     CHECK(gradeBufferbloat(20, 50).tag == std::string("BAD"));
+}
+TEST_CASE("ReportExporter builds valid JSON with escaping") {
+    using namespace gno;
+    auto json = ReportExporter::build("PUBG test", 23.5, 4.2, 0.1, 87,
+                                      "Frankfurt", 18,
+                                      {{"BEService", 0}, {"Vanguard", 2}});
+    CHECK(json.find("\"quality_score\": 87") != std::string::npos);
+    CHECK(json.find("\"severity\": 2") != std::string::npos);
 }

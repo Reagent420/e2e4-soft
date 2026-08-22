@@ -1,5 +1,7 @@
 #include "monitoring_service.h"
 #include <QSettings>
+#include <QDate>
+#include <QTime>
 #include <thread>
 #include "../core/autopilot_plan.h"
 #include "core/connection_grader.h"
@@ -44,6 +46,11 @@ MonitoringService::~MonitoringService() {
 void MonitoringService::start() {
     if (timer_)
         return;
+
+    // v1.8: lightweight scheduler - evening quality snapshot, optional morning scan.
+    scheduler_timer_ = new QTimer(this);
+    connect(scheduler_timer_, &QTimer::timeout, this, &MonitoringService::checkSchedule);
+    scheduler_timer_->start(30 * 1000);
 
     ping_monitor_.setPingCallback([this](const ICMPResult& result) {
         std::lock_guard<std::mutex> lock(hist_mutex_);
@@ -401,4 +408,31 @@ void MonitoringService::playTone(int freqHz, int durationMs) {
 #endif
 }
 
+void MonitoringService::checkSchedule() {
+    QSettings s;
+    const QString today_str = QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd"));
+
+    if (s.value(QStringLiteral("scheduler/evening"), false).toBool()) {
+        const QString target_time =
+            s.value(QStringLiteral("scheduler/eveningTime"), QStringLiteral("21:00")).toString();
+        if (QTime::currentTime() >= QTime::fromString(target_time, QStringLiteral("HH:mm")) &&
+            last_schedule_date_ != today_str + QStringLiteral("_eve")) {
+            last_schedule_date_ = today_str + QStringLiteral("_eve");
+            history_.recordStart(QStringLiteral("scheduled-evening").toStdString(), boost_active_);
+            history_.recordEndWithScore(currentPing(), currentJitter(), currentLossPercent(),
+                                        currentMaxPing(),
+                                        ConnectionGrader::evaluate(currentPing(), currentJitter(),
+                                                                   currentLossPercent()).score);
+            emit remediationApplied(QString::fromUtf8(
+                "\xD0\x9F\xD0\xBB\xD0\xB0\xD0\xBD\xD0\xBE\xD0\xB2\xD1\x8B\xD0\xB9\x20\xD0\xB7\xD0\xB0\xD0\xBC\xD0%B5\xD1%80\x20\xD1%81\xD0\xBE\xD1%85\xD1%80\xD0\xB0%D0\xBD%D1%91\xD0\xBD"));
+        }
+    }
+
+    if (s.value(QStringLiteral("scheduler/morningScan"), false).toBool() &&
+        last_schedule_date_ != today_str + QStringLiteral("_morn")) {
+        last_schedule_date_ = today_str + QStringLiteral("_morn");
+        emit remediationApplied(QString::fromUtf8(
+            "\xD0\x90\xD0\xB2\xD1\x82\xD0\xBE\xD1\x81\xD0\xBA\xD0\xB0\xD0\xBD\x20\xD0\xBF\xD1%80\xD0\xB8\x20\xD1%81\xD1%82\xD0\xB0%D1%80\xD1%82\xD0%B5\x3A\x20\xD0\xBF\xD1%80\xD0\xBE\xD1%84\xD0\xB8\xD0\xBB\xD0\xB8\x20\xD0\xBF\xD0\xBE%D0%B4\x20\xD0\xBA\xD0\xBE%D0\xBD\xD1%82\xD1%80\xD0\xBE\xD0\xBB%D0%B5\xD0\xBC"));
+    }
+}
 } // namespace gno

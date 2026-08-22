@@ -11,6 +11,7 @@
 #include <QPainter>
 #include <QSettings>
 #include <QTime>
+#include <QDateTime>
 #include <QVBoxLayout>
 
 #include <atomic>
@@ -392,6 +393,25 @@ void GeoMapWidget::startProbeThread(bool all) {
     if (all) targets = visible_;
     else if (selected_ >= 0) targets.push_back(selected_);
 
+    if (all) {
+        // cooldown: skip nodes probed less than 2 minutes ago
+        const auto now = QDateTime::currentMSecsSinceEpoch();
+        std::vector<int> fresh;
+        for (int idx : targets) {
+            const auto& s = servers_[static_cast<std::size_t>(idx)];
+            if ((s.latency_ms == -1 || s.latency_ms == -2) ||
+                now - s.last_probe_ms > 120 * 1000)
+                fresh.push_back(idx);
+        }
+        targets.swap(fresh);
+        if (targets.empty()) {
+            m_progress_->setText(QString::fromUtf8(
+                "\xD0\x92\xD1\x81\xD0\xB5\x20\xD1\x83\xD0\xB7\xD0\xBB\xD1%8B\x20\xD1\x81\xD0\xB2\xD0%B5\xD0%B6\xD0%B8\xD0%B5\x20\x28\x3C\x32\x20\xD0\xBC\xD0%B8\xD0\xBD\x29"));
+            m_check_all_btn_->setEnabled(true);
+            m_check_sel_btn_->setEnabled(true);
+            return;
+        }
+    }
     if (targets.empty()) {
         m_check_all_btn_->setEnabled(true);
         m_check_sel_btn_->setEnabled(true);
@@ -421,6 +441,9 @@ void GeoMapWidget::startProbeThread(bool all) {
 
         QMetaObject::invokeMethod(this, [this, results]() {
             ServerMapModel::applyProbeResults(servers_, results);
+            const auto now_ms = QDateTime::currentMSecsSinceEpoch();
+            for (const auto& [idx, lat] : results)
+                servers_[static_cast<std::size_t>(idx)].last_probe_ms = now_ms;
             best_ = ServerMapModel::bestServer(servers_);
             updateDetailsCard();
             canvas_->update();

@@ -16,7 +16,8 @@ struct MapServer {
     std::string ip;
     double latitude = 0.0;
     double longitude = 0.0;
-    int latency_ms = -1; // -1 = not measured yet
+    int latency_ms = -1; // -1 unknown, -2 offline
+    std::int64_t last_probe_ms = 0;
 };
 
 enum class MapGrade { Unknown, Offline, Good, Medium, Bad };

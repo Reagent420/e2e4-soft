@@ -1,6 +1,7 @@
-#include "diagnostics_widget.h"
+﻿#include "diagnostics_widget.h"
 #include "theme.h"
 #include "monitoring_service.h"
+#include "../core/connection_grader.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -8,12 +9,17 @@
 #include <QFrame>
 #include <QThread>
 #include <QDateTime>
+#include <QDir>
 #include <QPainter>
 #include <QFont>
 
 #include "../core/game_detector.h"
 #include "../core/system_audit.h"
 #include "../core/plain_language.h"
+#include "../core/report_exporter.h"
+#include "../core/json_persistence.h"
+#include <QDateTime>
+#include <QDir>
 #include <QTextEdit>
 
 namespace gno {
@@ -173,6 +179,34 @@ void DiagnosticsWidget::setupUI()
     m_plainText_->setVisible(false);
     mainLayout->addWidget(plainBtn);
     mainLayout->addWidget(m_plainText_);
+
+    auto* exportBtn = new QPushButton(QString::fromUtf8(
+        "\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE\xD1%80\xD1\x82\x20\xD0\xBE\xD1\x82\xD1%87\xD0%B5\xD1\x82\xD0\xB0\x20\x28JSON\x29"), this);
+    exportBtn->setObjectName(QStringLiteral("boostButton"));
+    exportBtn->setFixedHeight(34);
+    mainLayout->addWidget(exportBtn);
+    connect(exportBtn, &QPushButton::clicked, this, [this]() {
+        std::vector<gno::ReportExporter::Check> checks;
+        if (m_hasDiag_)
+            for (const auto& c : m_lastDiag_.checks)
+                checks.push_back({c.name, c.severity});
+        auto& svc = MonitoringService::instance();
+        const int score = static_cast<int>(
+            ConnectionGrader::evaluate(svc.currentPing(), svc.currentJitter(),
+                                       svc.currentLossPercent()).score);
+        const std::string json = ReportExporter::build(
+            (m_lastGameName.isEmpty() ? QStringLiteral("unknown") : m_lastGameName).toStdString(),
+            svc.currentPing(), svc.currentJitter(), svc.currentLossPercent(), score,
+            {}, -1, checks);
+        const QString dir = qEnvironmentVariable("APPDATA") + QStringLiteral("/GNO/Reports");
+
+        QDir().mkpath(dir);
+        const QString path = dir + QStringLiteral("/report_%1.json")
+            .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
+        gno::persistence::atomicWriteText(path.toStdString(), json);
+        m_runningLabel_->setText(QString::fromUtf8(
+            "\xD0\x9E\xD1\x82\xD1%87\xD1%91\xD1%82\x3A\x20") + path);
+    });
 
     connect(plainBtn, &QPushButton::clicked, this, &DiagnosticsWidget::onPlainLanguageClicked);
     connect(m_problemSearch_, &QLineEdit::textChanged, this, &DiagnosticsWidget::onSearchChanged);

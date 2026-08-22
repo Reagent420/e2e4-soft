@@ -24,6 +24,9 @@ namespace gno {
 // overlay) shows the same numbers.
 class MonitoringService : public QObject {
     Q_OBJECT
+
+private slots:
+    void checkSchedule();
 public:
     static MonitoringService& instance();
 
@@ -87,7 +90,8 @@ private:
     SessionHistory history_;
     GameWatcher watcher_;
     QTimer* timer_ = nullptr;
-
+    QTimer* scheduler_timer_ = nullptr;
+    QString last_schedule_date_;
     std::atomic<double> last_ping_{0.0};
     std::atomic<double> last_jitter_{0.0};
     std::atomic<double> last_loss_{0.0};

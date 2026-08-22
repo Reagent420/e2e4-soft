@@ -25,6 +25,7 @@ bool mapLegacy(const std::string& legacy_id, Mapped& out) {
     else if (legacy_id == "dns") out = {ActionId::Dns, true};
     else if (legacy_id == "mtu") out = {ActionId::Mtu, true};
     else if (legacy_id == "priority") out = {ActionId::ProcessPriority, false, true};
+    else if (legacy_id == "fullscreen_opt") out = {ActionId::FullscreenOptimizations, false, true};
     else return false;
     return true;
 }
@@ -41,6 +42,11 @@ std::string applySafeFix(const std::string& legacy_id, WindowsStateApi& api, IBa
         auto iface = discoverPrimaryInterface();
         if (!iface) return "Не удалось: не найден активный сетевой адаптер с шлюзом.";
         target = *iface;
+    } else if (mapped.id == ActionId::FullscreenOptimizations) {
+        auto game = discoverRunningGameProcess();
+        if (!game)
+            return "\xd0\x97\xd0\xb0\xd0\xbf\xd1\x83\xd1\x81\xd1\x82\xd0\xb8\xd1\x82\xd0\xb5 \xd0\xb8\xd0\xb3\xd1\x80\xd1\x83 - \xd1\x84\xd0\xb8\xd0\xba\xd1\x81 \xd0\xbf\xd1\x80\xd0\xb8\xd0\xbc\xd0\xb5\xd0\xbd\xd1\x8f\xd0\xb5\xd1\x82\xd1\x81\xd1\x8f \xd0\xba \xd0\xb5\xd1\x91 exe.";
+        target = ExecutableTarget{game->path};
     } else if (mapped.needs_process) {
         auto game = discoverRunningGameProcess();
         if (!game)

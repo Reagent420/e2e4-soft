@@ -105,6 +105,22 @@ void RemediationWidget::setupUI() {
     connect(m_autopilot_, &QCheckBox::toggled, this, [](bool on) {
         QSettings().setValue(QStringLiteral("remediation/autopilot"), on);
     });
+    m_evening_ = new QCheckBox(QString::fromUtf8(
+        "\xD0\x9F\xD0\xBB\xD0\xB0\xD0\xBD\xD0\xBE\xD0\xB2\xD1\x8B\xD0\xB9\x20\xD0\xB2\xD0\xB5\xD1%87\xD0%B5\xD1%80\xD0\xBD\xD0%B8\xD0%B9\x20\xD0\xB7\xD0\xB0\xD0\xBC\xD0%B5\xD1%80\x20\x28\x32\x31\x3A\x30\x30\x29"), this);
+    m_evening_->setChecked(QSettings().value(QStringLiteral("scheduler/evening"), false).toBool());
+    connect(m_evening_, &QCheckBox::toggled, this, [](bool on) {
+        QSettings().setValue(QStringLiteral("scheduler/evening"), on);
+    });
+    layout->addWidget(m_evening_);
+
+    m_morning_ = new QCheckBox(QString::fromUtf8(
+        "\xD0\x90\xD0\xB2\xD1\x82\xD0\xBE\xD1\x81\xD0\xBA\xD0\xB0\xD0\xBD\x20\xD0\xBF\xD1%80\xD0\xB8\x20\xD1\x81\xD1%82\xD0\xB0%D1%80\xD1%82\xD0%B5"), this);
+    m_morning_->setChecked(QSettings().value(QStringLiteral("scheduler/morningScan"), false).toBool());
+    connect(m_morning_, &QCheckBox::toggled, this, [](bool on) {
+        QSettings().setValue(QStringLiteral("scheduler/morningScan"), on);
+    });
+    layout->addWidget(m_morning_);
+
     layout->addWidget(m_autopilot_);
 
     m_status_label_ = new QLabel(

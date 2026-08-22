@@ -38,6 +38,8 @@ private:
     QLabel* m_status_label_;
     QTextEdit* m_result_label_;
     QCheckBox* m_autopilot_;
+    QCheckBox* m_evening_;
+    QCheckBox* m_morning_;
     QTableWidget* m_history_;
     QPushButton* m_rollback_sel_btn_;
 
