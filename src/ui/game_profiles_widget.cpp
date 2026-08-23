@@ -1,4 +1,6 @@
-#include "game_profiles_widget.h"
+﻿#include "game_profiles_widget.h"
+#include "../core/profile_engine.h"
+#include <QFileDialog>
 #include "theme.h"
 
 #include <QHBoxLayout>
@@ -121,6 +123,15 @@ void GameProfilesWidget::setupUI()
     saveBtn->setFixedWidth(160);
     connect(saveBtn, &QPushButton::clicked, this, &GameProfilesWidget::onSaveProfile);
     btnRow->addWidget(saveBtn);
+
+    auto* exportBtn = new QPushButton(QString::fromUtf8(
+        "\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE\xD1%80\xD1\x82"), editorGroup);
+    connect(exportBtn, &QPushButton::clicked, this, &GameProfilesWidget::exportProfile);
+    btnRow->addWidget(exportBtn);
+    auto* importBtn = new QPushButton(QString::fromUtf8(
+        "\xD0\x98\xD0\xBC\xD0\xBF\xD0\xBE%D1%80\xD1\x82"), editorGroup);
+    connect(importBtn, &QPushButton::clicked, this, &GameProfilesWidget::importProfile);
+    btnRow->addWidget(importBtn);
 
     m_statusLabel = new QLabel("", editorGroup);
     m_statusLabel->setObjectName("sectionSubtitle");
@@ -313,4 +324,52 @@ void GameProfilesWidget::refreshProfileList()
     layout->addStretch();
 }
 
+void GameProfilesWidget::exportProfile()
+{
+    const QString game = m_gameCombo->currentText();
+    if (!m_profiles || !m_profiles->has(game.toStdString())) {
+        m_statusLabel->setText(QString::fromUtf8(
+            "\xD0\xA1\xD0\xBD\xD0\xB0\xD1%87\xD0\xB0\xD0\xBB\xD0\xB0\x20\xD1\x81\xD0\xBE\xD1%85\xD1%80\xD0\xB0%D0\xBD\xD0%B8\xD1\x82\xD0%B5\x20\xD0\xBF\xD1%80\xD0\xBE\xD1%84\xD0%B8\xD0\xBB\xD1\x8C"));
+        return;
+    }
+    const GameProfile p = m_profiles->get(game.toStdString());
+    // Threshold presets are not yet unified (planned v1.9.x) - export sane defaults.
+    const auto doc = ProfileEngine::fromGameProfile(p, 60.0, 8.0, 2.0);
+    const QString path = QFileDialog::getSaveFileName(
+        this, QString::fromUtf8("\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE%D1%80\xD1\x82\x20\xD0\xBF\xD1%80\xD0\xBE\xD1%84\xD0%B8\xD0\xBB\xD1\x8F"),
+        game + QStringLiteral(".gnoprofile"),
+        QStringLiteral("GNO profile (*.gnoprofile)"));
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        const std::string ini = ProfileEngine::toIni(doc);
+        f.write(ini.data(), static_cast<qint64>(ini.size()));
+        m_statusLabel->setText(QString::fromUtf8(
+            "\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE%D1%80\xD1\x82\x3A\x20") + path);
+    }
+}
+
+void GameProfilesWidget::importProfile()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, QString::fromUtf8("\xD0\x98\xD0\xBC\xD0\xBF\xD0\xBE%D1%80\xD1\x82\x20\xD0\xBF\xD1%80\xD0\xBE\xD1%84\xD0%B8\xD0\xBB\xD1\x8F"),
+        QString(), QStringLiteral("GNO profile (*.gnoprofile *.txt)"));
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+    ProfileDocument doc;
+    if (!ProfileEngine::fromIni(QString::fromUtf8(f.readAll()).toStdString(), doc)) {
+        m_statusLabel->setText(QString::fromUtf8(
+            "\xD0\x9D\xD0\xB5\xD0\xB2\xD0%B5%D1%80\xD0\xBD\xD1%8B\xD0\xB9\x20\xD1%84\xD0\xB0%D0%B9\xD0\xBB\x20\xD0\xBF%D1%80\xD0\xBE\xD1%84\xD0%B8\xD0\xBB\xD1\x8F"));
+        return;
+    }
+    GameProfile p;                    // defaults first...
+    ProfileEngine::applyToGameProfile(doc, p); // ...then file values
+    p.game_name = doc.game_name;      // keep display name from file
+    p.process_name = doc.process_name;
+    m_profiles->set(p);
+    refreshProfileList();
+    m_statusLabel->setText(QString::fromUtf8(
+        "\xD0\x98\xD0\xBC\xD0\xBF\xD0\xBE%D1%80\xD1%82\x3A\x20") + doc.game_name.c_str());
+}
 } // namespace gno

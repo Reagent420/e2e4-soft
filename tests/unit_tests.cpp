@@ -230,6 +230,7 @@ TEST_CASE("LaunchDiagnostics::checks cover categories") {
 #include "core/autopilot_plan.h"
 #include "core/net_utils.h"
 #include "core/report_exporter.h"
+#include "core/profile_engine.h"
 
 #include <filesystem>
 #include <map>
@@ -585,4 +586,47 @@ TEST_CASE("ReportExporter builds valid JSON with escaping") {
                                       {{"BEService", 0}, {"Vanguard", 2}});
     CHECK(json.find("\"quality_score\": 87") != std::string::npos);
     CHECK(json.find("\"severity\": 2") != std::string::npos);
+}
+
+TEST_CASE("ProfileEngine: INI roundtrip, corruption tolerance, unknown keys") {
+    using namespace gno;
+
+    GameProfile p;
+    p.game_name = "Counter-Strike 2";
+    p.process_name = "cs2";
+    p.game_dvr_opt = false;
+    p.custom_dns = true;
+    p.dns_server = "9.9.9.9";
+    auto doc = ProfileEngine::fromGameProfile(p, 55.0, 7.0, 1.5);
+
+    auto ini = ProfileEngine::toIni(doc);
+    CHECK(ini.rfind("GNO profile v1", 0) == 0);
+
+    ProfileDocument back;
+    REQUIRE(ProfileEngine::fromIni(ini, back));
+    CHECK(back.game_name == "Counter-Strike 2");
+    CHECK(back.process_name == "cs2");
+    CHECK_FALSE(back.game_dvr);
+    CHECK(back.custom_dns);
+    CHECK(back.dns_server == "9.9.9.9");
+    CHECK(back.max_median_rtt == doctest::Approx(55.0));
+    CHECK(back.max_packet_loss == doctest::Approx(1.5));
+
+    GameProfile restored;
+    restored.mtu_opt = true;
+    ProfileEngine::applyToGameProfile(back, restored);
+    CHECK_FALSE(restored.game_dvr_opt);
+    CHECK(restored.custom_dns);
+
+    // Corrupted header must be rejected.
+    ProfileDocument junk;
+    CHECK_FALSE(ProfileEngine::fromIni("GNO profile v9\n", junk));
+    CHECK_FALSE(ProfileEngine::fromIni("", junk));
+
+    // Unknown keys ignored; partial file keeps defaults for the rest.
+    ProfileDocument partial;
+    REQUIRE(ProfileEngine::fromIni(
+        "GNO profile v1\ngame=Valorant\nfuture_key=42\n", partial));
+    CHECK(partial.game_name == "Valorant");
+    CHECK(partial.tcp); // default
 }

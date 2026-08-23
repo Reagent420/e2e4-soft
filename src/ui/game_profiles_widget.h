@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QWidget>
 #include <QComboBox>
@@ -22,6 +22,8 @@ private slots:
     void onGameSelected(int index);
     void onSaveProfile();
     void refreshProfileList();
+    void exportProfile();
+    void importProfile();
 
 private:
     void setupUI();
