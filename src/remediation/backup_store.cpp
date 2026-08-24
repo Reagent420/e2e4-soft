@@ -269,6 +269,9 @@ void writeValue(const ActionValue& value, std::string& out) {
         void operator()(const PriorityValue& v) const {
             out += "{\"$type\":\"priority\",\"level\":" + std::to_string(static_cast<int>(v.level)) + "}";
         }
+        void operator()(const Cs2MaxPingValue& v) const {
+            out += "{\"$type\":\"cs2maxping\",\"max_ping\":" + std::to_string(v.max_ping) + "}";
+        }
     };
     std::visit(Writer{out}, value);
 }
@@ -305,6 +308,7 @@ ActionValue readValue(const Json& j) {
         return FullscreenValue{j.booleanOr("existed", false), j.str("compatibility_flags"),
                                j.booleanOr("key_existed", false)};
     if (type == "priority") return PriorityValue{static_cast<PriorityLevel>(j.int32Or("level", 0))};
+    if (type == "cs2maxping") return Cs2MaxPingValue{j.uint32Or("max_ping", 60)};
     return NoneValue{};
 }
 

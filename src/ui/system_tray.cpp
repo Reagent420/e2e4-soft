@@ -71,6 +71,12 @@ void SystemTray::updatePing(int pingMs)
     updateIcon();
 }
 
+void SystemTray::setAlertThresholds(double maxPing, double maxLoss)
+{
+    m_max_ping_alert_ = maxPing;
+    m_max_loss_alert_ = maxLoss;
+}
+
 void SystemTray::updateJitter(int jitterMs)
 {
     m_jitter = jitterMs;
@@ -86,7 +92,7 @@ void SystemTray::updatePacketLoss(double lossPercent)
     m_trayIcon->setToolTip(QString::fromUtf8("E2E4 Soft - %1/100 | %2 ms | %3%")
         .arg(score).arg(m_ping).arg(m_packetLoss, 0, 'f', 1));
 
-    const bool degraded = (m_packetLoss > 5.0 || m_ping > 150);
+    const bool degraded = m_packetLoss > m_max_loss_alert_ || m_ping > m_max_ping_alert_;
     if (degraded && !m_degrade_notified_) {
         m_degrade_notified_ = true;
         showMessage(QString::fromUtf8("\xD0\x9A\xD0\xB0\xD1\x87\xD0\xB5\xD1\x81\xD1\x82\xD0\xB2\xD0\xBE \xD1\x81\xD0\xB5\xD1\x82\xD0\xB8"),

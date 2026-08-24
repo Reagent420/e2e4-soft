@@ -44,6 +44,7 @@ std::string actionDisplayName(ActionId id) {
         case ActionId::Dns: return "DNS серверы";
         case ActionId::Mtu: return "MTU интерфейса";
         case ActionId::ProcessPriority: return "Приоритет процесса игры";
+        case ActionId::Cs2MaxPing: return "CS2 фильтр пинга";
     }
     return to_string(id);
 }
@@ -58,6 +59,7 @@ std::string actionDescription(ActionId id) {
         case ActionId::Dns: return "Быстрые резолверы 1.1.1.1/1.0.0.1 вместо провайдерских";
         case ActionId::Mtu: return "MTU 1500 убирает фрагментацию пакетов";
         case ActionId::ProcessPriority: return "AboveNormal для процесса игры против фоновых задач";
+        case ActionId::Cs2MaxPing: return "Официальный фильтр подбора CS2: максимальный пинг серверов матча";
     }
     return {};
 }
@@ -100,6 +102,9 @@ std::string summarizeValue(const ActionValue& value) {
                 case PriorityLevel::High: return "High";
             }
             return "?";
+        }
+        std::string operator()(const Cs2MaxPingValue& v) const {
+            return "max ping = " + std::to_string(v.max_ping);
         }
     };
     return std::visit(Writer{}, value);

@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 
 namespace gno {
@@ -129,6 +131,38 @@ std::string runCommand(const std::string& command) {
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return output;
+}
+
+// Locates the CS2 user convars cfg via Steam registry path:
+// <SteamPath>\userdata\<account>\730\local\cfg\cs2_user_convars_0_pc.cfg
+static std::string findCs2CfgPath() {
+    char steam_raw[512] = {};
+    DWORD sz = sizeof(steam_raw);
+    if (RegGetValueA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath",
+                     RRF_RT_REG_SZ, nullptr, steam_raw, &sz) != ERROR_SUCCESS)
+        return {};
+
+    std::filesystem::path userdata = std::filesystem::path(steam_raw) / "userdata";
+    std::error_code ec;
+    if (!std::filesystem::exists(userdata, ec)) return {};
+
+    for (const auto& account : std::filesystem::directory_iterator(userdata, ec)) {
+        const auto cfg = account.path() / "730" / "local" / "cfg" /
+                         "cs2_user_convars_0_pc.cfg";
+        if (std::filesystem::exists(cfg, ec)) return cfg.string();
+    }
+    return {};
+}
+
+static std::string readCs2MaxPingLine(const std::string& path, bool& found_file) {
+    found_file = !path.empty();
+    if (path.empty()) return {};
+    std::ifstream file(path);
+    std::string line;
+    while (std::getline(file, line))
+        if (line.find("mm_dedicated_search_maxping") != std::string::npos)
+            return line;
+    return {};
 }
 
 } // namespace
@@ -333,6 +367,63 @@ SimpleResult WindowsStateApi::setFullscreenOptimizations(const ExecutableTarget&
             return Fail(RemediationError::VerificationMismatch, "fullscreen flags did not persist");
     }
     return result;
+}
+
+Result<Cs2MaxPingValue> WindowsStateApi::getCs2MaxPing() {
+    bool have = false;
+    const std::string line = readCs2MaxPingLine(findCs2CfgPath(), have);
+    Cs2MaxPingValue v{};
+    if (!have)
+        return Fail(RemediationError::Unsupported,
+                    "CS2 \xd0\xbd\xd0\xb5 \xd0\xbd\xd0\xb0\xd0\xb9\xd0\xb4\xd0\xb5\xd0\xbd (Steam cfg)");
+    if (line.empty()) return v; // default 60 when convar missing
+
+    const auto q1 = line.find('"');
+    const auto q2 = line.find('"', q1 + 1);
+    const auto q3 = line.find('"', q2 + 1);
+    const auto q4 = line.find('"', q3 + 1);
+    if (q1 != std::string::npos && q4 != std::string::npos && q4 > q3 && q3 > q2 && q2 > q1) {
+        try { v.max_ping = static_cast<std::uint32_t>(std::stoul(line.substr(q3 + 1, q4 - q3 - 1))); }
+        catch (...) { v.max_ping = 60; }
+    }
+    return v;
+}
+
+SimpleResult WindowsStateApi::setCs2MaxPing(const Cs2MaxPingValue& value) {
+    const std::string path = findCs2CfgPath();
+    if (path.empty())
+        return Fail(RemediationError::Unsupported,
+                    "CS2 \xd0\xbd\xd0\xb5 \xd0\xbd\xd0\xb0\xd0\xb9\xd0\xb4\xd0\xb5\xd0\xbd (Steam cfg)");
+
+    std::ifstream in(path);
+    std::ostringstream buf;
+    buf << in.rdbuf();
+    in.close();
+    std::string content = buf.str();
+
+    const std::string needle = "mm_dedicated_search_maxping";
+    const auto pos = content.find(needle);
+    const std::string newline =
+        "\"" + needle + "\"=\"" + std::to_string(value.max_ping) + "\"";
+
+    if (pos == std::string::npos)
+        content += "\n" + newline + "\n";
+    else {
+        const auto line_end = content.find('\n', pos);
+        content.replace(pos, (line_end == std::string::npos ? content.size() : line_end) - pos,
+                        newline);
+    }
+
+    std::ofstream out(path, std::ios::trunc);
+    out << content;
+    out.flush();
+    if (!out) return mapLastError("CS2 cfg write");
+
+    auto verify = getCs2MaxPing();
+    if (!verify) return verify.error();
+    if (verify.value().max_ping != value.max_ping)
+        return Fail(RemediationError::VerificationMismatch, "cs2 maxping did not persist");
+    return Ok();
 }
 
 Result<PriorityLevel> WindowsStateApi::getPriority(const ProcessTarget& process) {

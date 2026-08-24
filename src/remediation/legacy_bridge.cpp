@@ -26,6 +26,7 @@ bool mapLegacy(const std::string& legacy_id, Mapped& out) {
     else if (legacy_id == "mtu") out = {ActionId::Mtu, true};
     else if (legacy_id == "priority") out = {ActionId::ProcessPriority, false, true};
     else if (legacy_id == "fullscreen_opt") out = {ActionId::FullscreenOptimizations, false, true};
+    else if (legacy_id == "cs2_maxping") out = {ActionId::Cs2MaxPing};
     else return false;
     return true;
 }

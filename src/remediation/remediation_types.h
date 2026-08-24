@@ -29,7 +29,8 @@ enum class ActionId {
     TcpParameters = 4,
     Dns = 5,
     Mtu = 6,
-    ProcessPriority = 7
+    ProcessPriority = 7,
+    Cs2MaxPing = 8
 };
 
 enum class ActionStatus {
@@ -195,9 +196,13 @@ struct PriorityValue {
     PriorityLevel level = PriorityLevel::Normal;
     bool operator==(const PriorityValue&) const = default;
 };
+struct Cs2MaxPingValue {
+    std::uint32_t max_ping = 60;
+    bool operator==(const Cs2MaxPingValue&) const = default;
+};
 
 using ActionValue = std::variant<NoneValue, DnsValue, MtuValue, TcpValue, PowerPlanValue,
-                                 GameDvrValue, FullscreenValue, PriorityValue>;
+                                 GameDvrValue, FullscreenValue, PriorityValue, Cs2MaxPingValue>;
 
 // ---------------------------------------------------------------- records
 
@@ -281,6 +286,8 @@ inline bool isValidValue(const ActionValue& value) {
             return v.bytes >= 576 && v.bytes <= 9000;
         } else if constexpr (std::is_same_v<U, PowerPlanValue>) {
             return !v.identifier.empty() && v.identifier.size() <= 128;
+        } else if constexpr (std::is_same_v<U, Cs2MaxPingValue>) {
+            return v.max_ping >= 20 && v.max_ping <= 350;
         } else {
             return true;
         }
@@ -301,6 +308,7 @@ inline std::string to_string(ActionId id) {
         case ActionId::Dns: return "Dns";
         case ActionId::Mtu: return "Mtu";
         case ActionId::ProcessPriority: return "ProcessPriority";
+        case ActionId::Cs2MaxPing: return "Cs2MaxPing";
     }
     return "Unknown";
 }

@@ -1,4 +1,4 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+﻿#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "core/game_detector.h"
 #include "core/route_analyzer.h"
@@ -166,7 +166,7 @@ TEST_CASE("ProblemDb::getForGame is case-insensitive") {
 TEST_CASE("ProblemDb::auto-fix ids map to known actions") {
     const std::vector<std::string> known = {"power_plan", "game_dvr", "fullscreen_opt",
                                             "dns", "mtu", "tcp", "vm", "priority",
-                                            "tcp_mtu", "dns_tcp", "fps_boost"};
+                                            "tcp_mtu", "dns_tcp", "fps_boost", "cs2_maxping"};
     for (const auto& p : gno::ProblemDb::getAll()) {
         if (p.fix_action.empty()) continue;
         bool knownId = false;
@@ -231,6 +231,7 @@ TEST_CASE("LaunchDiagnostics::checks cover categories") {
 #include "core/net_utils.h"
 #include "core/report_exporter.h"
 #include "core/profile_engine.h"
+#include "core/alert_thresholds.h"
 
 #include <filesystem>
 #include <map>
@@ -273,6 +274,15 @@ public:
     SimpleResult setFullscreenOptimizations(const ExecutableTarget& e, const FullscreenValue& v) override {
         if (fail_writes) return Fail(RemediationError::ApplyFailed, "injected");
         fullscreen[e.path] = v; return Ok();
+    }
+    std::map<std::uint32_t, std::uint32_t> cs2;
+    Result<Cs2MaxPingValue> getCs2MaxPing() override {
+        auto it = cs2.find(1);
+        return Cs2MaxPingValue{it == cs2.end() ? 30u : it->second};
+    }
+    SimpleResult setCs2MaxPing(const Cs2MaxPingValue& v) override {
+        if (fail_writes) return Fail(RemediationError::ApplyFailed, "injected");
+        cs2[1] = v.max_ping; return Ok();
     }
     Result<PriorityLevel> getPriority(const ProcessTarget& p) override { return priority[p.pid]; }
     SimpleResult setPriority(const ProcessTarget& p, PriorityLevel l) override {
@@ -324,7 +334,7 @@ TEST_CASE("Remediation observe apply rollback roundtrip") {
 
     auto before = service.observeAll();
     { std::ostringstream dbg; dbg << (int)before.code() << ':' << before.detail(); REQUIRE_MESSAGE(before.ok(), dbg.str()); }
-    CHECK(before.value().size() == 7);
+    CHECK(before.value().size() == 8);
 
     auto applied = service.applyAll();
     REQUIRE(applied.ok());
@@ -655,4 +665,30 @@ TEST_CASE("JsonBackupStore history is chronological, not id-ordered") {
     REQUIRE(list.value().size() == 2);
     CHECK(list.value().front().transaction_id == "tx-000-new"); // newer first despite smaller id
     std::filesystem::remove_all(dir, ec);
+}
+TEST_CASE("CS2 maxping action flows through the transactional engine") {
+    FakeStateApi api;
+    MemoryBackupStore store;
+    RemediationService service(api, store, testTargets);
+
+    auto before = service.observeAll();
+    REQUIRE(before.ok());
+    const bool has_cs2 = before.value().size() > 8; // factory includes cs2 now
+
+    auto applied = service.applyIds({ActionId::Cs2MaxPing});
+    REQUIRE(applied.ok());
+    CHECK(applied.value().succeeded);
+    CHECK(api.cs2.at(1) == 60); // proposed default
+
+    auto rolled = service.rollback(store.records.begin()->first);
+    REQUIRE(rolled.ok());
+}
+
+TEST_CASE("AlertThresholds are stricter for tactical shooters") {
+    using namespace gno;
+    CHECK(AlertThresholds::forGame("VALORANT").max_ping_ms == 50);
+    CHECK(AlertThresholds::forGame("Counter-Strike 2").max_ping_ms == 60);
+    CHECK(AlertThresholds::forGame("PUBG: BATTLEGROUNDS").max_ping_ms == 100);
+    CHECK(AlertThresholds::forGame("Something").max_ping_ms == 100);
+    CHECK(AlertThresholds::forGame("VALORANT").isDegraded(55, 0));
 }

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QSystemTrayIcon>
 #include <QMenu>
@@ -16,6 +16,7 @@ public:
     ~SystemTray() override = default;
 
     void updatePing(int pingMs);
+    void setAlertThresholds(double maxPing, double maxLoss);
     void updateJitter(int jitterMs);
     void updatePacketLoss(double lossPercent);
     void setConnected(bool connected);
@@ -49,6 +50,8 @@ private:
     int m_jitter = 0;
     double m_packetLoss = 0.0;
     bool m_degrade_notified_ = false;
+    double m_max_ping_alert_ = 150.0;
+    double m_max_loss_alert_ = 5.0;
     bool m_connected = false;
     bool m_boostOn = false;
 };

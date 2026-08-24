@@ -30,6 +30,8 @@ ActionValue proposedValueFor(ActionId id) {
             return MtuValue{kDesiredMtu};
         case ActionId::ProcessPriority:
             return PriorityValue{PriorityLevel::AboveNormal};
+        case ActionId::Cs2MaxPing:
+            return Cs2MaxPingValue{60};
         case ActionId::EnergyMode:
             break;
     }
@@ -96,6 +98,12 @@ Result<ActionState> WindowsFixAction::observe(const ActionTarget& target) {
             auto level = api_.getPriority(process);
             if (!level) return Result<ActionState>(level.error());
             current = PriorityValue{level.value()};
+            break;
+        }
+        case ActionId::Cs2MaxPing: {
+            auto mp = api_.getCs2MaxPing();
+            if (!mp) return Result<ActionState>(mp.error());
+            current = mp.value();
             break;
         }
         case ActionId::EnergyMode:
@@ -207,6 +215,11 @@ Result<ActionState> WindowsFixAction::transition(const PreparedAction& prepared,
             if (!r) return Result<ActionState>(r.error());
             fresh = Result<ActionValue>(PriorityValue{r.value()});
             break;
+        }        case ActionId::Cs2MaxPing: {
+            auto r = api_.getCs2MaxPing();
+            if (!r) return Result<ActionState>(r.error());
+            fresh = Result<ActionValue>(r.value());
+            break;
         }
         default:
             return Fail(RemediationError::Unsupported, "unsupported action");
@@ -249,6 +262,9 @@ Result<ActionState> WindowsFixAction::transition(const PreparedAction& prepared,
         case ActionId::Mtu:
             written = api_.setMtu(std::get<InterfaceTarget>(prepared.target), std::get<MtuValue>(desired));
             break;
+        case ActionId::Cs2MaxPing:
+            written = api_.setCs2MaxPing(std::get<Cs2MaxPingValue>(desired));
+            break;
         case ActionId::ProcessPriority:
             written = api_.setPriority(std::get<ProcessTarget>(prepared.target),
                                        std::get<PriorityValue>(desired).level);
@@ -272,6 +288,7 @@ Result<ActionState> WindowsFixAction::transition(const PreparedAction& prepared,
         else if constexpr (std::is_same_v<U, GameDvrValue>) matches_desired = v == std::get<GameDvrValue>(desired);
         else if constexpr (std::is_same_v<U, FullscreenValue>) matches_desired = v == std::get<FullscreenValue>(desired);
         else if constexpr (std::is_same_v<U, PriorityValue>) matches_desired = v == std::get<PriorityValue>(desired);
+        else if constexpr (std::is_same_v<U, Cs2MaxPingValue>) matches_desired = v == std::get<Cs2MaxPingValue>(desired);
         else matches_desired = true;
     }, verified_state.value().value);
 
@@ -290,6 +307,7 @@ std::vector<std::unique_ptr<FixAction>> createActions(WindowsStateApi& api) {
     actions.push_back(std::make_unique<WindowsFixAction>(ActionId::Dns, api));
     actions.push_back(std::make_unique<WindowsFixAction>(ActionId::Mtu, api));
     actions.push_back(std::make_unique<WindowsFixAction>(ActionId::ProcessPriority, api));
+    actions.push_back(std::make_unique<WindowsFixAction>(ActionId::Cs2MaxPing, api));
     return actions;
 }
 

@@ -12,6 +12,7 @@
 #include "ui/overlay.h"
 #include "ui/theme.h"
 #include "monitoring/monitoring_service.h"
+#include "core/alert_thresholds.h"
 #include "optimization/fps_optimizer.h"
 #include "core/network_utils.h"
 
@@ -150,7 +151,11 @@ int main(int argc, char* argv[]) {
                 &app, &QApplication::quit);
 
         // service -> tray
-        QObject::connect(&svc, &gno::MonitoringService::pingUpdated,
+        QObject::connect(&svc, &gno::MonitoringService::gameStarted, &window, [&tray](const QString& game) {
+        const auto th = gno::AlertThresholds::forGame(game.toStdString());
+        tray.setAlertThresholds(th.max_ping_ms, th.max_loss_percent);
+    });
+QObject::connect(&svc, &gno::MonitoringService::pingUpdated,
                 &tray, &gno::SystemTray::updatePing);
         QObject::connect(&svc, &gno::MonitoringService::jitterUpdated,
                 &tray, &gno::SystemTray::updateJitter);
@@ -158,7 +163,11 @@ int main(int argc, char* argv[]) {
                 &tray, &gno::SystemTray::updatePacketLoss);
 
         // service -> status bar
-        QObject::connect(&svc, &gno::MonitoringService::pingUpdated,
+        QObject::connect(&svc, &gno::MonitoringService::gameStarted, &window, [&tray](const QString& game) {
+        const auto th = gno::AlertThresholds::forGame(game.toStdString());
+        tray.setAlertThresholds(th.max_ping_ms, th.max_loss_percent);
+    });
+QObject::connect(&svc, &gno::MonitoringService::pingUpdated,
                 &window, [&window](double ms) {
             const gno::MonitoringService& s = gno::MonitoringService::instance();
             window.updateLiveMetrics(static_cast<int>(ms), static_cast<int>(s.currentJitter()),
