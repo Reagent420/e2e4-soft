@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 // Self-contained safe-remediation domain types (port of the C# Gno.Core.Remediation
 // model, which itself mirrors the e2e4 fix_transaction design).
@@ -32,7 +32,8 @@ enum class ActionId {
     ProcessPriority = 7,
     Cs2MaxPing = 8,
     GameMode = 9,
-    MouseAccel = 10
+    MouseAccel = 10,
+    Cs2FpsUnlock = 11
 };
 
 enum class ActionStatus {
@@ -203,6 +204,10 @@ struct Cs2MaxPingValue {
     std::uint32_t max_ping = 60;
     bool operator==(const Cs2MaxPingValue&) const = default;
 };
+struct Cs2FpsUnlockValue {
+    std::uint32_t fps_cap = 0; // 0 = unlimited
+    bool operator==(const Cs2FpsUnlockValue&) const = default;
+};
 struct MouseAccelValue {
     std::uint32_t speed = 0;      // 1 = enhanced pointer precision on
     std::uint32_t threshold1 = 0;
@@ -321,7 +326,7 @@ inline std::string to_string(ActionId id) {
         case ActionId::Mtu: return "Mtu";
         case ActionId::ProcessPriority: return "ProcessPriority";
         case ActionId::GameMode: return "GameMode";
-        case ActionId::MouseAccel: return "MouseAccel";
+        case ActionId::MouseAccel: return "MouseAccel"; 
     }
     return "Unknown";
 }
