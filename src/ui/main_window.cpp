@@ -59,34 +59,34 @@ void MainWindow::setupUi()
     auto* statusBarLayout = new QHBoxLayout(statusBarWidget);
     statusBarLayout->setContentsMargins(16, 8, 16, 8);
 
-    m_statusLabel = new QLabel(QString::fromUtf8("√ÓÚÓ‚Ó Í ‡·ÓÚÂ"), statusBarWidget);
+    m_statusLabel = new QLabel(QString::fromUtf8("–ì–æ—Ç–æ–≤–æ –∫ —Ä–∞–±–æ—Ç–µ"), statusBarWidget);
     m_statusLabel->setObjectName("statusDisconnected");
     statusBarLayout->addWidget(m_statusLabel);
     statusBarLayout->addStretch();
 
     auto metricStyle = QString("color: rgba(255,255,255,0.55); font-size: 11px; background: transparent;");
 
-    m_pingLabel = new QLabel(QString::fromUtf8("œËÌ„: --"), statusBarWidget);
+    m_pingLabel = new QLabel(QString::fromUtf8("–ü–∏–Ω–≥: --"), statusBarWidget);
     m_pingLabel->setStyleSheet(metricStyle);
     statusBarLayout->addWidget(m_pingLabel);
     statusBarLayout->addSpacing(12);
 
-    m_jitterLabel = new QLabel(QString::fromUtf8("ƒÊËÚÚÂ: --"), statusBarWidget);
+    m_jitterLabel = new QLabel(QString::fromUtf8("–î–∂–∏—Ç—Ç–µ—Ä: --"), statusBarWidget);
     m_jitterLabel->setStyleSheet(metricStyle);
     statusBarLayout->addWidget(m_jitterLabel);
     statusBarLayout->addSpacing(12);
 
-    m_lossLabel = new QLabel(QString::fromUtf8("œÓÚÂË: --"), statusBarWidget);
+    m_lossLabel = new QLabel(QString::fromUtf8("–ü–æ—Ç–µ—Ä–∏: --"), statusBarWidget);
     m_lossLabel->setStyleSheet(metricStyle);
     statusBarLayout->addWidget(m_lossLabel);
     statusBarLayout->addSpacing(12);
 
-    m_boostLabel = new QLabel(QString::fromUtf8("Œœ“»Ã»«¿÷»ﬂ: ¬€ À"), statusBarWidget);
+    m_boostLabel = new QLabel(QString::fromUtf8("–û–ü–¢–ò–ú–ò–ó–ê–¶–ò–Ø: –í–´–ö–õ"), statusBarWidget);
     m_boostLabel->setObjectName("boostTag");
     statusBarLayout->addWidget(m_boostLabel);
     statusBarLayout->addSpacing(8);
 
-    auto* hint = new QLabel(QString::fromUtf8("E2E4 Soft ó ÓÔÚËÏËÁ‡ˆËˇ Ë„Ó‚ÓÈ ÒÂÚË"), statusBarWidget);
+    auto* hint = new QLabel(QString::fromUtf8("E2E4 Soft ‚Äî –æ–ø—Ç–∏–º–∏–∑–∞—Ü–∏—è –∏–≥—Ä–æ–≤–æ–π —Å–µ—Ç–∏"), statusBarWidget);
     hint->setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px; background: transparent;");
     statusBarLayout->addWidget(hint);
 
@@ -154,10 +154,10 @@ QWidget* MainWindow::ensurePage(int index)
 
 void MainWindow::updateLiveMetrics(int pingMs, int jitterMs, double lossPercent)
 {
-    m_pingLabel->setText(QString::fromUtf8("œËÌ„: %1 ÏÒ").arg(pingMs));
-    m_jitterLabel->setText(QString::fromUtf8("ƒÊËÚÚÂ: %1 ÏÒ").arg(jitterMs));
-    m_lossLabel->setText(QString::fromUtf8("œÓÚÂË: %1%").arg(lossPercent, 0, 'f', 1));
-    m_statusLabel->setText(QString::fromUtf8("ŒÌÎ‡ÈÌ"));
+    m_pingLabel->setText(QString::fromUtf8("–ü–∏–Ω–≥: %1 –º—Å").arg(pingMs));
+    m_jitterLabel->setText(QString::fromUtf8("–î–∂–∏—Ç—Ç–µ—Ä: %1 –º—Å").arg(jitterMs));
+    m_lossLabel->setText(QString::fromUtf8("–ü–æ—Ç–µ—Ä–∏: %1%").arg(lossPercent, 0, 'f', 1));
+    m_statusLabel->setText(QString::fromUtf8("–û–Ω–ª–∞–π–Ω"));
     m_statusLabel->setObjectName("statusConnected");
     m_statusLabel->style()->unpolish(m_statusLabel);
     m_statusLabel->style()->polish(m_statusLabel);
@@ -165,7 +165,7 @@ void MainWindow::updateLiveMetrics(int pingMs, int jitterMs, double lossPercent)
 
 void MainWindow::setBoostIndicator(bool on)
 {
-    m_boostLabel->setText(on ? QString::fromUtf8("Œœ“»Ã»«¿÷»ﬂ: ¬ À") : QString::fromUtf8("Œœ“»Ã»«¿÷»ﬂ: ¬€ À"));
+    m_boostLabel->setText(on ? QString::fromUtf8("–û–ü–¢–ò–ú–ò–ó–ê–¶–ò–Ø: –í–ö–õ") : QString::fromUtf8("–û–ü–¢–ò–ú–ò–ó–ê–¶–ò–Ø: –í–´–ö–õ"));
 }
 
 void MainWindow::showRecommendation(const QString& text)
