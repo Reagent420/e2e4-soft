@@ -1,4 +1,4 @@
-﻿#include "sidebar.h"
+#include "sidebar.h"
 #include "theme.h"
 
 #include <QPainterPath>
@@ -41,7 +41,8 @@ Sidebar::Sidebar(QWidget* parent)
     m_buttonGroup->addButton(createNavButton(NavPage::Diagnostics),        8);
     m_buttonGroup->addButton(createNavButton(NavPage::Remediation),        9);
     m_buttonGroup->addButton(createNavButton(NavPage::GeoMap),            10);
-    m_buttonGroup->addButton(createNavButton(NavPage::Settings),          11);
+    m_buttonGroup->addButton(createNavButton(NavPage::FineTune),          11);
+    m_buttonGroup->addButton(createNavButton(NavPage::Settings),          12);
 
     for (int i = 0; i < BUTTON_COUNT; ++i) {
         layout->addWidget(m_buttonGroup->button(i));
@@ -69,6 +70,7 @@ QPushButton* Sidebar::createNavButton(NavPage page)
         case NavPage::History:       label = QString::fromUtf8("\xD0\x98\xD1\x81\xD1\x82\xD0\xBE\xD1\x80\xD0\xB8\xD1\x8F"); break;
         case NavPage::Diagnostics:   label = QString::fromUtf8("\xD0\x94\xD0\xB8\xD0\xB0\xD0\xB3\xD0\xBD\xD0\xBE\xD1\x81\xD1\x82\xD0\xB8\xD0\xBA\xD0\xB0"); break;
         case NavPage::Remediation:   label = QString::fromUtf8("\xD0\x9E\xD0\xBF\xD1\x82\xD0\xB8\xD0\xBC\xD0\xB8\xD0\xB7\xD0\xB0\xD1\x86\xD0\xB8\xD1\x8F\x20Win"); break;
+        case NavPage::FineTune:      label = QString::fromUtf8("\xD0\xA2\xD0\xBE\xD0\xBD\xD0\xBA\xD0\xB0\xD1\x8F\x20\xD0\xBD\xD0\xB0\xD1\x81\xD1\x82\xD1\x80\xD0\xBE\xD0\xB9\xD0\xBA\xD0\xB0"); break;
         case NavPage::GeoMap:        label = QString::fromUtf8("\xD0\x9A\xD0\xB0\xD1\x80\xD1\x82\xD0\xB0\x20\xD1\x81\xD0\xB5\xD1\x80\xD0\xB2\xD0\xB5\xD1\x80\xD0\xBE\xD0\xB2"); break;
         case NavPage::Settings:      label = QString::fromUtf8("\xD0\x9D\xD0\xB0\xD1\x81\xD1\x82\xD1\x80\xD0\xBE\xD0\xB9\xD0\xBA\xD0\xB8"); break;
         default: break;

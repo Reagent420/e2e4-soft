@@ -53,6 +53,7 @@ set(CORE_SOURCES
     src/remediation/target_discovery.cpp
     src/remediation/legacy_bridge.cpp
     src/core/platform_netscan.cpp
+    src/core/tweak_service.cpp
 )
 
 set(OPT_SOURCES
@@ -85,6 +86,7 @@ set(UI_SOURCES
     src/ui/overlay.cpp
     src/ui/report_export.cpp
     src/ui/remediation_widget.cpp
+    src/ui/fine_tune_widget.cpp
     src/monitoring/monitoring_service.cpp
 )
 

@@ -1,4 +1,4 @@
-#include "main_window.h"
+﻿#include "main_window.h"
 #include "sidebar.h"
 #include "theme.h"
 
@@ -16,6 +16,7 @@
 #include "session_history_widget.h"
 #include "diagnostics_widget.h"
 #include "remediation_widget.h"
+#include "fine_tune_widget.h"
 #include "geo_map.h"
 #include "settings_page.h"
 
@@ -102,8 +103,8 @@ void MainWindow::setupPages()
     m_stackedWidget->addWidget(new DashboardWidget(this));
     m_stackedWidget->addWidget(new GameListWidget(this));
     m_stackedWidget->addWidget(new GameProfilesWidget(this));
-    m_page_creators_.resize(12);
-    m_page_created_.assign(12, false);
+    m_page_creators_.resize(13);
+    m_page_created_.assign(13, false);
     m_page_creators_[3] = [this]() { return new MonitoringWidget(this); };
     m_stackedWidget->addWidget(new QWidget(this)); // placeholder 3
     m_stackedWidget->addWidget(new OptimizerWidget(this));
@@ -116,16 +117,11 @@ void MainWindow::setupPages()
     m_stackedWidget->addWidget(new RemediationWidget(this));
     m_page_creators_[10] = [this]() { return new GeoMapWidget(this); };
     m_stackedWidget->addWidget(new QWidget(this)); // placeholder 10
+    m_page_creators_[11] = [this]() { return new FineTuneWidget(this); };
+    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 11
+    m_page_creators_[12] = [this]() { return new SettingsPageWidget(this); };
+    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 12
 
-    auto* settings = new SettingsPageWidget(this);
-    connect(settings, &SettingsPageWidget::themeChanged, this, &MainWindow::themeChanged);
-    connect(settings, &SettingsPageWidget::overlayChanged,
-            this, &MainWindow::overlaySettingsChanged);
-    connect(settings, &SettingsPageWidget::soundChanged,
-            this, &MainWindow::soundSettingsChanged);
-    connect(settings, &SettingsPageWidget::notificationsChanged,
-            this, &MainWindow::notificationsSettingsChanged);
-    m_stackedWidget->addWidget(settings);
 }
 
 void MainWindow::onNavigationChanged(int index)
@@ -149,6 +145,19 @@ QWidget* MainWindow::ensurePage(int index)
     m_stackedWidget->insertWidget(pos, page);
     m_page_created_[static_cast<std::size_t>(index)] = true;
     return page;
+    if (index == 12) {
+        auto* settingsPage = qobject_cast<SettingsPageWidget*>(page);
+        if (settingsPage) {
+            connect(settingsPage, &SettingsPageWidget::themeChanged,
+                    this, &MainWindow::themeChanged);
+            connect(settingsPage, &SettingsPageWidget::overlayChanged,
+                    this, &MainWindow::overlaySettingsChanged);
+            connect(settingsPage, &SettingsPageWidget::soundChanged,
+                    this, &MainWindow::soundSettingsChanged);
+            connect(settingsPage, &SettingsPageWidget::notificationsChanged,
+                    this, &MainWindow::notificationsSettingsChanged);
+        }
+    }
 }
 
 
