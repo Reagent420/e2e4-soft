@@ -9,9 +9,10 @@
 #include <QHeaderView>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
+#include <QPen>
 #include <QSettings>
 #include <QTime>
-#include <QDateTime>
 #include <QVBoxLayout>
 
 #include <atomic>
@@ -30,7 +31,7 @@ QColor gradeColor(int latency) {
         case MapGrade::Offline: return QColor(0x8A, 0x4A, 0x6E);
         default:                break;
     }
-    return QColor(theme::Colors::ACCENT_NEON); // unknown: hollow neon ring
+    return QColor(theme::Colors::ACCENT_NEON);
 }
 
 QString gradeTag(int latency) {
@@ -42,6 +43,40 @@ QString gradeTag(int latency) {
         default:                return QStringLiteral("[?]");
     }
 }
+
+// Rough continental outlines (lon, lat), stylized wireframe quality.
+struct WorldPoly { const double* pts; int n; };
+
+const double kNorthAmerica[] = {
+    -168,66, -140,70, -125,71, -110,72, -95,72, -80,73, -70,62, -55,52,
+    -65,45, -75,40, -81,31, -80,26, -97,26, -105,22, -114,29, -124,40,
+    -130,55, -145,60, -160,58};
+const double kSouthAmerica[] = {
+    -81,8, -75,10, -62,10, -50,0, -35,-8, -39,-15, -48,-28, -58,-34,
+    -62,-41, -65,-50, -70,-54, -75,-46, -72,-30, -70,-18, -77,-6, -81,2};
+const double kGreenland[] = {
+    -58,76, -40,83, -20,80, -25,70, -42,60, -52,64};
+const double kEurasia[] = {
+    -9,43, -1,49, 5,53, 10,57, 20,55, 30,59, 45,66, 70,72, 100,76,
+    140,72, 160,69, 180,66, 178,62, 160,60, 155,53, 142,46, 135,43,
+    127,40, 122,30, 112,22, 104,10, 98,8, 92,20, 88,21, 80,10, 72,20,
+    66,25, 58,26, 50,29, 44,37, 36,36, 27,40, 22,38, 14,38, 8,44, 0,47, -4,44};
+const double kAfrica[] = {
+    -17,15, -8,32, 0,36, 11,33, 20,32, 32,31, 34,27, 38,18, 43,11,
+    51,12, 45,0, 40,-8, 35,-18, 32,-26, 26,-34, 19,-34, 14,-26,
+    12,-18, 8,-2, -5,4, -12,8};
+const double kAustralia[] = {
+    113,-22, 122,-17, 131,-11, 137,-12, 143,-13, 147,-19, 153,-26,
+    150,-34, 144,-38, 138,-35, 129,-32, 118,-34, 114,-28};
+
+const WorldPoly kWorld[] = {
+    {kNorthAmerica, sizeof(kNorthAmerica)/sizeof(double)/2},
+    {kSouthAmerica, sizeof(kSouthAmerica)/sizeof(double)/2},
+    {kGreenland,    sizeof(kGreenland)/sizeof(double)/2},
+    {kEurasia,      sizeof(kEurasia)/sizeof(double)/2},
+    {kAfrica,       sizeof(kAfrica)/sizeof(double)/2},
+    {kAustralia,    sizeof(kAustralia)/sizeof(double)/2},
+};
 
 } // namespace
 
@@ -59,20 +94,25 @@ void MapCanvas::bind(std::vector<MapServer>* servers, std::vector<int>* visible,
     show_labels_ = show_labels; show_grid_ = show_grid;
 }
 
-QPointF MapCanvas::nodePos(const MapServer& s) const {
+void MapCanvas::setPulsePhase(bool on) {
+    pulse_on_ = on;
+    update();
+}
+
+QPointF MapCanvas::project(double lon, double lat) const {
     const double w = static_cast<double>(width());
     const double h = static_cast<double>(height());
-    // small inner margins so edge nodes stay visible
-    const double mx = 18, my = 18;
-    return QPointF(mx + (s.longitude + 180.0) / 360.0 * (w - 2 * mx),
-                   my + (90.0 - s.latitude) / 180.0 * (h - 2 * my));
+    const double mx = 16, my = 16;
+    return QPointF(mx + (lon + 180.0) / 360.0 * (w - 2 * mx),
+                   my + (90.0 - lat) / 180.0 * (h - 2 * my));
 }
 
 int MapCanvas::pickNode(const QPoint& pos) const {
     int picked = -1;
     double best_d2 = 16.0 * 16.0;
     for (int idx : *visible_) {
-        const QPointF p = nodePos((*servers_)[static_cast<std::size_t>(idx)]);
+        const auto& s = (*servers_)[static_cast<std::size_t>(idx)];
+        const QPointF p = project(s.longitude, s.latitude);
         const double dx = p.x() - pos.x(), dy = p.y() - pos.y();
         if (dx * dx + dy * dy < best_d2) { best_d2 = dx * dx + dy * dy; picked = idx; }
     }
@@ -90,23 +130,46 @@ void MapCanvas::mousePressEvent(QMouseEvent* e) {
     QWidget::mousePressEvent(e);
 }
 
+void MapCanvas::drawWorld(QPainter& p) const {
+    QPen pen(QColor(0, 240, 255, 80));
+    pen.setWidthF(1.2);
+    p.setPen(pen);
+    p.setBrush(QColor(0, 240, 255, 12));
+
+    for (const auto& poly : kWorld) {
+        QPainterPath path;
+        for (int i = 0; i < poly.n; ++i) {
+            const QPointF pt = project(poly.pts[i * 2], poly.pts[i * 2 + 1]);
+            if (i == 0) path.moveTo(pt); else path.lineTo(pt);
+        }
+        path.closeSubpath();
+        p.drawPath(path);
+    }
+}
+
 void MapCanvas::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
 
-    p.fillRect(rect(), QColor(theme::Colors::BG_PRIMARY));
+    // deep background with subtle vertical gradient
+    QLinearGradient bg(0, 0, 0, height());
+    bg.setColorAt(0, QColor(0x0A, 0x0E, 0x17));
+    bg.setColorAt(1, QColor(0x08, 0x10, 0x1C));
+    p.fillRect(rect(), bg);
 
     if (show_grid_ && *show_grid_) {
-        p.setPen(QPen(QColor(0, 240, 255, 22), 1));
+        p.setPen(QPen(QColor(0, 240, 255, 18), 1));
         for (int lon = -150; lon <= 150; lon += 30) {
-            const double x = 18.0 + (lon + 180.0) / 360.0 * (width() - 36.0);
-            p.drawLine(QPointF(x, 0), QPointF(x, static_cast<double>(height())));
+            const QPointF a = project(lon, 90), b = project(lon, -90);
+            p.drawLine(a, b);
         }
         for (int lat = -60; lat <= 60; lat += 30) {
-            const double y = 18.0 + (90.0 - lat) / 180.0 * (height() - 36.0);
-            p.drawLine(QPointF(0, y), QPointF(static_cast<double>(width()), y));
+            const QPointF a = project(-180, lat), b = project(180, lat);
+            p.drawLine(a, b);
         }
     }
+
+    drawWorld(p);
 
     if (!servers_ || !visible_) return;
 
@@ -116,26 +179,25 @@ void MapCanvas::paintEvent(QPaintEvent*) {
 
     for (int idx : *visible_) {
         const MapServer& s = (*servers_)[static_cast<std::size_t>(idx)];
-        const QPointF pos = nodePos(s);
+        const QPointF pos = project(s.longitude, s.latitude);
         const QColor c = gradeColor(s.latency_ms);
         const MapGrade g = ServerMapModel::grade(s.latency_ms);
         const bool selected = (idx == *selected_);
         const bool is_best = (idx == *best_);
 
         if (g == MapGrade::Unknown) {
-            // hollow neon ring: clearly visible before probing
             QPen pen(QColor(theme::Colors::ACCENT_NEON));
             pen.setWidth(2);
             p.setPen(pen);
             p.setBrush(Qt::NoBrush);
             p.drawEllipse(pos, 6, 6);
         } else {
-            // soft halo for measured nodes
             QColor halo = c;
-            halo.setAlpha(70);
+            halo.setAlpha(selected ? 90 : 60);
             p.setPen(Qt::NoPen);
             p.setBrush(halo);
-            p.drawEllipse(pos, 10, 10);
+            const qreal halo_r = (selected && pulse_on_) ? 13 : 10;
+            p.drawEllipse(pos, halo_r, halo_r);
 
             p.setBrush(c);
             p.drawEllipse(pos, selected ? 7 : 5, selected ? 7 : 5);
@@ -153,7 +215,7 @@ void MapCanvas::paintEvent(QPaintEvent*) {
             ring.setWidth(2);
             p.setPen(ring);
             p.setBrush(Qt::NoBrush);
-            p.drawEllipse(pos, 12, 12);
+            p.drawEllipse(pos, 13, 13);
         }
 
         if (show_labels_ && *show_labels_) {
@@ -163,38 +225,17 @@ void MapCanvas::paintEvent(QPaintEvent*) {
                                        : QString());
             const QFontMetrics fm(f);
             const int tw = fm.horizontalAdvance(label);
-            QRect pill(static_cast<int>(pos.x()) + 10, static_cast<int>(pos.y()) - 9,
-                       tw + 10, 18);
-            QColor pill_bg(6, 14, 26, 200);
+            // stagger labels to reduce overlap in dense regions
+            const bool above = (idx % 2) == 0;
+            QRect pill(static_cast<int>(pos.x()) + 10,
+                       static_cast<int>(pos.y()) + (above ? -24 : 6),
+                       tw + 10, 17);
             p.setPen(Qt::NoPen);
-            p.setBrush(pill_bg);
+            p.setBrush(QColor(6, 14, 26, 205));
             p.drawRoundedRect(pill, 4, 4);
             p.setPen(QColor(theme::Colors::TEXT_PRIMARY));
             p.drawText(pill, Qt::AlignVCenter | Qt::AlignHCenter, label);
         }
-    }
-
-    // legend (bottom-left)
-    const struct { QColor c; const char* t; } legend[] = {
-        {gradeColor(20),  "OK"},
-        {gradeColor(70),  "MED"},
-        {gradeColor(150), "BAD"},
-        {gradeColor(-2),  "OFF"},
-        {QColor(theme::Colors::ACCENT_NEON), "?"},
-    };
-    int lx = 10;
-    const int ly = height() - 16;
-    QFont lf = font();
-    lf.setPointSizeF(7.5);
-    p.setFont(lf);
-    const QFontMetrics lfm(lf);
-    for (const auto& item : legend) {
-        p.setPen(Qt::NoPen);
-        p.setBrush(item.c);
-        p.drawEllipse(QPointF(lx + 4, ly - 3), 4, 4);
-        p.setPen(QColor(theme::Colors::TEXT_SECONDARY));
-        p.drawText(QPointF(lx + 12, ly), QString::fromLatin1(item.t));
-        lx += 18 + lfm.horizontalAdvance(QString::fromLatin1(item.t)) + 8;
     }
 }
 
@@ -207,18 +248,26 @@ GeoMapWidget::GeoMapWidget(QWidget* parent) : QWidget(parent) {
                                      n.latitude, n.longitude, -1});
 
     setupUI();
+    loadSettings();
+    rebuildVisibleServers();
+    canvas_->bind(&servers_, &visible_, &selected_, &best_,
+                  &m_labels_shown_, &m_grid_shown_);
+    updateDetailsCard();
+
     m_timer_ = new QTimer(this);
     connect(m_timer_, &QTimer::timeout, this, [this]() {
         if (isVisible()) onCheckAllClicked();
     });
-    loadSettings();
-    rebuildVisibleServers();
-    canvas_->bind(&servers_, &visible_, &selected_, &best_, &m_labels_shown_, &m_grid_shown_);
-    updateDetailsCard();
+
+    m_pulse_timer_ = new QTimer(this);
+    m_pulse_timer_->setInterval(600);
+    connect(m_pulse_timer_, &QTimer::timeout, this, [this]() {
+        pulse_phase_ = !pulse_phase_;
+        canvas_->setPulsePhase(pulse_phase_);
+    });
+    m_pulse_timer_->start(600);
 
     canvas_->onClicked = [this]() { updateDetailsCard(); };
-
-
 }
 
 void GeoMapWidget::showEvent(QShowEvent* event) {
@@ -238,11 +287,11 @@ void GeoMapWidget::setupUI() {
     canvas_ = new MapCanvas(this);
     root->addWidget(canvas_, /*stretch*/ 1);
 
-    // ---------------- settings panel (fixed width) ----------------
     auto* panelWrap = new QWidget(this);
     panelWrap->setFixedWidth(320);
+    panelWrap->setObjectName("settingsGroup");
     auto* panel = new QVBoxLayout(panelWrap);
-    panel->setContentsMargins(0, 0, 0, 0);
+    panel->setContentsMargins(16, 14, 16, 14);
     panel->setSpacing(8);
 
     auto* title = new QLabel(QStringLiteral("SERVER MAP"), panelWrap);
@@ -395,25 +444,6 @@ void GeoMapWidget::startProbeThread(bool all) {
     if (all) targets = visible_;
     else if (selected_ >= 0) targets.push_back(selected_);
 
-    if (all) {
-        // cooldown: skip nodes probed less than 2 minutes ago
-        const auto now = QDateTime::currentMSecsSinceEpoch();
-        std::vector<int> fresh;
-        for (int idx : targets) {
-            const auto& s = servers_[static_cast<std::size_t>(idx)];
-            if ((s.latency_ms == -1 || s.latency_ms == -2) ||
-                now - s.last_probe_ms > 120 * 1000)
-                fresh.push_back(idx);
-        }
-        targets.swap(fresh);
-        if (targets.empty()) {
-            m_progress_->setText(QString::fromUtf8(
-                "\xD0\x92\xD1\x81\xD0\xB5\x20\xD1\x83\xD0\xB7\xD0\xBB\xD1%8B\x20\xD1\x81\xD0\xB2\xD0%B5\xD0%B6\xD0%B8\xD0%B5\x20\x28\x3C\x32\x20\xD0\xBC\xD0%B8\xD0\xBD\x29"));
-            m_check_all_btn_->setEnabled(true);
-            m_check_sel_btn_->setEnabled(true);
-            return;
-        }
-    }
     if (targets.empty()) {
         m_check_all_btn_->setEnabled(true);
         m_check_sel_btn_->setEnabled(true);
@@ -443,9 +473,6 @@ void GeoMapWidget::startProbeThread(bool all) {
 
         QMetaObject::invokeMethod(this, [this, results]() {
             ServerMapModel::applyProbeResults(servers_, results);
-            const auto now_ms = QDateTime::currentMSecsSinceEpoch();
-            for (const auto& [idx, lat] : results)
-                servers_[static_cast<std::size_t>(idx)].last_probe_ms = now_ms;
             best_ = ServerMapModel::bestServer(servers_);
             updateDetailsCard();
             canvas_->update();

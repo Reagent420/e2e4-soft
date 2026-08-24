@@ -16,8 +16,8 @@ class QTextEdit;
 
 namespace gno {
 
-// Dedicated drawing surface: owns nothing, renders shared server state and
-// reports picks through a callback. Never overlaps the settings panel.
+// Dedicated drawing surface: stylized wireframe world + live server nodes.
+// Reports picks through a callback. Never overlaps the settings panel.
 class MapCanvas : public QWidget {
 public:
     MapCanvas(QWidget* parent = nullptr);
@@ -29,7 +29,9 @@ public:
               const bool* show_labels,
               const bool* show_grid);
 
-    std::function<void()> onClicked; // fired after selection index changes
+    void setPulsePhase(bool on); // toggles selected-node glow
+
+    std::function<void()> onClicked;
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -37,8 +39,9 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private:
-    QPointF nodePos(const MapServer& s) const;
+    QPointF project(double lon, double lat) const;
     int pickNode(const QPoint& pos) const;
+    void drawWorld(QPainter& p) const;
 
     std::vector<MapServer>* servers_ = nullptr;
     std::vector<int>* visible_ = nullptr;
@@ -46,6 +49,7 @@ private:
     int* best_ = nullptr;
     const bool* show_labels_ = nullptr;
     const bool* show_grid_ = nullptr;
+    bool pulse_on_ = false;
 };
 
 // Page container: canvas left, settings panel right.
@@ -80,6 +84,7 @@ private:
     bool first_probe_done_ = false;
     bool m_labels_shown_ = true;
     bool m_grid_shown_ = true;
+    bool pulse_phase_ = false;
 
     MapCanvas* canvas_ = nullptr;
     QComboBox* m_region_ = nullptr;
@@ -89,8 +94,9 @@ private:
     QPushButton* m_check_all_btn_ = nullptr;
     QPushButton* m_check_sel_btn_ = nullptr;
     QLabel* m_progress_ = nullptr;
-    class QTextEdit* m_details_ = nullptr;
+    QTextEdit* m_details_ = nullptr;
     QTimer* m_timer_ = nullptr;
+    QTimer* m_pulse_timer_ = nullptr;
 };
 
 } // namespace gno
