@@ -1,10 +1,12 @@
 #include "fps_optimizer_windows.h"
 
 #ifdef PLATFORM_WINDOWS
+#include <winsock2.h>
 #include <windows.h>
 #include <winreg.h>
 #include <tlhelp32.h>
 #include <cwchar>
+#include "../../src/core/launch_diagnostics.h"
 #endif
 
 namespace gno {
@@ -121,14 +123,17 @@ bool FPSOptimizerPlatform::applyConfig(const FPSBoostConfig& config) {
     bool success = true;
     
     if (config.disable_game_dvr) {
+        LaunchDiagnostics::applyFix("game_dvr");
         success &= disableGameDVR();
     }
     
     if (config.disable_fullscreen_optimizations) {
+        LaunchDiagnostics::applyFix("fullscreen_opt");
         success &= disableFullscreenOptimizations();
     }
     
     if (config.disable_mouse_acceleration) {
+        LaunchDiagnostics::applyFix("mouse_accel");
         success &= disableMouseAcceleration();
     }
     
