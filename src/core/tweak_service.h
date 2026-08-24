@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // Transactional applier for the declarative tweak catalogue.
 // Same safety contract as the remediation engine: capture -> write -> verify,
@@ -35,7 +35,8 @@ public:
 
 class TweakService {
 public:
-    TweakService(ITweakAccess& access, std::string rollback_dir)
+    TweakService(ITweakAccess& access, std::string rollback_dir,
+                 std::string external_tweaks_dir = {})
         : access_(access), rollback_dir_(std::move(rollback_dir)) {}
 
     std::vector<TweakView> listViews(const std::string& category) const;
@@ -52,6 +53,7 @@ private:
     std::string snapshotPath() const;
 
     ITweakAccess& access_;
+    std::string external_dir_;
     std::string rollback_dir_;
 };
 

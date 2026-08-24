@@ -1,4 +1,4 @@
-#include "core/tweak_service.h"
+﻿#include "core/tweak_service.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -24,7 +24,7 @@ bool differsFromRecommended(const TweakSpec& s, const TweakValue& v) {
 
 std::vector<TweakView> TweakService::listViews(const std::string& category) const {
     std::vector<TweakView> out;
-    for (const auto& spec : tweaks()) {
+    for (const auto& spec : allTweaks(external_dir_)) {
         if (!category.empty() && category != spec.category) continue;
         TweakView view;
         view.spec = &spec;
@@ -48,7 +48,7 @@ bool TweakService::hasRollbackSnapshot() const {
 std::string TweakService::applyCategory(const std::string& category) {
     // 1. select
     std::vector<const TweakSpec*> selected;
-    for (const auto& spec : tweaks())
+    for (const auto& spec : allTweaks(external_dir_))
         if (category.empty() || spec.category == category)
             selected.push_back(&spec);
 
@@ -117,7 +117,7 @@ std::string TweakService::rollbackLast() {
         const std::string id = json.substr(pos, end_q - pos);
         pos = end_q;
 
-        for (const auto& spec : tweaks()) {
+        for (const auto& spec : allTweaks(external_dir_)) {
             if (id != spec.id) continue;
 
             const std::size_t exi = json.find("\"existed\": ", pos);

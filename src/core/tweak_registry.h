@@ -5,6 +5,11 @@
 // Adding new options = adding one line here. No engine changes required.
 
 #include <cstdint>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace gno {
@@ -178,6 +183,62 @@ inline const std::vector<TweakSpec>& tweaks() {
          "Start", TweakType::Dword, 4, "", false},
     };
     return v;
+}
+
+// ---------------------------------------------------------------- External loading
+
+/// Parses one .tweak file (INI format). Returns nullopt on parse error.
+inline std::optional<TweakSpec> parseTweakFile(const std::string& path) {
+    std::ifstream file(path);
+    if (!file) return std::nullopt;
+
+    TweakSpec s{};
+    bool has_id = false;
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#' || line[0] == ';') continue;
+        const auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string key = line.substr(0, eq);
+        const std::string val = line.substr(eq + 1);
+        auto b = [&]() { return val == "1" || val == "true"; };
+        if (key == "id") { s.id = _strdup(val.c_str()); has_id = true; }
+        else if (key == "category") s.category = _strdup(val.c_str());
+        else if (key == "title") s.title = _strdup(val.c_str());
+        else if (key == "description") s.description = _strdup(val.c_str());
+        else if (key == "root") s.root = (val == "HKLM") ? TweakRoot::HKLM : TweakRoot::HKCU;
+        else if (key == "subkey") s.subkey = _strdup(val.c_str());
+        else if (key == "value_name") s.value_name = _strdup(val.c_str());
+        else if (key == "type") s.type = (val == "sz") ? TweakType::Sz : TweakType::Dword;
+        else if (key == "dword_value") { try { s.dword_value = static_cast<std::uint32_t>(std::stoul(val)); } catch (...) {} }
+        else if (key == "sz_value") s.sz_value = _strdup(val.c_str());
+        else if (key == "needs_reboot") s.needs_reboot = b();
+    }
+    if (!has_id) return std::nullopt;
+    return s;
+}
+
+/// Loads all .tweak files from a directory into the external tweaks vector.
+inline void loadExternalTweaks(const std::string& dir_path,
+                                std::vector<TweakSpec>& external) {
+    std::error_code ec;
+    if (!std::filesystem::exists(dir_path, ec)) return;
+    for (const auto& entry : std::filesystem::directory_iterator(dir_path, ec)) {
+        if (entry.path().extension() != ".tweak") continue;
+        if (auto spec = parseTweakFile(entry.path().string()))
+            external.push_back(std::move(*spec));
+    }
+}
+
+/// Returns builtin + external tweaks combined.
+inline std::vector<TweakSpec> allTweaks(const std::string& external_dir = "") {
+    auto result = tweaks();
+    if (!external_dir.empty()) {
+        std::vector<TweakSpec> ext;
+        loadExternalTweaks(external_dir, ext);
+        result.insert(result.end(), ext.begin(), ext.end());
+    }
+    return result;
 }
 
 } // namespace gno
