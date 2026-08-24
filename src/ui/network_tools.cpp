@@ -378,12 +378,13 @@ void NetworkToolsWidget::addUtilitySections(QVBoxLayout* layout)
             const QString ip = resolveToIp(m_target_->text().trimmed());
             RouteAnalyzer ra;
             auto hops = ra.traceroute(ip.toStdString(), 12);
+            SpeedTest st; // one instance for all hops (was leaking per hop)
             std::ostringstream out;
             out << "hop  ip               ms     status\n";
             for (auto& h : hops) {
                 HopStats s; s.hop = static_cast<int>(h.hop_number); s.ip = h.ip_address;
                 if (h.reachable && !h.ip_address.empty() && h.ip_address != "*") {
-                    auto v = twoProbeJitter(*new SpeedTest(), h.ip_address);
+                    auto v = twoProbeJitter(st, h.ip_address);
                     netutils::summarizeProbes(s, v);
                 } else {
                     netutils::summarizeProbes(s, {-1.0});

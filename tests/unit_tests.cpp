@@ -630,3 +630,29 @@ TEST_CASE("ProfileEngine: INI roundtrip, corruption tolerance, unknown keys") {
     CHECK(partial.game_name == "Valorant");
     CHECK(partial.tcp); // default
 }
+TEST_CASE("JsonBackupStore history is chronological, not id-ordered") {
+    FakeStateApi api;
+    auto dir = std::filesystem::temp_directory_path() / "gno_history_order";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    gno::remediation::JsonBackupStore store(dir.string());
+
+    TransactionRecord old_rec{};
+    old_rec.transaction_id = "tx-zzz-old";
+    old_rec.status = gno::remediation::TransactionStatus::Applied;
+    REQUIRE(store.save(old_rec).ok());
+    // push its mtime 2 hours into the past
+    const auto now_ft = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(dir / "tx-zzz-old.json", now_ft - std::chrono::hours(2));
+
+    TransactionRecord new_rec{};
+    new_rec.transaction_id = "tx-000-new";
+    new_rec.status = gno::remediation::TransactionStatus::Applied;
+    REQUIRE(store.save(new_rec).ok());
+
+    auto list = store.list();
+    REQUIRE(list.ok());
+    REQUIRE(list.value().size() == 2);
+    CHECK(list.value().front().transaction_id == "tx-000-new"); // newer first despite smaller id
+    std::filesystem::remove_all(dir, ec);
+}

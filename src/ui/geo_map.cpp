@@ -218,13 +218,15 @@ GeoMapWidget::GeoMapWidget(QWidget* parent) : QWidget(parent) {
 
     canvas_->onClicked = [this]() { updateDetailsCard(); };
 
-    // First automatic probe so the map never looks "empty".
-    QTimer::singleShot(600, this, [this]() {
-        if (!first_probe_done_ && isVisible()) {
-            first_probe_done_ = true;
-            onCheckAllClicked();
-        }
-    });
+
+}
+
+void GeoMapWidget::showEvent(QShowEvent* event) {
+    if (!first_probe_done_) {
+        first_probe_done_ = true;
+        QTimer::singleShot(300, this, [this]() { onCheckAllClicked(); });
+    }
+    QWidget::showEvent(event);
 }
 
 void GeoMapWidget::setupUI() {

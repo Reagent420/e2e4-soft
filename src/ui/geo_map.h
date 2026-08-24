@@ -58,6 +58,9 @@ public:
 signals:
     void probeProgress(const QString& text);
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private slots:
     void onCheckAllClicked();
     void onCheckSelectedClicked();

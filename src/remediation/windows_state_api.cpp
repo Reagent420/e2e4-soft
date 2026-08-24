@@ -1,8 +1,10 @@
-#include "remediation/windows_state_api.h"
+﻿#include "remediation/windows_state_api.h"
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
 #include <windows.h>
 #include <winreg.h>
-#include <iphlpapi.h>
 #include <powrprof.h>
 
 #include <algorithm>
@@ -70,6 +72,30 @@ Error mapLastError(const std::string& context) {
                        context + ": error " + std::to_string(err));
 }
 
+// netsh expects the adapter FRIENDLY name, while the registry key uses the GUID.
+static std::string friendlyNameForGuid(const std::string& guid) {
+    ULONG size = 15000;
+    std::vector<char> buffer(size);
+    auto* adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+    if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, nullptr, adapters, &size) ==
+        ERROR_BUFFER_OVERFLOW) {
+        buffer.resize(size);
+        adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+    }
+    if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, nullptr, adapters, &size) != NO_ERROR)
+        return guid;
+    for (auto* a = adapters; a; a = a->Next) {
+        char name_guid[128] = {};
+        strncpy(name_guid, a->AdapterName, sizeof(name_guid) - 1);
+        if (_stricmp(name_guid, guid.c_str()) == 0) {
+            char friendly[256] = {};
+            WideCharToMultiByte(CP_UTF8, 0, a->FriendlyName, -1,
+                                friendly, sizeof(friendly), nullptr, nullptr);
+            return friendly;
+        }
+    }
+    return guid;
+}
 std::string runCommand(const std::string& command) {
     SECURITY_ATTRIBUTES sa{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
     HANDLE read_end = nullptr;
@@ -135,14 +161,14 @@ Result<DnsValue> WindowsStateApi::getDns(const InterfaceTarget& iface) {
 SimpleResult WindowsStateApi::setDns(const InterfaceTarget& iface, const DnsValue& value) {
     const std::string guid = stripBraces(iface.id);
     std::ostringstream command;
-    command << "netsh interface ip set dns name=\"" << guid << "\" ";
+    command << "netsh interface ip set dns name=\"" << friendlyNameForGuid(guid) << "\" ";
     if (value.automatic) {
         command << "source=dhcp";
     } else {
         command << "static addr=" << (value.servers.empty() ? kFallbackDns : value.servers[0]);
         command << " register=primary";
         if (value.servers.size() > 1)
-            command << " >nul & netsh interface ip add dns name=\"" << guid << "\" addr="
+            command << " >nul & netsh interface ip add dns name=\"" << friendlyNameForGuid(guid) << "\" addr="
                     << value.servers[1] << " index=2";
     }
     runCommand(command.str());

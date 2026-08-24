@@ -557,8 +557,11 @@ Result<std::vector<TransactionSummary>> JsonBackupStore::list() {
             result.push_back({record.transaction_id, record.status, time_buf});
         }
     }
+    // Chronological order (newest first). IDs are NOT monotonic.
     std::sort(result.begin(), result.end(),
-              [](const TransactionSummary& a, const TransactionSummary& b) { return a.transaction_id > b.transaction_id; });
+              [](const TransactionSummary& a, const TransactionSummary& b) {
+                  return a.created_at > b.created_at;
+              });
     return result;
 }
 
