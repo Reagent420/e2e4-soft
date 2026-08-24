@@ -13,7 +13,7 @@
 namespace gno {
 namespace remediation {
 
-inline constexpr std::size_t kMaxTransactionActions = 8;
+inline constexpr std::size_t kMaxTransactionActions = 12;
 inline constexpr std::size_t kMaxTransactionIdLength = 64;
 inline constexpr std::size_t kMaxInterfaceIdLength = 128;
 inline constexpr std::size_t kMaxExecutablePathLength = 4096;
@@ -30,7 +30,9 @@ enum class ActionId {
     Dns = 5,
     Mtu = 6,
     ProcessPriority = 7,
-    Cs2MaxPing = 8
+    Cs2MaxPing = 8,
+    GameMode = 9,
+    MouseAccel = 10
 };
 
 enum class ActionStatus {
@@ -85,7 +87,8 @@ enum class PriorityLevel {
 enum class AllowedRegistryKey {
     GameDvrEnabled = 0,
     AppCaptureEnabled = 1,
-    TcpInitialRetransmissionTimeout = 2
+    TcpInitialRetransmissionTimeout = 2,
+    GameModeAllow = 3
 };
 
 // ---------------------------------------------------------------- Result<T>
@@ -200,9 +203,16 @@ struct Cs2MaxPingValue {
     std::uint32_t max_ping = 60;
     bool operator==(const Cs2MaxPingValue&) const = default;
 };
+struct MouseAccelValue {
+    std::uint32_t speed = 0;      // 1 = enhanced pointer precision on
+    std::uint32_t threshold1 = 0;
+    std::uint32_t threshold2 = 0;
+    bool operator==(const MouseAccelValue&) const = default;
+};
 
 using ActionValue = std::variant<NoneValue, DnsValue, MtuValue, TcpValue, PowerPlanValue,
-                                 GameDvrValue, FullscreenValue, PriorityValue, Cs2MaxPingValue>;
+                                 GameDvrValue, FullscreenValue, PriorityValue, Cs2MaxPingValue,
+                                 MouseAccelValue, RegistryData>;
 
 // ---------------------------------------------------------------- records
 
@@ -288,6 +298,8 @@ inline bool isValidValue(const ActionValue& value) {
             return !v.identifier.empty() && v.identifier.size() <= 128;
         } else if constexpr (std::is_same_v<U, Cs2MaxPingValue>) {
             return v.max_ping >= 20 && v.max_ping <= 350;
+        } else if constexpr (std::is_same_v<U, MouseAccelValue>) {
+            return v.speed <= 1 && v.threshold1 <= 20 && v.threshold2 <= 20;
         } else {
             return true;
         }
@@ -308,7 +320,8 @@ inline std::string to_string(ActionId id) {
         case ActionId::Dns: return "Dns";
         case ActionId::Mtu: return "Mtu";
         case ActionId::ProcessPriority: return "ProcessPriority";
-        case ActionId::Cs2MaxPing: return "Cs2MaxPing";
+        case ActionId::GameMode: return "GameMode";
+        case ActionId::MouseAccel: return "MouseAccel";
     }
     return "Unknown";
 }

@@ -45,6 +45,8 @@ std::string actionDisplayName(ActionId id) {
         case ActionId::Mtu: return "MTU интерфейса";
         case ActionId::ProcessPriority: return "Приоритет процесса игры";
         case ActionId::Cs2MaxPing: return "CS2 фильтр пинга";
+        case ActionId::GameMode: return "Игровой режим Windows";
+        case ActionId::MouseAccel: return "Ускорение мыши";
     }
     return to_string(id);
 }
@@ -60,6 +62,8 @@ std::string actionDescription(ActionId id) {
         case ActionId::Mtu: return "MTU 1500 убирает фрагментацию пакетов";
         case ActionId::ProcessPriority: return "AboveNormal для процесса игры против фоновых задач";
         case ActionId::Cs2MaxPing: return "Официальный фильтр подбора CS2: максимальный пинг серверов матча";
+        case ActionId::GameMode: return "Отключение авто-игрового режима для стабильного фреймтайма";
+        case ActionId::MouseAccel: return "Отключение повышенной точности указателя (ускорения мыши)";
     }
     return {};
 }
@@ -102,6 +106,13 @@ std::string summarizeValue(const ActionValue& value) {
                 case PriorityLevel::High: return "High";
             }
             return "?";
+        }
+        std::string operator()(const RegistryData& v) const {
+            return std::string("Allow=") + std::to_string(v.value);
+        }
+        std::string operator()(const MouseAccelValue& v) const {
+            return "speed=" + std::to_string(v.speed) + " thr=" + std::to_string(v.threshold1) +
+                   "/" + std::to_string(v.threshold2);
         }
         std::string operator()(const Cs2MaxPingValue& v) const {
             return "max ping = " + std::to_string(v.max_ping);

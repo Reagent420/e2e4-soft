@@ -25,6 +25,8 @@ public:
     virtual Result<PriorityLevel> getPriority(const ProcessTarget& process);
     virtual SimpleResult setPriority(const ProcessTarget& process, PriorityLevel level);
     // CS2 matchmaking ping filter (mm_dedicated_search_maxping in Steam cfg).
+    virtual Result<MouseAccelValue> getMouseAccel();
+    virtual SimpleResult setMouseAccel(const MouseAccelValue& value);
     virtual Result<Cs2MaxPingValue> getCs2MaxPing();
     virtual SimpleResult setCs2MaxPing(const Cs2MaxPingValue& value);
 

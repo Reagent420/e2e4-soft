@@ -32,6 +32,10 @@ ActionValue proposedValueFor(ActionId id) {
             return PriorityValue{PriorityLevel::AboveNormal};
         case ActionId::Cs2MaxPing:
             return Cs2MaxPingValue{60};
+        case ActionId::GameMode:
+            return RegistryData{true, 0, true};
+        case ActionId::MouseAccel:
+            return MouseAccelValue{0, 0, 0};
         case ActionId::EnergyMode:
             break;
     }
@@ -104,6 +108,18 @@ Result<ActionState> WindowsFixAction::observe(const ActionTarget& target) {
             auto mp = api_.getCs2MaxPing();
             if (!mp) return Result<ActionState>(mp.error());
             current = mp.value();
+            break;
+        }
+        case ActionId::GameMode: {
+            auto gm = api_.getAllowedRegistry(AllowedRegistryKey::GameModeAllow);
+            if (!gm) return Result<ActionState>(gm.error());
+            current = gm.value();
+            break;
+        }
+        case ActionId::MouseAccel: {
+            auto ma = api_.getMouseAccel();
+            if (!ma) return Result<ActionState>(ma.error());
+            current = ma.value();
             break;
         }
         case ActionId::EnergyMode:
@@ -221,6 +237,18 @@ Result<ActionState> WindowsFixAction::transition(const PreparedAction& prepared,
             fresh = Result<ActionValue>(r.value());
             break;
         }
+        case ActionId::GameMode: {
+            auto r = api_.getAllowedRegistry(AllowedRegistryKey::GameModeAllow);
+            if (!r) return Result<ActionState>(r.error());
+            fresh = Result<ActionValue>(r.value());
+            break;
+        }
+        case ActionId::MouseAccel: {
+            auto r = api_.getMouseAccel();
+            if (!r) return Result<ActionState>(r.error());
+            fresh = Result<ActionValue>(r.value());
+            break;
+        }
         default:
             return Fail(RemediationError::Unsupported, "unsupported action");
     }
@@ -265,6 +293,13 @@ Result<ActionState> WindowsFixAction::transition(const PreparedAction& prepared,
         case ActionId::Cs2MaxPing:
             written = api_.setCs2MaxPing(std::get<Cs2MaxPingValue>(desired));
             break;
+        case ActionId::GameMode:
+            written = api_.setAllowedRegistry(AllowedRegistryKey::GameModeAllow,
+                                              std::get<RegistryData>(desired));
+            break;
+        case ActionId::MouseAccel:
+            written = api_.setMouseAccel(std::get<MouseAccelValue>(desired));
+            break;
         case ActionId::ProcessPriority:
             written = api_.setPriority(std::get<ProcessTarget>(prepared.target),
                                        std::get<PriorityValue>(desired).level);
@@ -289,6 +324,8 @@ Result<ActionState> WindowsFixAction::transition(const PreparedAction& prepared,
         else if constexpr (std::is_same_v<U, FullscreenValue>) matches_desired = v == std::get<FullscreenValue>(desired);
         else if constexpr (std::is_same_v<U, PriorityValue>) matches_desired = v == std::get<PriorityValue>(desired);
         else if constexpr (std::is_same_v<U, Cs2MaxPingValue>) matches_desired = v == std::get<Cs2MaxPingValue>(desired);
+        else if constexpr (std::is_same_v<U, RegistryData>) matches_desired = v == std::get<RegistryData>(desired);
+        else if constexpr (std::is_same_v<U, MouseAccelValue>) matches_desired = v == std::get<MouseAccelValue>(desired);
         else matches_desired = true;
     }, verified_state.value().value);
 
@@ -308,6 +345,8 @@ std::vector<std::unique_ptr<FixAction>> createActions(WindowsStateApi& api) {
     actions.push_back(std::make_unique<WindowsFixAction>(ActionId::Mtu, api));
     actions.push_back(std::make_unique<WindowsFixAction>(ActionId::ProcessPriority, api));
     actions.push_back(std::make_unique<WindowsFixAction>(ActionId::Cs2MaxPing, api));
+    actions.push_back(std::make_unique<WindowsFixAction>(ActionId::GameMode, api));
+    actions.push_back(std::make_unique<WindowsFixAction>(ActionId::MouseAccel, api));
     return actions;
 }
 

@@ -38,6 +38,8 @@ public:
     bool loadFromFile(const std::string& path = "");
 
     std::string getSavePath() const;
+    bool exportCsv(const std::string& path) const;
+    static constexpr std::size_t kMaxRecords = 500;
     double getAveragePing() const;
     double getAverageJitter() const;
 

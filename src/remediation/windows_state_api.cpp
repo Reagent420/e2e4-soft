@@ -58,6 +58,9 @@ RegistryLocation locationOf(AllowedRegistryKey key) {
                     "GameDVR_Enabled"};
         case AllowedRegistryKey::AppCaptureEnabled:
             return {HKEY_CURRENT_USER, "System\\GameConfigStore", "AppCaptureEnabled"};
+        case AllowedRegistryKey::GameModeAllow:
+            return {HKEY_CURRENT_USER, "Software\\Microsoft\\GameBar",
+                    "AllowAutoGameMode"};
         case AllowedRegistryKey::TcpInitialRetransmissionTimeout:
             return {HKEY_LOCAL_MACHINE,
                     "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
@@ -367,6 +370,55 @@ SimpleResult WindowsStateApi::setFullscreenOptimizations(const ExecutableTarget&
             return Fail(RemediationError::VerificationMismatch, "fullscreen flags did not persist");
     }
     return result;
+}
+
+Result<MouseAccelValue> WindowsStateApi::getMouseAccel() {
+    HKEY key = nullptr;
+    MouseAccelValue v{1, 6, 10}; // Windows defaults = acceleration enabled
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Control Panel\\Mouse", 0, KEY_READ, &key)
+        != ERROR_SUCCESS)
+        return v;
+    auto readStr = [&](const char* name) -> std::string {
+        char buf[32] = {};
+        DWORD sz = sizeof(buf);
+        if (RegQueryValueExA(key, name, nullptr, nullptr, reinterpret_cast<LPBYTE>(buf), &sz)
+            == ERROR_SUCCESS) return buf;
+        return {};
+    };
+    const std::string sp = readStr("MouseSpeed");
+    const std::string t1 = readStr("MouseThreshold1");
+    const std::string t2 = readStr("MouseThreshold2");
+    RegCloseKey(key);
+    try {
+        if (!sp.empty()) v.speed = static_cast<std::uint32_t>(std::stoul(sp));
+        if (!t1.empty()) v.threshold1 = static_cast<std::uint32_t>(std::stoul(t1));
+        if (!t2.empty()) v.threshold2 = static_cast<std::uint32_t>(std::stoul(t2));
+    } catch (...) {}
+    return v;
+}
+
+SimpleResult WindowsStateApi::setMouseAccel(const MouseAccelValue& value) {
+    HKEY key = nullptr;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Control Panel\\Mouse", 0, KEY_SET_VALUE, &key)
+        != ERROR_SUCCESS)
+        return mapLastError("mouse key open");
+    auto writeStr = [&](const char* name, std::uint32_t num) -> bool {
+        const std::string sval = std::to_string(num);
+        return RegSetValueExA(key, name, 0, REG_SZ,
+                              reinterpret_cast<const BYTE*>(sval.c_str()),
+                              static_cast<DWORD>(sval.size() + 1)) == ERROR_SUCCESS;
+    };
+    bool ok = writeStr("MouseSpeed", value.speed);
+    ok = writeStr("MouseThreshold1", value.threshold1) && ok;
+    ok = writeStr("MouseThreshold2", value.threshold2) && ok;
+    RegCloseKey(key);
+    if (!ok) return mapLastError("mouse write");
+    auto verify = getMouseAccel();
+    if (!verify) return verify.error();
+    if (!(verify.value() == value))
+        return Fail(RemediationError::VerificationMismatch,
+                    "mouse accel did not persist (relogin may be required)");
+    return Ok();
 }
 
 Result<Cs2MaxPingValue> WindowsStateApi::getCs2MaxPing() {

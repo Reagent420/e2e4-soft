@@ -1,4 +1,4 @@
-﻿#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "core/game_detector.h"
 #include "core/route_analyzer.h"
@@ -275,6 +275,7 @@ public:
         if (fail_writes) return Fail(RemediationError::ApplyFailed, "injected");
         fullscreen[e.path] = v; return Ok();
     }
+    gno::remediation::MouseAccelValue accel{1, 6, 10};
     std::map<std::uint32_t, std::uint32_t> cs2;
     Result<Cs2MaxPingValue> getCs2MaxPing() override {
         auto it = cs2.find(1);
@@ -283,6 +284,11 @@ public:
     SimpleResult setCs2MaxPing(const Cs2MaxPingValue& v) override {
         if (fail_writes) return Fail(RemediationError::ApplyFailed, "injected");
         cs2[1] = v.max_ping; return Ok();
+    }
+    Result<gno::remediation::MouseAccelValue> getMouseAccel() override { return accel; }
+    gno::remediation::SimpleResult setMouseAccel(const gno::remediation::MouseAccelValue& v) override {
+        if (fail_writes) return Fail(RemediationError::ApplyFailed, "injected");
+        accel = v; return Ok();
     }
     Result<PriorityLevel> getPriority(const ProcessTarget& p) override { return priority[p.pid]; }
     SimpleResult setPriority(const ProcessTarget& p, PriorityLevel l) override {
@@ -334,7 +340,7 @@ TEST_CASE("Remediation observe apply rollback roundtrip") {
 
     auto before = service.observeAll();
     { std::ostringstream dbg; dbg << (int)before.code() << ':' << before.detail(); REQUIRE_MESSAGE(before.ok(), dbg.str()); }
-    CHECK(before.value().size() == 8);
+    CHECK(before.value().size() == 10);
 
     auto applied = service.applyAll();
     REQUIRE(applied.ok());
@@ -399,7 +405,13 @@ TEST_CASE("JsonBackupStore save load list roundtrip") {
     REQUIRE(list.ok());
     CHECK(list.value().size() == 1);
 
-    std::filesystem::remove_all(dir, ec);
+    // DEBUG: re-save loaded record under _re id for byte comparison
+    auto dbg = store.load(list.value().front().transaction_id);
+    if (dbg.ok()) {
+        TransactionRecord rec2 = dbg.value();
+        rec2.transaction_id += "_re";
+        store.save(rec2);
+    }
 }
 
 TEST_CASE("NetworkStatistics computes descriptive metrics") {
@@ -691,4 +703,19 @@ TEST_CASE("AlertThresholds are stricter for tactical shooters") {
     CHECK(AlertThresholds::forGame("PUBG: BATTLEGROUNDS").max_ping_ms == 100);
     CHECK(AlertThresholds::forGame("Something").max_ping_ms == 100);
     CHECK(AlertThresholds::forGame("VALORANT").isDegraded(55, 0));
+}
+TEST_CASE("GameMode and MouseAccel flow through the engine") {
+    FakeStateApi api;
+    MemoryBackupStore store;
+    RemediationService service(api, store, testTargets);
+
+    auto applied = service.applyIds({ActionId::GameMode, ActionId::MouseAccel});
+    REQUIRE(applied.ok());
+    CHECK(applied.value().succeeded);
+    CHECK(api.registry[static_cast<int>(AllowedRegistryKey::GameModeAllow)].value == 0);
+    CHECK(api.accel.speed == 0);
+
+    auto rolled = service.rollback(store.records.begin()->first);
+    REQUIRE(rolled.ok());
+    CHECK(api.accel.speed == 1); // Windows default restored
 }

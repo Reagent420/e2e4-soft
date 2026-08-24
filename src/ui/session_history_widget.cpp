@@ -65,6 +65,16 @@ connect(exportBtn, &QPushButton::clicked, this, [this]() {
                : QString::fromUtf8("Не удалось сохранить отчёт."));
     });
     btnRow->addWidget(exportBtn);
+    auto* csvBtn = new QPushButton(QString::fromUtf8("\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82\x20CSV"), this);
+    csvBtn->setObjectName("boostButton");
+    csvBtn->setFixedWidth(140);
+    connect(csvBtn, &QPushButton::clicked, this, [this]() {
+        const QString path = QString::fromStdString(m_history->getSavePath());
+
+        const bool ok = m_history->exportCsv(path.toStdString());
+        QMessageBox::information(this, QStringLiteral("CSV"), ok ? path : QStringLiteral("Export failed"));
+    });
+    btnRow->addWidget(csvBtn);
 
     auto* clearBtn = new QPushButton(QString::fromUtf8("Очистить историю"), this);
     clearBtn->setObjectName("sidebarButton");

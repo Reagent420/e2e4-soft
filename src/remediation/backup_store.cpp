@@ -272,6 +272,16 @@ void writeValue(const ActionValue& value, std::string& out) {
         void operator()(const Cs2MaxPingValue& v) const {
             out += "{\"$type\":\"cs2maxping\",\"max_ping\":" + std::to_string(v.max_ping) + "}";
         }
+        void operator()(const RegistryData& v) const {
+            out += "{\"$type\":\"registrydata\",\"value\":";
+            writeRegistryData(v, out);
+            out += "}";
+        }
+        void operator()(const MouseAccelValue& v) const {
+            out += "{\"$type\":\"mouseaccel\",\"speed\":" + std::to_string(v.speed) +
+                   ",\"t1\":" + std::to_string(v.threshold1) +
+                   ",\"t2\":" + std::to_string(v.threshold2) + "}";
+        }
     };
     std::visit(Writer{out}, value);
 }
@@ -309,6 +319,12 @@ ActionValue readValue(const Json& j) {
                                j.booleanOr("key_existed", false)};
     if (type == "priority") return PriorityValue{static_cast<PriorityLevel>(j.int32Or("level", 0))};
     if (type == "cs2maxping") return Cs2MaxPingValue{j.uint32Or("max_ping", 60)};
+    if (type == "registrydata") {
+        const Json* inner = j.find("value");
+        return inner ? readRegistryData(*inner) : RegistryData{};
+    }
+    if (type == "mouseaccel")
+        return MouseAccelValue{j.uint32Or("speed", 0), j.uint32Or("t1", 0), j.uint32Or("t2", 0)};
     return NoneValue{};
 }
 

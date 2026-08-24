@@ -79,6 +79,8 @@ void SessionHistory::recordEnd(double avg_ping, double avg_jitter, double loss, 
     current_.duration_seconds = (end > start) ? static_cast<int>(end - start) : 0;
 
     records_.push_back(current_);
+    if (records_.size() > kMaxRecords)
+        records_.erase(records_.begin(), records_.end() - kMaxRecords);
     recording_ = false;
 
     if (records_.size() > 500) {
@@ -214,4 +216,23 @@ bool SessionHistory::loadFromFile(const std::string& path) {
     return true;
 }
 
+bool SessionHistory::exportCsv(const std::string& path) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::ofstream file(path, std::ios::trunc);
+    if (!file) return false;
+    file << "game,start,end,avg_ping_ms,avg_jitter_ms,avg_loss_percent,max_ping_ms,quality_score\n";
+    for (const auto& r : records_) {
+        auto esc = [](std::string s) {
+            std::string out;
+            for (char c : s) { if (c == ',' || c == '"') out += ' '; else out += c; }
+            return out;
+        };
+        file << esc(r.game_name) << ',' << esc(r.start_time_str) << ',' << esc(r.end_time_str)
+             << ',' << r.avg_ping_ms << ',' << r.avg_jitter_ms << ',' << r.avg_packet_loss
+             << ',' << r.max_ping_ms << ',' << r.quality_score << "\n";
+    }
+    return true;
+}
 } // namespace gno
+
+
