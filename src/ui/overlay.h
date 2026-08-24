@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QWidget>
 #include <QTimer>
@@ -57,6 +57,7 @@ private:
     QLabel* game_lbl_ = nullptr;
     QLabel* timer_lbl_ = nullptr;
     QLabel* boost_lbl_ = nullptr;
+    QLabel* score_lbl_ = nullptr;
     QTimer* timer_ = nullptr;
 
     bool dragging_ = false;

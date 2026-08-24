@@ -1,8 +1,14 @@
-#include "session_history_widget.h"
+﻿#include "session_history_widget.h"
+#include <QtCharts/QLineSeries>
+#include <QtCharts/QValueAxis>
+#include <QtCharts/QChartView>
+#include <QVBoxLayout>
+#include <algorithm>
 #include "theme.h"
 #include "report_export.h"
 
 #include <QVBoxLayout>
+#include <algorithm>
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QScrollArea>
@@ -70,6 +76,12 @@ connect(exportBtn, &QPushButton::clicked, this, [this]() {
     btnRow->addWidget(clearBtn);
     btnRow->addStretch();
     mainLayout->addLayout(btnRow);
+    // v2.1: quality score trend chart
+    m_chart = new QChartView(this);
+    m_chart->setRenderHint(QPainter::Antialiasing);
+    m_chart->setMinimumHeight(220);
+    m_chart->chart()->setTheme(QChart::ChartThemeDark);
+    m_chart->chart()->legend()->hide();
 
     auto* scrollArea = new QScrollArea(this);
     scrollArea->setWidgetResizable(true);
@@ -152,6 +164,29 @@ void SessionHistoryWidget::refreshHistory()
     }
 
     layout->addStretch();
+
+    // v2.1: quality score trend
+    {
+        auto records = m_history->getLast(30);
+        auto* series = new QLineSeries();
+        series->setColor(QColor(theme::Colors::ACCENT_NEON));
+        int i = 0;
+        for (const auto& r : records) {
+            series->append(i, r.quality_score);
+            ++i;
+        }
+        auto* chart = new QChart();
+        chart->addSeries(series);
+        auto* ax = new QValueAxis();
+        auto* ay = new QValueAxis();
+        ax->setRange(0, std::max(1, i - 1));
+        ay->setRange(0, 100);
+        chart->addAxis(ax, Qt::AlignBottom); series->attachAxis(ax);
+        chart->addAxis(ay, Qt::AlignLeft); series->attachAxis(ay);
+        auto* old = m_chart->chart();
+        m_chart->setChart(chart);
+        delete old;
+    }
 }
 
-} // namespace gno
+} // namespace gnoo

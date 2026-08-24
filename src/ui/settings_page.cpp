@@ -153,7 +153,7 @@ void SettingsPageWidget::setupUI()
 
         auto* themeRow = new QHBoxLayout();
         auto* themeLabel = new QLabel(QString::fromUtf8("Тема:"), this);
-        theme_ = createComboBox({QString::fromUtf8("Тёмная"), QString::fromUtf8("Светлая")}, 0, this);
+        theme_ = createComboBox({QString::fromUtf8("\xD0\xA1\xD0\xB2\xD0\xB5\xD1\x82\xD0\xBB\xD0\xB0\xD1\x8F"), QString::fromUtf8("\xD0\x9A\xD0\xB8\xD0\xB1\xD0\xB5\xD1\x80")}, 0, this);
         themeRow->addWidget(themeLabel);
         themeRow->addSpacing(12);
         themeRow->addWidget(theme_);

@@ -1,6 +1,8 @@
-#pragma once
+﻿#pragma once
 
 #include <QWidget>
+
+class QChartView;
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QTimer>
@@ -23,6 +25,7 @@ private:
 
     SessionHistory* m_history;
     QWidget* m_sessionList;
+    QChartView* m_chart = nullptr;
     QLabel* m_statsLabel;
 };
 

@@ -1,4 +1,5 @@
-#include "overlay.h"
+﻿#include "overlay.h"
+#include "../core/connection_grader.h"
 #include "monitoring_service.h"
 #include "theme.h"
 
@@ -62,6 +63,10 @@ OverlayWidget::OverlayWidget(QWidget* parent)
     loss_lbl_->setStyleSheet(QString("color:%1; font-size:12px; background:transparent;")
                                  .arg(theme::Colors::TEXT_SECONDARY));
     layout->addWidget(loss_lbl_);
+    score_lbl_ = new QLabel(QStringLiteral("-"), this);
+    score_lbl_->setStyleSheet(QString("color:%1; font-size:12px; font-weight:700; background:transparent;")
+                                 .arg(theme::Colors::ACCENT_NEON));
+    layout->addWidget(score_lbl_);
 
     timer_lbl_ = new QLabel(QString::fromUtf8("Сессия: —"), this);
     timer_lbl_->setStyleSheet(QString("color:%1; font-size:11px; background:transparent;")
@@ -152,6 +157,11 @@ void OverlayWidget::refresh() {
     loss_lbl_->setText(QString::fromUtf8("Потери: <span style='color:%1;'>%2</span>%")
                            .arg(lc.name())
                            .arg(loss, 0, 'f', 1));
+
+    const int tray_score = static_cast<int>(ConnectionGrader::evaluate(
+        service_->currentPing(), service_->currentJitter(), service_->currentLossPercent()).score);
+    score_lbl_->setText(QString::fromUtf8("\xD0\x9E\xD1\x86\xD0\xB5\xD0\xBD\xD0\xBA\xD0\xB0\x3A\x20") +
+                         QString::number(tray_score) + QStringLiteral(" / 100"));
 
     QString game = service_->currentGame();
     if (!game.isEmpty())

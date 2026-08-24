@@ -1,4 +1,4 @@
-п»ї#include "diagnostics_widget.h"
+#include "diagnostics_widget.h"
 #include "theme.h"
 #include "monitoring_service.h"
 #include "../core/connection_grader.h"
@@ -14,6 +14,7 @@
 #include <QFont>
 
 #include "../core/game_detector.h"
+#include "../core/speed_test.h"
 #include "../core/system_audit.h"
 #include "../core/plain_language.h"
 #include "../core/report_exporter.h"
@@ -33,9 +34,9 @@ QString statusColor(int severity) {
 }
 
 QString statusIcon(int severity) {
-    return severity == 2 ? QString::fromUtf8("вњ•")
-                         : severity == 1 ? QString::fromUtf8("вљ ")
-                                         : QString::fromUtf8("вњ“");
+    return severity == 2 ? QString::fromUtf8("?")
+                         : severity == 1 ? QString::fromUtf8("?")
+                                         : QString::fromUtf8("?");
 }
 
 } // namespace
@@ -67,30 +68,30 @@ void DiagnosticsWidget::setupUI()
     mainLayout->setContentsMargins(24, 24, 24, 24);
     mainLayout->setSpacing(16);
 
-    auto* title = new QLabel(QString::fromUtf8("Р”РёР°РіРЅРѕСЃС‚РёРєР° Р·Р°РїСѓСЃРєР° РёРіСЂС‹"), this);
+    auto* title = new QLabel(QString::fromUtf8("Диагностика запуска игры"), this);
     title->setObjectName("sectionTitle");
     mainLayout->addWidget(title);
 
     auto* subtitle = new QLabel(QString::fromUtf8(
-        "РџСЂРѕРіСЂР°РјРјР° РїСЂРѕРІРµСЂСЏРµС‚ СЃРёСЃС‚РµРјСѓ Рё СЃРµС‚СЊ РїРµСЂРµРґ Р·Р°РїСѓСЃРєРѕРј РёРіСЂС‹ Рё РїРѕРєР°Р·С‹РІР°РµС‚ СЃРІРѕРёРјРё РіР»Р°Р·Р°РјРё, "
-        "С‡С‚Рѕ РјРµС€Р°РµС‚ РёРіСЂР°С‚СЊ. Р”РёР°РіРЅРѕСЃС‚РёРєР° Р·Р°РїСѓСЃРєР°РµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїСЂРё СЃС‚Р°СЂС‚Рµ РёРіСЂС‹."), this);
+        "Программа проверяет систему и сеть перед запуском игры и показывает своими глазами, "
+        "что мешает играть. Диагностика запускается автоматически при старте игры."), this);
     subtitle->setObjectName("sectionSubtitle");
     subtitle->setWordWrap(true);
     mainLayout->addWidget(subtitle);
 
     auto* controlRow = new QHBoxLayout();
-    auto* gameLabel = new QLabel(QString::fromUtf8("РРіСЂР°:"), this);
+    auto* gameLabel = new QLabel(QString::fromUtf8("Игра:"), this);
     m_gameCombo_ = new QComboBox(this);
     m_gameCombo_->setMinimumWidth(240);
 
     GameDetector detector;
     auto games = detector.getSupportedGames();
-    m_gameCombo_->addItem(QString::fromUtf8("вЂ” РІС‹Р±РµСЂРёС‚Рµ РёРіСЂСѓ вЂ”"), QString());
+    m_gameCombo_->addItem(QString::fromUtf8("— выберите игру —"), QString());
     for (const auto& g : games) {
         m_gameCombo_->addItem(QString::fromStdString(g.name), QString::fromStdString(g.process_name));
         if (g.is_running)
             m_gameCombo_->setItemText(m_gameCombo_->count() - 1,
-                QString::fromStdString(g.name) + QString::fromUtf8(" (Р·Р°РїСѓС‰РµРЅР°)"));
+                QString::fromStdString(g.name) + QString::fromUtf8(" (запущена)"));
     }
 
     controlRow->addWidget(gameLabel);
@@ -98,7 +99,7 @@ void DiagnosticsWidget::setupUI()
     controlRow->addWidget(m_gameCombo_);
     controlRow->addSpacing(8);
 
-    m_runBtn_ = new QPushButton(QString::fromUtf8("в–¶ Р”РёР°РіРЅРѕСЃС‚РёСЂРѕРІР°С‚СЊ СЃРµР№С‡Р°СЃ"), this);
+    m_runBtn_ = new QPushButton(QString::fromUtf8("? Диагностировать сейчас"), this);
     m_runBtn_->setObjectName("boostButton");
     m_runBtn_->setFixedHeight(36);
     controlRow->addWidget(m_runBtn_);
@@ -109,16 +110,16 @@ void DiagnosticsWidget::setupUI()
     m_adminLabel_->setObjectName("sectionSubtitle");
     bool admin = SystemAudit::isAdmin();
     m_adminLabel_->setText(admin
-        ? QString::fromUtf8("РџСЂР°РІР° Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°: РµСЃС‚СЊ вЂ” РІСЃРµ РѕРїС‚РёРјРёР·Р°С†РёРё РґРѕСЃС‚СѓРїРЅС‹.")
-        : QString::fromUtf8("РџСЂР°РІР° Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°: РЅРµС‚ вЂ” С‡Р°СЃС‚СЊ РѕРїС‚РёРјРёР·Р°С†РёР№ (MTU, DNS, РїР»Р°РЅ РїРёС‚Р°РЅРёСЏ) Р±СѓРґРµС‚ РЅРµРґРѕСЃС‚СѓРїРЅР°. "
-                            "Р—Р°РїСѓСЃС‚РёС‚Рµ РїСЂРѕРіСЂР°РјРјСѓ В«РѕС‚ РёРјРµРЅРё Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°В»."));
+        ? QString::fromUtf8("Права администратора: есть — все оптимизации доступны.")
+        : QString::fromUtf8("Права администратора: нет — часть оптимизаций (MTU, DNS, план питания) будет недоступна. "
+                            "Запустите программу «от имени администратора»."));
     m_adminLabel_->setStyleSheet(admin
         ? "color:#22c55e; font-size:12px; background:transparent;"
         : "color:#f59e0b; font-size:12px; background:transparent;");
     m_adminLabel_->setWordWrap(true);
     mainLayout->addWidget(m_adminLabel_);
 
-    m_runningLabel_ = new QLabel(QString::fromUtf8("Р”РёР°РіРЅРѕСЃС‚РёРєР° РЅРµ Р·Р°РїСѓСЃРєР°Р»Р°СЃСЊ."), this);
+    m_runningLabel_ = new QLabel(QString::fromUtf8("Диагностика не запускалась."), this);
     m_runningLabel_->setObjectName("sectionSubtitle");
     mainLayout->addWidget(m_runningLabel_);
 
@@ -136,7 +137,7 @@ void DiagnosticsWidget::setupUI()
     resultsScroll->setWidget(m_resultsList_);
     mainLayout->addWidget(resultsScroll, 1);
 
-    auto* problemsTitle = new QLabel(QString::fromUtf8("Р§Р°СЃС‚С‹Рµ РїСЂРѕР±Р»РµРјС‹ Рё СЂРµС€РµРЅРёСЏ"), this);
+    auto* problemsTitle = new QLabel(QString::fromUtf8("Частые проблемы и решения"), this);
     problemsTitle->setObjectName("sectionTitle");
     mainLayout->addWidget(problemsTitle);
 
@@ -156,7 +157,7 @@ void DiagnosticsWidget::setupUI()
     problemsScroll->setWidget(m_problemsList_);
     mainLayout->addWidget(problemsScroll);
 
-    auto* capsTitle = new QLabel(QString::fromUtf8("Р§С‚Рѕ РїСЂРѕРіСЂР°РјРјР° РјРѕР¶РµС‚ Рё РЅРµ РјРѕР¶РµС‚ СЃРґРµР»Р°С‚СЊ"), this);
+    auto* capsTitle = new QLabel(QString::fromUtf8("Что программа может и не может сделать"), this);
     capsTitle->setObjectName("sectionTitle");
     mainLayout->addWidget(capsTitle);
 
@@ -222,7 +223,7 @@ void DiagnosticsWidget::setupUI()
 void DiagnosticsWidget::onGameSelected(int index)
 {
     QString game = m_gameCombo_->itemText(index);
-    if (game.isEmpty() || game.startsWith(QString::fromUtf8("вЂ”")))
+    if (game.isEmpty() || game.startsWith(QString::fromUtf8("—")))
         game = QString();
     renderProblems(game);
 }
@@ -259,14 +260,14 @@ QWidget* DiagnosticsWidget::makeCheckCard(const DiagnosticCheck& c)
     detailLbl->setWordWrap(true);
     layout->addWidget(detailLbl);
 
-    auto* explainLbl = new QLabel(QString::fromUtf8("РљР°Рє РїСЂРѕРіСЂР°РјРјР° СЌС‚Рѕ РІРёРґРёС‚: ") +
+    auto* explainLbl = new QLabel(QString::fromUtf8("Как программа это видит: ") +
                                       QString::fromStdString(c.explanation), card);
     explainLbl->setStyleSheet("color:rgba(255,255,255,0.45); font-size:11px; font-style:italic; background:transparent;");
     explainLbl->setWordWrap(true);
     layout->addWidget(explainLbl);
 
     if (!c.recommendation.empty()) {
-        auto* recLbl = new QLabel(QString::fromUtf8("Р§С‚Рѕ СЃРґРµР»Р°С‚СЊ: ") +
+        auto* recLbl = new QLabel(QString::fromUtf8("Что сделать: ") +
                                       QString::fromStdString(c.recommendation), card);
         recLbl->setStyleSheet(QString("color:%1; font-size:12px; background:transparent;")
                                   .arg(c.severity ? theme::Colors::WARNING : theme::Colors::SUCCESS));
@@ -275,14 +276,14 @@ QWidget* DiagnosticsWidget::makeCheckCard(const DiagnosticCheck& c)
     }
 
     if (!c.fix_action.empty()) {
-        auto* fixBtn = new QPushButton(QString::fromUtf8("РСЃРїСЂР°РІРёС‚СЊ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё"), card);
+        auto* fixBtn = new QPushButton(QString::fromUtf8("Исправить автоматически"), card);
         fixBtn->setObjectName("boostButton");
         fixBtn->setFixedWidth(190);
         fixBtn->setFixedHeight(30);
         QString action = QString::fromStdString(c.fix_action);
         connect(fixBtn, &QPushButton::clicked, this, [this, action]() {
             QString result = QString::fromStdString(LaunchDiagnostics::applyFix(action.toStdString()));
-            m_runningLabel_->setText(QString::fromUtf8("вњ… %1").arg(result));
+            m_runningLabel_->setText(QString::fromUtf8("? %1").arg(result));
             renderCapabilities();
         });
         layout->addWidget(fixBtn, 0, Qt::AlignLeft);
@@ -318,19 +319,19 @@ QWidget* DiagnosticsWidget::makeProblemCard(const ProblemEntry& e)
         layout->addWidget(lbl);
     };
 
-    addRow(QString::fromUtf8("РЎРёРјРїС‚РѕРјС‹"), QString::fromStdString(e.symptoms), "rgba(255,255,255,0.7)");
-    addRow(QString::fromUtf8("РџСЂРёС‡РёРЅР°"), QString::fromStdString(e.cause), "rgba(255,255,255,0.5)");
-    addRow(QString::fromUtf8("Р РµС€РµРЅРёРµ С‡РµСЂРµР· РїСЂРѕРіСЂР°РјРјСѓ"), QString::fromStdString(e.solution), theme::Colors::ACCENT_CYAN);
+    addRow(QString::fromUtf8("Симптомы"), QString::fromStdString(e.symptoms), "rgba(255,255,255,0.7)");
+    addRow(QString::fromUtf8("Причина"), QString::fromStdString(e.cause), "rgba(255,255,255,0.5)");
+    addRow(QString::fromUtf8("Решение через программу"), QString::fromStdString(e.solution), theme::Colors::ACCENT_CYAN);
 
     if (!e.fix_action.empty()) {
-        auto* fixBtn = new QPushButton(QString::fromUtf8("РџСЂРёРјРµРЅРёС‚СЊ СЂРµС€РµРЅРёРµ"), card);
+        auto* fixBtn = new QPushButton(QString::fromUtf8("Применить решение"), card);
         fixBtn->setObjectName("boostButton");
         fixBtn->setFixedWidth(180);
         fixBtn->setFixedHeight(30);
         QString action = QString::fromStdString(e.fix_action);
         connect(fixBtn, &QPushButton::clicked, this, [this, e]() {
             QString result = QString::fromStdString(ProblemDb::applyAutoFix(e));
-            m_runningLabel_->setText(QString::fromUtf8("вњ… %1").arg(result));
+            m_runningLabel_->setText(QString::fromUtf8("? %1").arg(result));
             renderCapabilities();
         });
         layout->addWidget(fixBtn, 0, Qt::AlignLeft);
@@ -351,8 +352,8 @@ void DiagnosticsWidget::renderResults(const GameDiagnostics& diag)
     }
 
     m_summaryLabel_->setText(
-        QString::fromUtf8("Р”РёР°РіРЅРѕСЃС‚РёРєР° В«%1В»: %2 РїСЂРѕРІРµСЂРѕРє В· %3 РѕРє В· %4 РїСЂРµРґСѓРїСЂРµР¶РґРµРЅРёР№ В· %5 РѕС€РёР±РѕРє")
-            .arg(diag.game_name.empty() ? QString::fromUtf8("СЃРёСЃС‚РµРјР°") : QString::fromStdString(diag.game_name))
+        QString::fromUtf8("Диагностика «%1»: %2 проверок · %3 ок · %4 предупреждений · %5 ошибок")
+            .arg(diag.game_name.empty() ? QString::fromUtf8("система") : QString::fromStdString(diag.game_name))
             .arg(diag.checks.size())
             .arg(diag.passed_count)
             .arg(diag.warning_count)
@@ -378,7 +379,7 @@ void DiagnosticsWidget::renderProblems(const QString& gameName)
     }
 
     if (gameName.isEmpty()) {
-        auto* hint = new QLabel(QString::fromUtf8("Р’С‹Р±РµСЂРёС‚Рµ РёРіСЂСѓ вЂ” РїСЂРѕРіСЂР°РјРјР° РїРѕРєР°Р¶РµС‚ С‡Р°СЃС‚С‹Рµ РїСЂРѕР±Р»РµРјС‹ Рё СЃРїРѕСЃРѕР±С‹ РёС… СЂРµС€РµРЅРёСЏ С‡РµСЂРµР· РЅРµС‘."), this);
+        auto* hint = new QLabel(QString::fromUtf8("Выберите игру — программа покажет частые проблемы и способы их решения через неё."), this);
         hint->setObjectName("sectionSubtitle");
         hint->setWordWrap(true);
         layout->addWidget(hint);
@@ -388,7 +389,7 @@ void DiagnosticsWidget::renderProblems(const QString& gameName)
 
     auto problems = ProblemDb::search(gameName.toStdString(), m_problemQuery_.toStdString());
     if (problems.empty()) {
-        auto* hint = new QLabel(QString::fromUtf8("Р”Р»СЏ СЌС‚РѕР№ РёРіСЂС‹ РїРѕРєР° РЅРµС‚ Р·Р°РїРёСЃРµР№ РІ Р±Р°Р·Рµ СЂРµС€РµРЅРёР№."), this);
+        auto* hint = new QLabel(QString::fromUtf8("Для этой игры пока нет записей в базе решений."), this);
         hint->setObjectName("sectionSubtitle");
         layout->addWidget(hint);
         layout->addStretch();
@@ -424,9 +425,9 @@ void DiagnosticsWidget::renderCapabilities()
         QColor statusColor = c.currently_possible ? QColor(theme::Colors::SUCCESS)
                              : c.requires_vpn_server ? QColor(theme::Colors::TEXT_TERTIARY)
                                                      : QColor(theme::Colors::WARNING);
-        auto* iconLbl = new QLabel(c.currently_possible ? QString::fromUtf8("вњ“")
-                                : c.requires_vpn_server ? QString::fromUtf8("вЏі")
-                                                        : QString::fromUtf8("вљ "), card);
+        auto* iconLbl = new QLabel(c.currently_possible ? QString::fromUtf8("?")
+                                : c.requires_vpn_server ? QString::fromUtf8("?")
+                                                        : QString::fromUtf8("?"), card);
         iconLbl->setStyleSheet(QString("color:%1; font-size:15px; font-weight:700; background:transparent;")
                                    .arg(statusColor.name()));
         row->addWidget(iconLbl);
@@ -441,7 +442,7 @@ void DiagnosticsWidget::renderCapabilities()
         descLbl->setWordWrap(true);
         textLayout->addWidget(descLbl);
 
-        auto* seesLbl = new QLabel(QString::fromUtf8("РљР°Рє РїСЂРѕРіСЂР°РјРјР° СЌС‚Рѕ РІРёРґРёС‚: ") +
+        auto* seesLbl = new QLabel(QString::fromUtf8("Как программа это видит: ") +
                                        QString::fromStdString(c.what_it_sees), card);
         seesLbl->setStyleSheet("color:rgba(255,255,255,0.4); font-size:11px; font-style:italic; background:transparent;");
         seesLbl->setWordWrap(true);
@@ -465,20 +466,41 @@ void DiagnosticsWidget::runDiagnostics(const QString& gameName, const QString& p
         return;
 
     m_runBtn_->setEnabled(false);
-    m_runningLabel_->setText(QString::fromUtf8("Р—Р°РїСѓСЃРєР°РµРј РґРёР°РіРЅРѕСЃС‚РёРєСѓвЂ¦ РїСЂРѕРІРµСЂСЏРµРј СЃРµС‚СЊ, СЃРёСЃС‚РµРјСѓ Рё РёРіСЂСѓ."));
+    m_runningLabel_->setText(QString::fromUtf8("Запускаем диагностику… проверяем сеть, систему и игру."));
 
     std::string game = gameName.toStdString();
     std::string proc = processName.toStdString();
     std::thread([this, game, proc]() {
         GameDiagnostics diag = LaunchDiagnostics::run(game, proc);
-        QMetaObject::invokeMethod(this, [this, diag]() {
+
+        // v2.1: region advisor - probe one node per region, pick the best.
+        QString region_advice;
+        {
+            SpeedTest st;
+            struct R { const char* name; const char* ip; } regions[] = {
+                {"EU", "1.1.1.1"}, {"NA", "104.16.132.229"}, {"ASIA", "103.2.131.17"}};
+            double best = 1e9; const char* best_name = nullptr; int best_ms = -1;
+            for (auto& r : regions) {
+                auto res = st.benchmarkServer(r.ip, 3);
+                if (!res.success) continue;
+                if (res.latency_ms < best) { best = res.latency_ms; best_name = r.name; best_ms = static_cast<int>(res.latency_ms); }
+            }
+            if (best_name)
+                region_advice = QString::fromUtf8(
+                    "\xD0\xA0\xD0\xB5\xD0\xBA\xD0\xBE%D0\xBC\xD0%B5%D0\xBD\xD0%B4\xD1%83\xD0%B5\xD0\xBC\xD1%8B\xD0\xB9\x20\xD1%80\xD0%B5%D0%B3\xD0%B8%D0\xBE\xD0\xBD\x3A\x20") +
+                    best_name + QStringLiteral(" (%1 ms)").arg(best_ms);
+        }
+
+        QMetaObject::invokeMethod(this, [this, diag, region_advice]() {
             m_running_.store(false);
             m_runBtn_->setEnabled(true);
             m_lastDiag_ = diag;
             m_hasDiag_ = true;
+            if (!region_advice.isEmpty())
+                m_runningLabel_->setText(m_runningLabel_->text() + "  " + region_advice);
             renderResults(diag);
             m_runningLabel_->setText(QString::fromUtf8(
-                "Р“РѕС‚РѕРІРѕ. Р”РёР°РіРЅРѕСЃС‚РёРєР° РІС‹РїРѕР»РЅРµРЅР° РІ %1.").arg(QDateTime::currentDateTime().toString("HH:mm:ss")));
+                "Готово. Диагностика выполнена в %1.").arg(QDateTime::currentDateTime().toString("HH:mm:ss")));
         }, Qt::QueuedConnection);
     }).detach();
 }

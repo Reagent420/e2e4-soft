@@ -1,6 +1,7 @@
-ï»¿#include "game_profiles_widget.h"
+#include "game_profiles_widget.h"
 #include "../core/profile_engine.h"
 #include <QFileDialog>
+#include <QSettings>
 #include "theme.h"
 
 #include <QHBoxLayout>
@@ -32,20 +33,20 @@ void GameProfilesWidget::setupUI()
     mainLayout->setContentsMargins(24, 24, 24, 24);
     mainLayout->setSpacing(16);
 
-    auto* title = new QLabel(QString::fromUtf8("ÐŸÑ€Ð¾Ñ„Ð¸Ð»Ð¸ Ð¸Ð³Ñ€"), this);
+    auto* title = new QLabel(QString::fromUtf8("Ïðîôèëè èãð"), this);
     title->setObjectName("sectionTitle");
     mainLayout->addWidget(title);
 
-    auto* subtitle = new QLabel(QString::fromUtf8("ÐÐ°ÑÑ‚Ñ€Ð¾Ð¹ÐºÐ¸ Ð¾Ð¿Ñ‚Ð¸Ð¼Ð¸Ð·Ð°Ñ†Ð¸Ð¸ Ð´Ð»Ñ ÐºÐ°Ð¶Ð´Ð¾Ð¹ Ð¸Ð³Ñ€Ñ‹. Ð¡Ð¾Ñ…Ñ€Ð°Ð½ÑÑŽÑ‚ÑÑ Ð² %APPDATA%\\GNO\\profiles.json"), this);
+    auto* subtitle = new QLabel(QString::fromUtf8("Íàñòðîéêè îïòèìèçàöèè äëÿ êàæäîé èãðû. Ñîõðàíÿþòñÿ â %APPDATA%\\GNO\\profiles.json"), this);
     subtitle->setObjectName("sectionSubtitle");
     mainLayout->addWidget(subtitle);
 
-    auto* editorGroup = new QGroupBox(QString::fromUtf8("Ð ÐµÐ´Ð°ÐºÑ‚Ð¾Ñ€ Ð¿Ñ€Ð¾Ñ„Ð¸Ð»Ñ"), this);
+    auto* editorGroup = new QGroupBox(QString::fromUtf8("Ðåäàêòîð ïðîôèëÿ"), this);
     auto* editorLayout = new QVBoxLayout(editorGroup);
     editorLayout->setSpacing(10);
 
     auto* gameRow = new QHBoxLayout();
-    auto* gameLabel = new QLabel(QString::fromUtf8("Ð˜Ð³Ñ€Ð°:"), editorGroup);
+    auto* gameLabel = new QLabel(QString::fromUtf8("Èãðà:"), editorGroup);
     m_gameCombo = new QComboBox(editorGroup);
     m_gameCombo->setMinimumWidth(260);
 
@@ -60,31 +61,31 @@ void GameProfilesWidget::setupUI()
     gameRow->addStretch();
     editorLayout->addLayout(gameRow);
 
-    m_multipathCb = new QCheckBox(QString::fromUtf8("ÐœÑƒÐ»ÑŒÑ‚Ð¸Ð¼Ð°Ñ€ÑˆÑ€ÑƒÑ‚ (Ð½ÐµÑÐºÐ¾Ð»ÑŒÐºÐ¾ Ð¿ÑƒÑ‚ÐµÐ¹ Ð¿ÐµÑ€ÐµÐ´Ð°Ñ‡Ð¸ Ð´Ð°Ð½Ð½Ñ‹Ñ…)"), editorGroup);
+    m_multipathCb = new QCheckBox(QString::fromUtf8("Ìóëüòèìàðøðóò (íåñêîëüêî ïóòåé ïåðåäà÷è äàííûõ)"), editorGroup);
     m_multipathCb->setChecked(true);
-    m_multipathCb->setToolTip(QString::fromUtf8("Ð‘ÑƒÐ´ÐµÑ‚ Ð´Ð¾ÑÑ‚ÑƒÐ¿Ð½Ð¾ Ð¿Ð¾ÑÐ»Ðµ Ð¿Ð¾Ð´ÐºÐ»ÑŽÑ‡ÐµÐ½Ð¸Ñ ÑÐµÑ€Ð²ÐµÑ€Ð½Ð¾Ð¹ ÑÐµÑ‚Ð¸"));
+    m_multipathCb->setToolTip(QString::fromUtf8("Áóäåò äîñòóïíî ïîñëå ïîäêëþ÷åíèÿ ñåðâåðíîé ñåòè"));
     m_multipathCb->setEnabled(false);
     editorLayout->addWidget(m_multipathCb);
 
-    m_fpsBoostCb = new QCheckBox(QString::fromUtf8("Ð£ÑÐºÐ¾Ñ€ÐµÐ½Ð¸Ðµ FPS (Ð²ÑÐµ Ð¿Ð°Ñ€Ð°Ð¼ÐµÑ‚Ñ€Ñ‹ Ð½Ð¸Ð¶Ðµ, ÐºÑ€Ð¾Ð¼Ðµ Ð¿Ñ€Ð¸Ð¾Ñ€Ð¸Ñ‚ÐµÑ‚Ð°)"), editorGroup);
+    m_fpsBoostCb = new QCheckBox(QString::fromUtf8("Óñêîðåíèå FPS (âñå ïàðàìåòðû íèæå, êðîìå ïðèîðèòåòà)"), editorGroup);
     m_fpsBoostCb->setChecked(true);
     editorLayout->addWidget(m_fpsBoostCb);
 
-    m_networkOptCb = new QCheckBox(QString::fromUtf8("ÐžÐ¿Ñ‚Ð¸Ð¼Ð¸Ð·Ð°Ñ†Ð¸Ñ ÑÐµÑ‚Ð¸ (Ð²ÑÐµ ÑÐµÑ‚ÐµÐ²Ñ‹Ðµ Ð¿Ð°Ñ€Ð°Ð¼ÐµÑ‚Ñ€Ñ‹ Ð½Ð¸Ð¶Ðµ)"), editorGroup);
+    m_networkOptCb = new QCheckBox(QString::fromUtf8("Îïòèìèçàöèÿ ñåòè (âñå ñåòåâûå ïàðàìåòðû íèæå)"), editorGroup);
     m_networkOptCb->setChecked(true);
     editorLayout->addWidget(m_networkOptCb);
 
-    auto* actionsTitle = new QLabel(QString::fromUtf8("â€” Ð¤ÑƒÐ½ÐºÑ†Ð¸Ð¸ Ð¸ Ð´ÐµÐ¹ÑÑ‚Ð²Ð¸Ñ Ð¿Ñ€Ð¸ Ð·Ð°Ð¿ÑƒÑÐºÐµ ÑÑ‚Ð¾Ð¹ Ð¸Ð³Ñ€Ñ‹ â€”"), editorGroup);
+    auto* actionsTitle = new QLabel(QString::fromUtf8("— Ôóíêöèè è äåéñòâèÿ ïðè çàïóñêå ýòîé èãðû —"), editorGroup);
     actionsTitle->setObjectName("sectionTitle");
     editorLayout->addWidget(actionsTitle);
 
-    m_gameDvrCb = new QCheckBox(QString::fromUtf8("ÐžÑ‚ÐºÐ»ÑŽÑ‡Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ð¸ÑÑŒ Ð¸Ð³Ñ€ (Game DVR)"), editorGroup);
-    m_powerPlanCb = new QCheckBox(QString::fromUtf8("ÐŸÐµÑ€ÐµÐºÐ»ÑŽÑ‡Ð¸Ñ‚ÑŒ Ð½Ð° Ð¿Ð»Ð°Ð½ Â«Ð’Ñ‹ÑÐ¾ÐºÐ°Ñ Ð¿Ñ€Ð¾Ð¸Ð·Ð²Ð¾Ð´Ð¸Ñ‚ÐµÐ»ÑŒÐ½Ð¾ÑÑ‚ÑŒÂ»"), editorGroup);
-    m_priorityCb = new QCheckBox(QString::fromUtf8("ÐŸÐ¾Ð´Ð½ÑÑ‚ÑŒ Ð¿Ñ€Ð¸Ð¾Ñ€Ð¸Ñ‚ÐµÑ‚ Ð¿Ñ€Ð¾Ñ†ÐµÑÑÐ° Ð¸Ð³Ñ€Ñ‹"), editorGroup);
-    m_tcpCb = new QCheckBox(QString::fromUtf8("ÐžÐ¿Ñ‚Ð¸Ð¼Ð¸Ð·Ð¸Ñ€Ð¾Ð²Ð°Ñ‚ÑŒ TCP-ÑÑ‚ÐµÐº (Ð°Ð´Ð°Ð¿Ñ‚Ð¸Ð²Ð½Ñ‹Ðµ ACK)"), editorGroup);
-    m_mtuCb = new QCheckBox(QString::fromUtf8("Ð£ÑÑ‚Ð°Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ MTU 1400"), editorGroup);
-    m_dnsCb = new QCheckBox(QString::fromUtf8("Ð£ÑÑ‚Ð°Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ Ð±Ñ‹ÑÑ‚Ñ€Ñ‹Ð¹ DNS (1.1.1.1)"), editorGroup);
-    m_proConfigCb = new QCheckBox(QString::fromUtf8("ÐŸÑ€Ð¸Ð¼ÐµÐ½Ð¸Ñ‚ÑŒ Ð¿Ñ€Ð¾-ÐºÐ¾Ð½Ñ„Ð¸Ð³ (autoexec.cfg / GameUserSettings.ini)"), editorGroup);
+    m_gameDvrCb = new QCheckBox(QString::fromUtf8("Îòêëþ÷èòü çàïèñü èãð (Game DVR)"), editorGroup);
+    m_powerPlanCb = new QCheckBox(QString::fromUtf8("Ïåðåêëþ÷èòü íà ïëàí «Âûñîêàÿ ïðîèçâîäèòåëüíîñòü»"), editorGroup);
+    m_priorityCb = new QCheckBox(QString::fromUtf8("Ïîäíÿòü ïðèîðèòåò ïðîöåññà èãðû"), editorGroup);
+    m_tcpCb = new QCheckBox(QString::fromUtf8("Îïòèìèçèðîâàòü TCP-ñòåê (àäàïòèâíûå ACK)"), editorGroup);
+    m_mtuCb = new QCheckBox(QString::fromUtf8("Óñòàíîâèòü MTU 1400"), editorGroup);
+    m_dnsCb = new QCheckBox(QString::fromUtf8("Óñòàíîâèòü áûñòðûé DNS (1.1.1.1)"), editorGroup);
+    m_proConfigCb = new QCheckBox(QString::fromUtf8("Ïðèìåíèòü ïðî-êîíôèã (autoexec.cfg / GameUserSettings.ini)"), editorGroup);
     for (QCheckBox* cb : {m_gameDvrCb, m_powerPlanCb, m_priorityCb, m_tcpCb, m_mtuCb, m_dnsCb, m_proConfigCb}) {
         cb->setChecked(true);
         editorLayout->addWidget(cb);
@@ -101,12 +102,12 @@ void GameProfilesWidget::setupUI()
         m_dnsCb->setEnabled(on);
     });
 
-    m_autoApplyCb = new QCheckBox(QString::fromUtf8("ÐŸÑ€Ð¸Ð¼ÐµÐ½ÑÑ‚ÑŒ Ð°Ð²Ñ‚Ð¾Ð¼Ð°Ñ‚Ð¸Ñ‡ÐµÑÐºÐ¸ Ð¿Ñ€Ð¸ Ð·Ð°Ð¿ÑƒÑÐºÐµ Ð¸Ð³Ñ€Ñ‹"), editorGroup);
+    m_autoApplyCb = new QCheckBox(QString::fromUtf8("Ïðèìåíÿòü àâòîìàòè÷åñêè ïðè çàïóñêå èãðû"), editorGroup);
     m_autoApplyCb->setChecked(true);
     editorLayout->addWidget(m_autoApplyCb);
 
     auto* routesRow = new QHBoxLayout();
-    auto* routesLabel = new QLabel(QString::fromUtf8("ÐœÐ°ÐºÑ. Ð¼Ð°Ñ€ÑˆÑ€ÑƒÑ‚Ð¾Ð²:"), editorGroup);
+    auto* routesLabel = new QLabel(QString::fromUtf8("Ìàêñ. ìàðøðóòîâ:"), editorGroup);
     m_maxRoutesSpin = new QSpinBox(editorGroup);
     m_maxRoutesSpin->setRange(1, 5);
     m_maxRoutesSpin->setValue(3);
@@ -116,9 +117,35 @@ void GameProfilesWidget::setupUI()
     routesRow->addWidget(m_maxRoutesSpin);
     routesRow->addStretch();
     editorLayout->addLayout(routesRow);
+    // v2.1: per-game alert thresholds (feed tray alerts and .gnoprofile export)
+    auto* thRow = new QHBoxLayout();
+    auto* rttLbl = new QLabel(QString::fromUtf8(
+        "\xD0\x9C\xD0\xB0\xD0\xBA\xD1\x81\x20\xD0\xBF\xD0%B8%D0\xBD%D0%B3\x3A"), editorGroup);
+    m_rttSpin = new QSpinBox(editorGroup);
+    m_rttSpin->setRange(20, 500);
+    m_rttSpin->setValue(80);
+    auto* lossLbl = new QLabel(QString::fromUtf8(
+        "\xD0\x9C\xD0%B0%D0%BA%D1\x81\x20\xD0\xBF%D0\xBE%D1%82%D0%B5%D1%80%D0%B8\x3A\x25"), editorGroup);
+    m_lossSpin = new QSpinBox(editorGroup);
+    m_lossSpin->setRange(0, 20);
+    m_lossSpin->setValue(2);
+    thRow->addWidget(rttLbl); thRow->addWidget(m_rttSpin);
+    thRow->addSpacing(10);
+    thRow->addWidget(lossLbl); thRow->addWidget(m_lossSpin);
+    thRow->addStretch();
+    editorLayout->addLayout(thRow);
+
+    connect(m_rttSpin, &QSpinBox::valueChanged, this, [this](int v) {
+        QSettings().setValue(QStringLiteral("thresholds/") + m_gameCombo->currentText()
+                             + QStringLiteral("/ping"), v);
+    });
+    connect(m_lossSpin, &QSpinBox::valueChanged, this, [this](int v) {
+        QSettings().setValue(QStringLiteral("thresholds/") + m_gameCombo->currentText()
+                             + QStringLiteral("/loss"), v);
+    });
 
     auto* btnRow = new QHBoxLayout();
-    auto* saveBtn = new QPushButton(QString::fromUtf8("Ð¡Ð¾Ñ…Ñ€Ð°Ð½Ð¸Ñ‚ÑŒ Ð¿Ñ€Ð¾Ñ„Ð¸Ð»ÑŒ"), editorGroup);
+    auto* saveBtn = new QPushButton(QString::fromUtf8("Ñîõðàíèòü ïðîôèëü"), editorGroup);
     saveBtn->setObjectName("boostButton");
     saveBtn->setFixedWidth(160);
     connect(saveBtn, &QPushButton::clicked, this, &GameProfilesWidget::onSaveProfile);
@@ -141,7 +168,7 @@ void GameProfilesWidget::setupUI()
 
     mainLayout->addWidget(editorGroup);
 
-    auto* listTitle = new QLabel(QString::fromUtf8("Ð¡Ð¾Ñ…Ñ€Ð°Ð½Ñ‘Ð½Ð½Ñ‹Ðµ Ð¿Ñ€Ð¾Ñ„Ð¸Ð»Ð¸"), this);
+    auto* listTitle = new QLabel(QString::fromUtf8("Ñîõðàí¸ííûå ïðîôèëè"), this);
     listTitle->setObjectName("sectionTitle");
     mainLayout->addWidget(listTitle);
 
@@ -231,7 +258,7 @@ void GameProfilesWidget::onSaveProfile()
     }
 
     if (gameName.empty()) {
-        m_statusLabel->setText(QString::fromUtf8("ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ð¿Ñ€ÐµÐ´ÐµÐ»Ð¸Ñ‚ÑŒ Ð½Ð°Ð·Ð²Ð°Ð½Ð¸Ðµ Ð¸Ð³Ñ€Ñ‹"));
+        m_statusLabel->setText(QString::fromUtf8("Íå óäàëîñü îïðåäåëèòü íàçâàíèå èãðû"));
         return;
     }
 
@@ -252,7 +279,7 @@ void GameProfilesWidget::onSaveProfile()
     p.pro_config_opt = m_proConfigCb->isChecked();
 
     m_profiles->set(p);
-    m_statusLabel->setText(QString("Ð¡Ð¾Ñ…Ñ€Ð°Ð½ÐµÐ½Ð¾: %1").arg(QString::fromStdString(gameName)));
+    m_statusLabel->setText(QString("Ñîõðàíåíî: %1").arg(QString::fromStdString(gameName)));
     refreshProfileList();
 }
 
@@ -269,7 +296,7 @@ void GameProfilesWidget::refreshProfileList()
 
     auto profiles = m_profiles->getAll();
     if (profiles.empty()) {
-        auto* emptyLbl = new QLabel(QString::fromUtf8("ÐŸÑ€Ð¾Ñ„Ð¸Ð»Ð¸ ÐµÑ‰Ñ‘ Ð½Ðµ ÑÐ¾Ñ…Ñ€Ð°Ð½ÐµÐ½Ñ‹"), m_profileList);
+        auto* emptyLbl = new QLabel(QString::fromUtf8("Ïðîôèëè åù¸ íå ñîõðàíåíû"), m_profileList);
         emptyLbl->setObjectName("sectionSubtitle");
         layout->addWidget(emptyLbl);
         layout->addStretch();
@@ -307,7 +334,7 @@ void GameProfilesWidget::refreshProfileList()
         cardLayout->addWidget(flagsLbl);
         cardLayout->addStretch();
 
-        auto* removeBtn = new QPushButton(QString::fromUtf8("Ð£Ð´Ð°Ð»Ð¸Ñ‚ÑŒ"), card);
+        auto* removeBtn = new QPushButton(QString::fromUtf8("Óäàëèòü"), card);
         removeBtn->setObjectName("sidebarButton");
         removeBtn->setFixedWidth(80);
         QString gname = QString::fromStdString(p.game_name);

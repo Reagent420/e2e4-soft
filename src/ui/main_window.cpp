@@ -1,4 +1,4 @@
-ï»¿#include "main_window.h"
+#include "main_window.h"
 #include "sidebar.h"
 #include "theme.h"
 
@@ -59,34 +59,34 @@ void MainWindow::setupUi()
     auto* statusBarLayout = new QHBoxLayout(statusBarWidget);
     statusBarLayout->setContentsMargins(16, 8, 16, 8);
 
-    m_statusLabel = new QLabel(QString::fromUtf8("Ğ“Ğ¾Ñ‚Ğ¾Ğ²Ğ¾ Ğº Ñ€Ğ°Ğ±Ğ¾Ñ‚Ğµ"), statusBarWidget);
+    m_statusLabel = new QLabel(QString::fromUtf8("Ãîòîâî ê ğàáîòå"), statusBarWidget);
     m_statusLabel->setObjectName("statusDisconnected");
     statusBarLayout->addWidget(m_statusLabel);
     statusBarLayout->addStretch();
 
     auto metricStyle = QString("color: rgba(255,255,255,0.55); font-size: 11px; background: transparent;");
 
-    m_pingLabel = new QLabel(QString::fromUtf8("ĞŸĞ¸Ğ½Ğ³: --"), statusBarWidget);
+    m_pingLabel = new QLabel(QString::fromUtf8("Ïèíã: --"), statusBarWidget);
     m_pingLabel->setStyleSheet(metricStyle);
     statusBarLayout->addWidget(m_pingLabel);
     statusBarLayout->addSpacing(12);
 
-    m_jitterLabel = new QLabel(QString::fromUtf8("Ğ”Ğ¶Ğ¸Ñ‚Ñ‚ĞµÑ€: --"), statusBarWidget);
+    m_jitterLabel = new QLabel(QString::fromUtf8("Äæèòòåğ: --"), statusBarWidget);
     m_jitterLabel->setStyleSheet(metricStyle);
     statusBarLayout->addWidget(m_jitterLabel);
     statusBarLayout->addSpacing(12);
 
-    m_lossLabel = new QLabel(QString::fromUtf8("ĞŸĞ¾Ñ‚ĞµÑ€Ğ¸: --"), statusBarWidget);
+    m_lossLabel = new QLabel(QString::fromUtf8("Ïîòåğè: --"), statusBarWidget);
     m_lossLabel->setStyleSheet(metricStyle);
     statusBarLayout->addWidget(m_lossLabel);
     statusBarLayout->addSpacing(12);
 
-    m_boostLabel = new QLabel(QString::fromUtf8("ĞĞŸĞ¢Ğ˜ĞœĞ˜Ğ—ĞĞ¦Ğ˜Ğ¯: Ğ’Ğ«ĞšĞ›"), statusBarWidget);
+    m_boostLabel = new QLabel(QString::fromUtf8("ÎÏÒÈÌÈÇÀÖÈß: ÂÛÊË"), statusBarWidget);
     m_boostLabel->setObjectName("boostTag");
     statusBarLayout->addWidget(m_boostLabel);
     statusBarLayout->addSpacing(8);
 
-    auto* hint = new QLabel(QString::fromUtf8("E2E4 Soft â€” Ğ¾Ğ¿Ñ‚Ğ¸Ğ¼Ğ¸Ğ·Ğ°Ñ†Ğ¸Ñ Ğ¸Ğ³Ñ€Ğ¾Ğ²Ğ¾Ğ¹ ÑĞµÑ‚Ğ¸"), statusBarWidget);
+    auto* hint = new QLabel(QString::fromUtf8("E2E4 Soft — îïòèìèçàöèÿ èãğîâîé ñåòè"), statusBarWidget);
     hint->setStyleSheet("color: rgba(255,255,255,0.35); font-size: 11px; background: transparent;");
     statusBarLayout->addWidget(hint);
 
@@ -102,14 +102,20 @@ void MainWindow::setupPages()
     m_stackedWidget->addWidget(new DashboardWidget(this));
     m_stackedWidget->addWidget(new GameListWidget(this));
     m_stackedWidget->addWidget(new GameProfilesWidget(this));
-    m_stackedWidget->addWidget(new MonitoringWidget(this));
+    m_page_creators_.resize(12);
+    m_page_created_.assign(12, false);
+    m_page_creators_[3] = [this]() { return new MonitoringWidget(this); };
+    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 3
     m_stackedWidget->addWidget(new OptimizerWidget(this));
-    m_stackedWidget->addWidget(new NetworkToolsWidget(this));
-    m_stackedWidget->addWidget(new ProcessMonitorWidget(this));
+    m_page_creators_[5] = [this]() { return new NetworkToolsWidget(this); };
+    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 5
+    m_page_creators_[6] = [this]() { return new ProcessMonitorWidget(this); };
+    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 6
     m_stackedWidget->addWidget(new SessionHistoryWidget(this));
     m_stackedWidget->addWidget(new DiagnosticsWidget(this));
     m_stackedWidget->addWidget(new RemediationWidget(this));
-    m_stackedWidget->addWidget(new GeoMapWidget(this));
+    m_page_creators_[10] = [this]() { return new GeoMapWidget(this); };
+    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 10
 
     auto* settings = new SettingsPageWidget(this);
     connect(settings, &SettingsPageWidget::themeChanged, this, &MainWindow::themeChanged);
@@ -124,15 +130,34 @@ void MainWindow::setupPages()
 
 void MainWindow::onNavigationChanged(int index)
 {
+    ensurePage(index);
+
     m_stackedWidget->setCurrentIndex(index);
 }
 
+QWidget* MainWindow::ensurePage(int index)
+{
+    if (index < 0 || index >= static_cast<int>(m_page_creators_.size()))
+        return m_stackedWidget->widget(index);
+    if (m_page_created_[static_cast<std::size_t>(index)] || !m_page_creators_[static_cast<std::size_t>(index)])
+        return m_stackedWidget->widget(index);
+    auto* page = m_page_creators_[static_cast<std::size_t>(index)]();
+    auto* old = m_stackedWidget->widget(index);
+    const int pos = m_stackedWidget->indexOf(old);
+    m_stackedWidget->removeWidget(old);
+    delete old;
+    m_stackedWidget->insertWidget(pos, page);
+    m_page_created_[static_cast<std::size_t>(index)] = true;
+    return page;
+}
+
+
 void MainWindow::updateLiveMetrics(int pingMs, int jitterMs, double lossPercent)
 {
-    m_pingLabel->setText(QString::fromUtf8("ĞŸĞ¸Ğ½Ğ³: %1 Ğ¼Ñ").arg(pingMs));
-    m_jitterLabel->setText(QString::fromUtf8("Ğ”Ğ¶Ğ¸Ñ‚Ñ‚ĞµÑ€: %1 Ğ¼Ñ").arg(jitterMs));
-    m_lossLabel->setText(QString::fromUtf8("ĞŸĞ¾Ñ‚ĞµÑ€Ğ¸: %1%").arg(lossPercent, 0, 'f', 1));
-    m_statusLabel->setText(QString::fromUtf8("ĞĞ½Ğ»Ğ°Ğ¹Ğ½"));
+    m_pingLabel->setText(QString::fromUtf8("Ïèíã: %1 ìñ").arg(pingMs));
+    m_jitterLabel->setText(QString::fromUtf8("Äæèòòåğ: %1 ìñ").arg(jitterMs));
+    m_lossLabel->setText(QString::fromUtf8("Ïîòåğè: %1%").arg(lossPercent, 0, 'f', 1));
+    m_statusLabel->setText(QString::fromUtf8("Îíëàéí"));
     m_statusLabel->setObjectName("statusConnected");
     m_statusLabel->style()->unpolish(m_statusLabel);
     m_statusLabel->style()->polish(m_statusLabel);
@@ -140,7 +165,7 @@ void MainWindow::updateLiveMetrics(int pingMs, int jitterMs, double lossPercent)
 
 void MainWindow::setBoostIndicator(bool on)
 {
-    m_boostLabel->setText(on ? QString::fromUtf8("ĞĞŸĞ¢Ğ˜ĞœĞ˜Ğ—ĞĞ¦Ğ˜Ğ¯: Ğ’ĞšĞ›") : QString::fromUtf8("ĞĞŸĞ¢Ğ˜ĞœĞ˜Ğ—ĞĞ¦Ğ˜Ğ¯: Ğ’Ğ«ĞšĞ›"));
+    m_boostLabel->setText(on ? QString::fromUtf8("ÎÏÒÈÌÈÇÀÖÈß: ÂÊË") : QString::fromUtf8("ÎÏÒÈÌÈÇÀÖÈß: ÂÛÊË"));
 }
 
 void MainWindow::showRecommendation(const QString& text)

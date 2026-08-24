@@ -1,4 +1,4 @@
-#include "sidebar.h"
+﻿#include "sidebar.h"
 #include "theme.h"
 
 #include <QPainterPath>
@@ -30,18 +30,18 @@ Sidebar::Sidebar(QWidget* parent)
     m_buttonGroup = new QButtonGroup(this);
     m_buttonGroup->setExclusive(true);
 
-    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard,       "Р“Р»Р°РІРЅР°СЏ"),          0);
-    m_buttonGroup->addButton(createNavButton(NavPage::Games,           "РРіСЂС‹"),             1);
-    m_buttonGroup->addButton(createNavButton(NavPage::Profiles,        "РџСЂРѕС„РёР»Рё РёРіСЂ"),      2);
-    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring,      "РњРѕРЅРёС‚РѕСЂРёРЅРі"),       3);
-    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "РћРїС‚РёРјРёР·Р°С†РёСЏ"),      4);
-    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "РЎРµС‚РµРІС‹Рµ СѓС‚РёР»РёС‚С‹"),  5);
-    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "РџСЂРѕС†РµСЃСЃС‹"),         6);
-m_buttonGroup->addButton(createNavButton(NavPage::History,         "РСЃС‚РѕСЂРёСЏ"),         7);
-    m_buttonGroup->addButton(createNavButton(NavPage::Diagnostics,     "Р”РёР°РіРЅРѕСЃС‚РёРєР°"),     8);
-    m_buttonGroup->addButton(createNavButton(NavPage::Remediation,   "Оптимизация Win"),  9);
-    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "РљР°СЂС‚Р° СЃРµСЂРІРµСЂРѕРІ"), 10);
-    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "РќР°СЃС‚СЂРѕР№РєРё"), 11);
+    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard,       "Р вЂњР В»Р В°Р Р†Р Р…Р В°РЎРЏ"),          0);
+    m_buttonGroup->addButton(createNavButton(NavPage::Games,           "Р ВР С–РЎР‚РЎвЂ№"),             1);
+    m_buttonGroup->addButton(createNavButton(NavPage::Profiles,        "Р СџРЎР‚Р С•РЎвЂћР С‘Р В»Р С‘ Р С‘Р С–РЎР‚"),      2);
+    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring,      "Р СљР С•Р Р…Р С‘РЎвЂљР С•РЎР‚Р С‘Р Р…Р С–"),       3);
+    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "Р С›Р С—РЎвЂљР С‘Р СР С‘Р В·Р В°РЎвЂ Р С‘РЎРЏ"),      4);
+    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "Р РЋР ВµРЎвЂљР ВµР Р†РЎвЂ№Р Вµ РЎС“РЎвЂљР С‘Р В»Р С‘РЎвЂљРЎвЂ№"),  5);
+    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "Р СџРЎР‚Р С•РЎвЂ Р ВµРЎРѓРЎРѓРЎвЂ№"),         6);
+m_buttonGroup->addButton(createNavButton(NavPage::History,         "Р ВРЎРѓРЎвЂљР С•РЎР‚Р С‘РЎРЏ"),         7);
+    m_buttonGroup->addButton(createNavButton(NavPage::Diagnostics,     "Р вЂќР С‘Р В°Р С–Р Р…Р С•РЎРѓРЎвЂљР С‘Р С”Р В°"),     8);
+    m_buttonGroup->addButton(createNavButton(NavPage::Remediation,   "РћРїС‚РёРјРёР·Р°С†РёСЏ Win"),  9);
+    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "Р С™Р В°РЎР‚РЎвЂљР В° РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚Р С•Р Р†"), 10);
+    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "Р СњР В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘"), 11);
 
     for (int i = 0; i < BUTTON_COUNT; ++i) {
         layout->addWidget(m_buttonGroup->button(i));

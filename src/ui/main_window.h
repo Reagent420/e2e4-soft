@@ -1,7 +1,9 @@
-#pragma once
+﻿#pragma once
 
 #include <QMainWindow>
 #include <QStackedWidget>
+#include <functional>
+#include <vector>
 #include <QStatusBar>
 #include <QLabel>
 #include <QCloseEvent>
@@ -38,6 +40,7 @@ private slots:
 private:
     void setupUi();
     void setupPages();
+    QWidget* ensurePage(int index);
 
     Sidebar* m_sidebar;
     QStackedWidget* m_stackedWidget;
@@ -46,6 +49,8 @@ private:
     QLabel* m_jitterLabel;
     QLabel* m_lossLabel;
     QLabel* m_boostLabel;
+    std::vector<std::function<QWidget*()>> m_page_creators_;
+    std::vector<bool> m_page_created_;
 };
 
 } // namespace gno

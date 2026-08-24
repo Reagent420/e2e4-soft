@@ -7,7 +7,7 @@ namespace gno {
 namespace theme {
 
 constexpr const char* APP_NAME = "E2E4 Soft — Оптимизатор игровой сети";
-constexpr const char* APP_VERSION = "2.0.0";
+constexpr const char* APP_VERSION = "2.1.0";
 
 struct Colors {
     static constexpr auto BG_PRIMARY       = "#0A0E17";
@@ -23,7 +23,7 @@ struct Colors {
     static constexpr auto ERROR            = "#FF2E88";
     static constexpr auto TEXT_PRIMARY     = "#EAF6FF";
     static constexpr auto TEXT_SECONDARY   = "#9DB8D6";
-    static constexpr auto TEXT_TERTIARY    = "#54708C";
+    static constexpr auto TEXT_TERTIARY    = "#6B87A8";
     static constexpr auto BORDER           = "rgba(0,240,255,0.14)";
     static constexpr auto BORDER_ACTIVE    = "rgba(0,240,255,0.55)";
     static constexpr auto GLOW_BLUE        = "rgba(0,240,255,0.30)";

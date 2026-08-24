@@ -10,6 +10,8 @@
 #include <QApplication>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QHash>
+#include <QDateTime>
 #include <thread>
 #include <random>
 #include "theme.h"
@@ -327,6 +329,10 @@ std::vector<double> twoProbeJitter(SpeedTest& st, const std::string& ip) {
 } // namespace
 
 QString NetworkToolsWidget::resolveToIp(const QString& host) {
+    static QHash<QString, QPair<QString, qint64>> cache; // host -> (ip, expiry)
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    auto it = cache.find(host);
+    if (it != cache.end() && it.value().second > now) return it.value().first;
     addrinfo hints{};
     hints.ai_family = AF_INET;
     addrinfo* res = nullptr;
@@ -339,6 +345,7 @@ QString NetworkToolsWidget::resolveToIp(const QString& host) {
              (sa->sin_addr.S_un.S_addr >> 16) & 0xFF,
              (sa->sin_addr.S_un.S_addr >> 24) & 0xFF);
     freeaddrinfo(res);
+    cache.insert(host, {QString(buf), now + 5 * 60 * 1000});
     return buf;
 }
 
