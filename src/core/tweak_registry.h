@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // Declarative registry-tweak catalogue (v2.4.0). Each entry = one user-facing
 // option that the transactional applier can set/restore automatically.
@@ -154,6 +154,28 @@ inline const std::vector<TweakSpec>& tweaks() {
          "Teams Chat не резервирует место и память",
          TweakRoot::HKCU, "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
          "TaskbarCc", TweakType::Dword, 0, "", false},
+        // ---------------- FPS BOOST (v2.4.0) ----------------
+        {"fps_system_resp", "FPS Boost", "System Responsiveness = 0",
+         "Все ядра CPU отдаются игре вместо фоновых задач (по умолчанию 20%)",
+         TweakRoot::HKLM,
+         "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
+         "SystemResponsiveness", TweakType::Dword, 0, "", false},
+
+        {"fps_bg_apps_off", "FPS Boost", "Фоновые приложения выключены",
+         "UWP-приложения не работают в фоне во время игры",
+         TweakRoot::HKCU,
+         "Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications",
+         "GlobalUserDisabled", TweakType::Dword, 1, "", false},
+
+        {"fx_visual_perf", "Эффекты", "Пресет: максимальная производительность",
+         "Windows Visual Effects = Best Performance (все анимации и эффекты выключены)",
+         TweakRoot::HKCU, "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects",
+         "VisualFXSetting", TweakType::Dword, 2, "", true},
+
+        {"game_delivery_opt", "Игры", "Delivery Optimization выключен",
+         "Windows Update не раздаёт обновления через P2P другим компьютерам",
+         TweakRoot::HKLM, "SYSTEM\\CurrentControlSet\\Services\\DoSvc",
+         "Start", TweakType::Dword, 4, "", false},
     };
     return v;
 }

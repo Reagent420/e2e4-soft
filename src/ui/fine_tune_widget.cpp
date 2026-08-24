@@ -181,8 +181,9 @@ void FineTuneWidget::setupUI() {
 }
 
 void FineTuneWidget::refreshTable() {
-    TweakService svc(appdataDir().toStdString());
-    svc.setAccessFactory([]() -> ITweakAccess* { return new RegistryTweakAccess(); });
+    RegistryTweakAccess access;
+    TweakService svc(access, appdataDir().toStdString());
+
     auto views = svc.listViews(m_category_->currentData().toString().toStdString());
 
     m_table_->setRowCount(static_cast<int>(views.size()));
@@ -218,8 +219,8 @@ void FineTuneWidget::onApplyClicked() {
     const QString cat = m_category_->currentData().toString();
 
     std::thread([this, cat]() {
-        TweakService svc(appdataDir().toStdString());
-        svc.setAccessFactory([]() -> ITweakAccess* { return new RegistryTweakAccess(); });
+        RegistryTweakAccess access;
+        TweakService svc(access, appdataDir().toStdString());
         const std::string result = svc.applyCategory(cat.toStdString());
 
         QMetaObject::invokeMethod(this, [this, result]() {
@@ -235,8 +236,8 @@ void FineTuneWidget::onRollbackClicked() {
     QApplication::setOverrideCursor(Qt::WaitCursor);
 
     std::thread([this]() {
-        TweakService svc(appdataDir().toStdString());
-        svc.setAccessFactory([]() -> ITweakAccess* { return new RegistryTweakAccess(); });
+        RegistryTweakAccess access;
+        TweakService svc(access, appdataDir().toStdString());
         const std::string result = svc.rollbackLast();
 
         QMetaObject::invokeMethod(this, [this, result]() {
