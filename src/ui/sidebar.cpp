@@ -30,18 +30,18 @@ Sidebar::Sidebar(QWidget* parent)
     m_buttonGroup = new QButtonGroup(this);
     m_buttonGroup->setExclusive(true);
 
-    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard,       "Р вЂњР В»Р В°Р Р†Р Р…Р В°РЎРЏ"),          0);
-    m_buttonGroup->addButton(createNavButton(NavPage::Games,           "Р ВР С–РЎР‚РЎвЂ№"),             1);
-    m_buttonGroup->addButton(createNavButton(NavPage::Profiles,        "Р СџРЎР‚Р С•РЎвЂћР С‘Р В»Р С‘ Р С‘Р С–РЎР‚"),      2);
-    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring,      "Р СљР С•Р Р…Р С‘РЎвЂљР С•РЎР‚Р С‘Р Р…Р С–"),       3);
-    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer,       "Р С›Р С—РЎвЂљР С‘Р СР С‘Р В·Р В°РЎвЂ Р С‘РЎРЏ"),      4);
-    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools,    "Р РЋР ВµРЎвЂљР ВµР Р†РЎвЂ№Р Вµ РЎС“РЎвЂљР С‘Р В»Р С‘РЎвЂљРЎвЂ№"),  5);
-    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor,  "Р СџРЎР‚Р С•РЎвЂ Р ВµРЎРѓРЎРѓРЎвЂ№"),         6);
-m_buttonGroup->addButton(createNavButton(NavPage::History,         "Р ВРЎРѓРЎвЂљР С•РЎР‚Р С‘РЎРЏ"),         7);
-    m_buttonGroup->addButton(createNavButton(NavPage::Diagnostics,     "Р вЂќР С‘Р В°Р С–Р Р…Р С•РЎРѓРЎвЂљР С‘Р С”Р В°"),     8);
-    m_buttonGroup->addButton(createNavButton(NavPage::Remediation,   "РћРїС‚РёРјРёР·Р°С†РёСЏ Win"),  9);
-    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap,          "Р С™Р В°РЎР‚РЎвЂљР В° РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚Р С•Р Р†"), 10);
-    m_buttonGroup->addButton(createNavButton(NavPage::Settings,        "Р СњР В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘"), 11);
+    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard),          0);
+    m_buttonGroup->addButton(createNavButton(NavPage::Games),              1);
+    m_buttonGroup->addButton(createNavButton(NavPage::Profiles),           2);
+    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring),         3);
+    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer),          4);
+    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools),       5);
+    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor),     6);
+    m_buttonGroup->addButton(createNavButton(NavPage::History),            7);
+    m_buttonGroup->addButton(createNavButton(NavPage::Diagnostics),        8);
+    m_buttonGroup->addButton(createNavButton(NavPage::Remediation),        9);
+    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap),            10);
+    m_buttonGroup->addButton(createNavButton(NavPage::Settings),          11);
 
     for (int i = 0; i < BUTTON_COUNT; ++i) {
         layout->addWidget(m_buttonGroup->button(i));
@@ -55,9 +55,25 @@ m_buttonGroup->addButton(createNavButton(NavPage::History,         "Р ВРЎ
     m_buttonGroup->button(0)->setChecked(true);
 }
 
-QPushButton* Sidebar::createNavButton(NavPage page, const QString& text)
+QPushButton* Sidebar::createNavButton(NavPage page)
 {
-    auto* button = new QPushButton(text, this);
+    QString label;
+    switch (page) {
+        case NavPage::Dashboard:     label = QString::fromUtf8("\xD0\x9E\xD0\xB1\xD0\xB7\xD0\xBE\xD1\x80"); break;
+        case NavPage::Games:         label = QString::fromUtf8("\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B"); break;
+        case NavPage::Profiles:      label = QString::fromUtf8("\xD0\x9F\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD0\xB8\x20\xD0\xB8\xD0\xB3\xD1\x80"); break;
+        case NavPage::Monitoring:    label = QString::fromUtf8("\xD0\x9C\xD0\xBE\xD0\xBD\xD0\xB8\xD1\x82\xD0\xBE\xD1\x80\xD0\xB8\xD0\xBD\xD0\xB3"); break;
+        case NavPage::Optimizer:     label = QString::fromUtf8("\xD0\x9E\xD0\xBF\xD1\x82\xD0\xB8\xD0\xBC\xD0\xB8\xD0\xB7\xD0\xB0\xD1\x82\xD0\xBE\xD1\x80"); break;
+        case NavPage::NetworkTools:  label = QString::fromUtf8("\xD0\xA1\xD0\xB5\xD1\x82\xD0\xB5\xD0\xB2\xD1\x8B\xD0\xB5\x20\xD1\x83\xD1\x82\xD0\xB8\xD0\xBB\xD0\xB8\xD1\x82\xD1\x8B"); break;
+        case NavPage::ProcessMonitor: label = QString::fromUtf8("\xD0\x9F\xD1\x80\xD0\xBE\xD1\x86\xD0\xB5\xD1\x81\xD1\x81\xD1\x8B"); break;
+        case NavPage::History:       label = QString::fromUtf8("\xD0\x98\xD1\x81\xD1\x82\xD0\xBE\xD1\x80\xD0\xB8\xD1\x8F"); break;
+        case NavPage::Diagnostics:   label = QString::fromUtf8("\xD0\x94\xD0\xB8\xD0\xB0\xD0\xB3\xD0\xBD\xD0\xBE\xD1\x81\xD1\x82\xD0\xB8\xD0\xBA\xD0\xB0"); break;
+        case NavPage::Remediation:   label = QString::fromUtf8("\xD0\x9E\xD0\xBF\xD1\x82\xD0\xB8\xD0\xBC\xD0\xB8\xD0\xB7\xD0\xB0\xD1\x86\xD0\xB8\xD1\x8F\x20Win"); break;
+        case NavPage::GeoMap:        label = QString::fromUtf8("\xD0\x9A\xD0\xB0\xD1\x80\xD1\x82\xD0\xB0\x20\xD1\x81\xD0\xB5\xD1\x80\xD0\xB2\xD0\xB5\xD1\x80\xD0\xBE\xD0\xB2"); break;
+        case NavPage::Settings:      label = QString::fromUtf8("\xD0\x9D\xD0\xB0\xD1\x81\xD1\x82\xD1\x80\xD0\xBE\xD0\xB9\xD0\xBA\xD0\xB8"); break;
+        default: break;
+    }
+    auto* button = new QPushButton(label, this);
     button->setObjectName("sidebarButton");
     button->setCheckable(true);
     button->setCursor(Qt::PointingHandCursor);

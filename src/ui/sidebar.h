@@ -40,7 +40,7 @@ signals:
     void navigationChanged(int index);
 
 private:
-    QPushButton* createNavButton(NavPage page, const QString& text);
+    QPushButton* createNavButton(NavPage page);
     static QIcon makeIcon(NavPage page, const QColor& color);
 
     QButtonGroup* m_buttonGroup;
