@@ -1,122 +1,140 @@
-﻿# E2E4 Soft — Game Network Optimizer
+﻿<div align="center">
 
-> **Понимай свою сеть. Чини безопасно. Играй без лагов.**
+# E2E4 Soft — Game Network Optimizer
 
-Локальный диагност и оптимизатор игровых соединений для Windows. Программа отвечает на три вопроса: *что с моей сетью?*, *почему игра не запускается?* и *что из этого можно безопасно починить?*
+**Advanced Network Diagnostics & System Optimization for Competitive Gaming**
 
-Офлайн-first: без VPN, без relay-серверов, без телеметрии и аккаунтов.
+[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/Reagent420/e2e4-soft/releases)
+[![Tests](https://img.shields.io/badge/tests-34%20passing-brightgreen.svg)]()
+[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+*Understand your network. Fix safely. Play without lag.*
+
+</div>
 
 ---
 
-## Возможности
+## What is GNO?
 
-### Диагностика сети
-- Замер **пинга, джиттера и потерь пакетов** до серверов 20+ игр с итоговой оценкой качества **Quality Score (0–100)**
-- Статистика: RTT, median, p95, джиттер, потери, всплески задержек
-- Расширенный режим: задержка DNS-резолверов, traceroute с анализом качества маршрута, IPv4/IPv6, MTU, активные интерфейсы
-- Мониторинг мобильных подключений: hotspot, USB-модем, мобильный роутер
-- Живой мониторинг сессии с сохранением истории и оценки качества в SQLite-совместимом JSON-хранилище
+GNO is a comprehensive network diagnostics and system optimization tool designed specifically for competitive gamers. It answers three questions: *What's wrong with my network?*, *Why won't my game launch?*, and *What can be safely fixed?*
 
-### Диагностика запуска игры
-Если игра не запускается, GNO проверяет:
-- службы античитов (**BattlEye, Vanguard, EasyAntiCheat**), Steam/VAC
-- библиотеки **Visual C++ Redistributable**
-- исполняемые файлы игры, свободное место на диске, права администратора
+Unlike generic "boosters", GNO uses a **transactional engine** — every system change is backed up, verified after application, and fully reversible with one click.
 
-Каждая находка показывается с объяснением «как программа это видит», серьёзностью (OK / внимание / критично) и конкретным способом решения. Там, где это безопасно, доступен автофикс.
+## Key Features
 
-### Безопасные исправления Windows (транзакционный движок)
-Единственный путь изменения настроек — транзакция:
+### 🌐 Network Diagnostics
+Real-time ping, jitter, and packet loss measurement against servers in 20+ games with a proprietary Quality Score (0–100). Advanced mode includes DNS resolver latency, traceroute with hop-by-hop analysis, IPv4/IPv6 validation, and interface enumeration.
+
+### 🎮 Launch Diagnostics
+Comprehensive pre-launch checks: anti-cheat services (BattlEye, Vanguard, EAC), Visual C++ Redistributables, disk space, administrator privileges. Each finding includes severity rating, plain-language explanation, and one-click auto-fix where safe.
+
+### 🔧 Transactional Engine
+The only optimization tool where every change follows: **backup → apply → verify → rollback**. Ten whitelisted actions covering DNS, MTU, TCP tuning, power plans, Game DVR, fullscreen optimizations, process priority, CS2 matchmaking filter, Game Mode, and mouse acceleration.
+
+### 🗺️ Server Map
+Interactive world map with live ICMP probing of game server regions. Color-coded latency grades, best-server detection, region filtering, and auto-refresh scheduling.
+
+### 📚 Knowledge Base
+Curated database of common and complex gaming problems organized by title: symptom → cause → solution. Simple issues resolved via integrated auto-fix; complex ones include step-by-step guides.
+
+### 📊 Analytics
+Score trend charts over session history, per-game alert thresholds, weekly health aggregation, CSV/PNG/JSON report export.
+
+---
+
+## Safety Model
+
+Every modification follows a strict protocol:
 
 ```
-резервная копия → применение → проверка результата → откат одной кнопкой
+┌──────────┐    ┌─────────┐    ┌─────────┐    ┌──────────┐
+│ BACKUP   │ →  │ APPLY   │ →  │ VERIFY  │ →  │ ROLLBACK │
+│ snapshot │    │ change  │    │ result  │    │ if fail  │
+└──────────┘    └─────────┘    └─────────┘    └──────────┘
 ```
 
-Только **белый список из семи действий**:
+Only whitelisted registry keys and network parameters are modified. Game files, anti-cheat software, and drivers are never touched.
 
-| Действие | Что делает |
-|---|---|
-| DNS серверы | быстрые резолверы 1.1.1.1 / 1.0.0.1 вместо провайдерских |
-| MTU интерфейса | MTU 1500 против фрагментации пакетов |
-| TCP InitialRtt | 5000 мс — быстрее установка игровых соединений |
-| План питания | схема «Высокая производительность» |
-| Xbox Game DVR | отключение фоновой записи клипов (причина микрофризов) |
-| Оптимизация полного экрана | убирает вмешательство Windows в полноэкранный swapchain |
-| Приоритет процесса игры | AboveNormal против фоновых задач |
+## Honest Limitations
 
-Каждое действие верифицируется по факту: если результат не совпал с ожидаемым — транзакция помечается failed, состояние откатывается.
+- Cannot reduce ping beyond what your ISP provides
+- Cannot filter matchmaking from outside the game client
+- Cannot bypass anti-cheat systems
+- Is not a VPN or proxy
 
-### База знаний
-Популярные и сложные проблемы по каждой игре: **симптом → причина → решение**. Простые чинятся автофиксом (через тот же безопасный движок), сложные — пошаговой инструкцией. Есть поиск по всем полям.
-
-### Отчёт простыми словами
-По итогам диагностики GNO собирает четыре секции: *что не так*, *что мы можем сделать за вас*, *что вам стоит сделать самим* и *чего мы не делаем*. Без жаргона — понятно с первого раза.
+These limitations are stated openly because trust matters more than marketing.
 
 ---
 
-## Чего GNO не делает (и никогда не будет)
+## Installation
 
-- ✕ Не изменяет файлы игр и лаунчеров
-- ✕ Не обходит и не настраивает античиты
-- ✕ Не снижает пинг магистральных провайдеров и не перенаправляет трафик
-- ✕ Не является VPN/relay/прокси
-- ✕ Не разгоняет оборудование
-- ✕ Не меняет системные файлы и драйверы вне белого списка
+Download `GNO-v3.0.0.zip` from [Releases](https://github.com/Reagent420/e2e4-soft/releases), extract, run `GNO.exe`. Qt libraries included.
 
----
+For full functionality, run as Administrator.
 
-## Установка
+## Building from Source
 
-Скачайте `GNO-v1.9.0.zip` со страницы [релизов](https://github.com/Reagent420/e2e4-soft/releases), распакуйте и запустите `GNO.exe`. Qt-библиотеки уже включены в архив.
-
-Для части действий (план питания, TCP, MTU) запускайте от имени администратора — программа честно покажет, что без этого недоступно.
-
-## Сборка из исходников
-
-Требования: [MSYS2](https://www.msys2.org/) + MinGW64, CMake ≥ 3.20, Qt6 (Widgets, Charts).
+Requirements: MSYS2 + MinGW64, CMake ≥ 3.20, Qt6 (Widgets, Charts)
 
 ```bash
 pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake \
          mingw-w64-x86_64-ninja mingw-w64-x86_64-qt6
 
-mkdir build && cd build
+git clone https://github.com/Reagent420/e2e4-soft.git
+cd e2e4-soft && mkdir build && cd build
 cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build .              # GUI (GNO.exe) + консоль (GNO-console.exe) + тесты
+cmake --build .
+./bin/GNO-tests.exe    # 34 cases / 216 assertions
 ```
 
-Развёртывание GUI:
-
-```bash
-windeployqt --release bin/GNO.exe
-```
-
-### Тесты
-
-```bash
-./bin/GNO-tests.exe
-# 23 кейса / 117 проверок — включая полный цикл apply → rollback на фейковом API
-```
-
-Покрыто: транзакционный движок (подготовка/применение/откат, отказоустойчивость), JSON-бэкап (roundtrip), мост legacy-фиксов, статистика, матрица возможностей, отчёт простыми словами, база проблем, профили игр.
-
-## Консольный режим
+## Command Line Interface
 
 ```text
-E2E4-console --target 1.1.1.1 --ping 10     # быстрый замер
+E2E4-console --target 1.1.1.1 --ping 10
 E2E4-console --boost --game "Counter-Strike 2"
 E2E4-console --speedtest
 E2E4-console --dns-benchmark
-E2E4-console --watch                        # слежение за запуском игр
-E2E4-console --export-profile profiles.json
+E2E4-console --watch
 ```
 
-## Принципы проекта
+---
 
-1. **Безопасность важнее результата** — никакое изменение не выполняется без бэкапа и проверки.
-2. **Прозрачность** — программа всегда объясняет, что она видит, что делает и почему.
-3. **Честность о пределах** — то, что GNO не может изменить (маршрутизация провайдера, античиты), заявлено прямо, а не спрятано.
-4. **Приватность** — вся работа локально; сетевые запросы только к целям диагностики, которые выбрал пользователь.
+## Technical Stack
 
-## Лицензия
+| Component | Technology |
+|---|---|
+| Language | C++20 |
+| UI Framework | Qt 6 (Widgets, Charts) |
+| Build System | CMake + Ninja |
+| Testing | doctest |
+| Compiler | MinGW GCC 16.x |
+| Target | Windows 10/11 x64 |
 
-См. [LICENSE](LICENSE).
+## Project Stats
+
+| Metric | Value |
+|---|---|
+| Source files | 80+ |
+| Lines of code | ~15,000+ |
+| Test assertions | 216 |
+| Whitelisted actions | 10 |
+| Registry tweaks | 28 |
+| Supported games | 23 |
+| Knowledge base entries | 25+ |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE)
+
+---
+
+<div align="center">
+
+**Reagent Network Service e2E4**
+
+Built with Qt6 · Offline-first · No telemetry
+
+</div>
