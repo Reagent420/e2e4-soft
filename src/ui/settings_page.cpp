@@ -159,9 +159,9 @@ void SettingsPageWidget::setupUI()
         themeRow->addSpacing(12);
         themeRow->addWidget(theme_);
 
-        auto* langLabel = new QLabel(QString::fromUtf8("\xD0\xAF%D0%B7%D1%8B%D0%BA\x3A"), this);
+        auto* langLbl = new QLabel(QString::fromUtf8("\xD0\xAF%D0%B7%D1%8B%D0%BA\x3A"), this);
         themeRow->addSpacing(12);
-        themeRow->addWidget(langLabel);
+        themeRow->addWidget(langLbl);
         language_ = createComboBox({QStringLiteral("Russian"), QStringLiteral("English")}, 
             QSettings().value(QStringLiteral("app/language"), 0).toInt(), this);
         themeRow->addWidget(language_);
