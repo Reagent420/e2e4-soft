@@ -14,6 +14,7 @@
 
 #include "../core/pro_presets.h"
 #include "theme.h"
+#include "../core/i18n.h"
 
 static QWidget* createSection(const QString& title, QVBoxLayout* contentLayout, QWidget* parent) {
     auto* group = new QWidget(parent);
@@ -157,6 +158,16 @@ void SettingsPageWidget::setupUI()
         themeRow->addWidget(themeLabel);
         themeRow->addSpacing(12);
         themeRow->addWidget(theme_);
+
+        auto* langLabel = new QLabel(QString::fromUtf8("\xD0\xAF%D0%B7%D1%8B%D0%BA\x3A"), this);
+        themeRow->addSpacing(12);
+        themeRow->addWidget(langLabel);
+        language_ = createComboBox({QStringLiteral("Russian"), QStringLiteral("English")}, 
+            QSettings().value(QStringLiteral("app/language"), 0).toInt(), this);
+        themeRow->addWidget(language_);
+        connect(language_, &QComboBox::currentIndexChanged, this, [this](int idx) {
+            QSettings().setValue(QStringLiteral("app/language"), idx);
+        });
         themeRow->addStretch();
         generalLayout->addLayout(themeRow);
 
