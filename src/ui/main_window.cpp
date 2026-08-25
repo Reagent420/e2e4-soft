@@ -16,7 +16,7 @@
 #include "session_history_widget.h"
 #include "diagnostics_widget.h"
 #include "remediation_widget.h"
-#include "fine_tune_widget.h"
+#include "theme_editor.h"
 #include "geo_map.h"
 #include "settings_page.h"
 
@@ -117,7 +117,7 @@ void MainWindow::setupPages()
     m_stackedWidget->addWidget(new RemediationWidget(this));
     m_page_creators_[10] = [this]() { return new GeoMapWidget(this); };
     m_stackedWidget->addWidget(new QWidget(this)); // placeholder 10
-    m_page_creators_[11] = [this]() { return new FineTuneWidget(this); };
+    m_page_creators_[11] = [this]() { return new ThemeEditorWidget(this); };
     m_stackedWidget->addWidget(new QWidget(this)); // placeholder 11
     m_page_creators_[12] = [this]() { return new SettingsPageWidget(this); };
     m_stackedWidget->addWidget(new QWidget(this)); // placeholder 12

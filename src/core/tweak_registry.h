@@ -181,6 +181,58 @@ inline const std::vector<TweakSpec>& tweaks() {
          "Windows Update не раздаёт обновления через P2P другим компьютерам",
          TweakRoot::HKLM, "SYSTEM\\CurrentControlSet\\Services\\DoSvc",
          "Start", TweakType::Dword, 4, "", false},
+
+        // ---------------- FPS BOOST (v2.4.0) ----------------
+        {"fps_system_resp", "FPS Boost", "System Responsiveness = 0",
+         "Все ядра CPU отдаются игре вместо фоновых задач (по умолчанию 20%)",
+         TweakRoot::HKLM,
+         "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
+         "SystemResponsiveness", TweakType::Dword, 0, "", false},
+
+        // ---------------- ДОПОЛНИТЕЛЬНЫЕ (v2.4.0+) ----------------
+        {"exp_search_bing_off", "Поиск", "Bing-подсказки выключены",
+         "Пуск ищет только локально без веб-вставок",
+         TweakRoot::HKCU, "Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+         "BingSearchEnabled", TweakType::Dword, 0, "", false},
+
+        {"prv_cortana_consent", "Приватность", "Cortana согласие отозвано",
+         "Голосовой ассистент не собирает данные",
+         TweakRoot::HKCU, "Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+         "CortanaConsent", TweakType::Dword, 0, "", false},
+
+        {"prv_tips_off", "Приватность", "Советы Windows выключены",
+         "Экранные подсказки и реклама функций отключены",
+         TweakRoot::HKCU,
+         "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+         "SubscribedContent-338389Enabled", TweakType::Dword, 0, "", false},
+
+        {"prv_suggested_apps", "Приватность", "Рекомендуемые приложения выключены",
+         "Windows не устанавливает рекламные приложения из Store",
+         TweakRoot::HKCU,
+         "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+         "SilentInstalledAppsEnabled", TweakType::Dword, 0, "", false},
+
+        {"prv_lockscreen_ads", "Приватность", "Реклама на экране блокировки выключена",
+         "Windows Spotlight не показывает спонсорский контент",
+         TweakRoot::HKCU,
+         "Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+         "RotatingLockScreenOverlayEnabled", TweakType::Dword, 0, "", false},
+
+        {"prv_tailored_exp", "Приватность", "Персонализированные советы выключены",
+         "Windows не использует диагностические данные для персонализации",
+         TweakRoot::HKCU,
+         "Software\\Microsoft\\Windows\\CurrentVersion\\Privacy",
+         "TailoredExperiencesWithDiagnosticDataEnabled", TweakType::Dword, 0, "", false},
+
+        {"pow_gamebar_global", "Игры", "Game Bar полностью выключен",
+         "Xbox Game Bar не активируется горячими клавишами",
+         TweakRoot::HKCU, "Software\\Microsoft\\GameBar",
+         "AllowAutoGameMode", TweakType::Dword, 0, "", false},
+
+        {"fx_overlay_gpu", "Эффекты", "Multi-Plane Overlay выключен",
+         "Отключает аппаратный оверлей для стабильного захвата экрана",
+         TweakRoot::HKCU, "Software\\Microsoft\\DirectX\\UserGpuPreferences",
+         "DirectXUserGlobalSettings", TweakType::Sz, 0, "OverlayTestMode=5;"},
     };
     return v;
 }

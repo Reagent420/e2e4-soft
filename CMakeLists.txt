@@ -87,6 +87,7 @@ set(UI_SOURCES
     src/ui/report_export.cpp
     src/ui/remediation_widget.cpp
     src/ui/fine_tune_widget.cpp
+    src/ui/theme_editor.cpp
     src/monitoring/monitoring_service.cpp
 )
 

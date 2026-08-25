@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include <QWidget>
+#include "../core/connection_grader.h"
 
 class QChartView;
 #include <QVBoxLayout>

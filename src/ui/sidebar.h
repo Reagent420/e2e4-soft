@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QWidget>
 #include <QPushButton>
@@ -23,7 +23,7 @@ enum class NavPage {
     Diagnostics,
     Remediation,
     GeoMap,
-    FineTune,
+    ThemeEditor,
     Settings,
     Count
 };
