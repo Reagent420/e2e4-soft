@@ -27,7 +27,6 @@ endif()
 set(CORE_SOURCES
     src/core/route_analyzer.cpp
     src/core/multipath_engine.cpp
-    src/core/packet_capture.cpp
     src/core/game_detector.cpp
     src/core/network_utils.cpp
     src/core/game_profiles.cpp
@@ -41,7 +40,6 @@ set(CORE_SOURCES
     src/core/system_audit.cpp
     src/core/launch_diagnostics.cpp
     src/core/problem_db.cpp
-    src/core/input_validation.cpp
     src/core/json_persistence.cpp
     src/core/capability_matrix.cpp
     src/core/plain_language.cpp
