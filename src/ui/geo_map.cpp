@@ -252,6 +252,21 @@ GeoMapWidget::GeoMapWidget(QWidget* parent) : QWidget(parent) {
     rebuildVisibleServers();
     canvas_->bind(&servers_, &visible_, &selected_, &best_,
                   &m_labels_shown_, &m_grid_shown_);
+
+    // Load saved probe results from previous sessions
+    {
+        QSettings settings;
+        settings.beginGroup(QStringLiteral("map/probe"));
+        for (auto& s : servers_) {
+            const QString key = QString::fromStdString(s.ip);
+            if (settings.contains(key)) {
+                s.latency_ms = settings.value(key, -1).toInt();
+            }
+        }
+        settings.endGroup();
+        best_ = ServerMapModel::bestServer(servers_);
+    }
+
     updateDetailsCard();
 
     m_timer_ = new QTimer(this);
@@ -473,6 +488,19 @@ void GeoMapWidget::startProbeThread(bool all) {
 
         QMetaObject::invokeMethod(this, [this, results]() {
             ServerMapModel::applyProbeResults(servers_, results);
+
+            // Save probe results for persistence across sessions
+            {
+                QSettings settings;
+                settings.beginGroup(QStringLiteral("map/probe"));
+                for (const auto& [idx, lat] : results) {
+                    if (idx >= 0 && idx < static_cast<int>(servers_.size()))
+                        settings.setValue(
+                            QString::fromStdString(
+                                servers_[static_cast<std::size_t>(idx)].ip), lat);
+                }
+                settings.endGroup();
+            }
             best_ = ServerMapModel::bestServer(servers_);
             updateDetailsCard();
             canvas_->update();

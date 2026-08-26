@@ -1,6 +1,7 @@
 ﻿#include "fps_boost_widget.h"
 #include "theme.h"
 #include "core/fps_boost.h"
+#include "core/system_audit.h"
 
 #include <QApplication>
 #include <QBrush>
@@ -173,6 +174,8 @@ void FpsBoostWidget::onStartupToggle(int row, int col) {
 }
 
 void FpsBoostWidget::onRefreshServices() {
+    const bool elevated = SystemAudit::isAdmin();
+
     struct SvcDef { const char* name; const char* display; };
     static const SvcDef services[] = {
         {"SysMain", "SysMain (Superfetch)"},
@@ -183,8 +186,15 @@ void FpsBoostWidget::onRefreshServices() {
     m_services_table_->setRowCount(3);
     for (int i = 0; i < 3; ++i) {
         auto info = queryService(services[i].name);
-        m_services_table_->setItem(i, 0,
-            new QTableWidgetItem(QString::fromUtf8(services[i].display)));
+        if (!elevated) {
+            auto* warn = new QTableWidgetItem(
+                QString::fromUtf8("\xD0\x9D\xD1\x83\xD0\xB6\xD0\xBD\xD1\x8B\x20\xD0\xBF\xD1%80\xD0%B0%D0%B2\xD0\xB0") + " " + QString::fromUtf8(services[i].display));
+            warn->setForeground(QBrush(QColor(theme::Colors::WARNING)));
+            m_services_table_->setItem(i, 0, warn);
+        } else {
+            m_services_table_->setItem(i, 0,
+                new QTableWidgetItem(QString::fromUtf8(services[i].display)));
+        }
         auto* status_item = new QTableWidgetItem(serviceStatusText(info));
         status_item->setForeground(QBrush(serviceColor(info)));
         m_services_table_->setItem(i, 1, status_item);
