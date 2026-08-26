@@ -1,4 +1,4 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+﻿#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "core/game_detector.h"
 #include "core/route_analyzer.h"
@@ -228,6 +228,40 @@ TEST_CASE("LaunchDiagnostics::checks cover categories") {
 #include "remediation/legacy_bridge.h"
 #include "core/server_map_model.h"
 #include "core/autopilot_plan.h"
+#include "core/sqlite_history_store.h"
+#include <filesystem>
+#include <map>
+#include <sstream>
+
+TEST_CASE("SqliteHistoryStore: insert, query, aggregate") {
+    auto db_path = (std::filesystem::temp_directory_path() / "gno_test.db").string();
+    std::error_code rm_ec;
+    std::filesystem::remove(db_path, rm_ec);
+
+    gno::SqliteHistoryStore store(db_path);
+    CHECK(store.totalSessions() == 0);
+
+    gno::HistoryRecord r1;
+    r1.game_name = "CS2";
+    r1.avg_ping_ms = 23.5;
+    r1.quality_score = 85;
+    store.insert(r1);
+
+    gno::HistoryRecord r2;
+    r2.game_name = "PUBG";
+    r2.avg_ping_ms = 45.0;
+    r2.quality_score = 60;
+    store.insert(r2);
+
+    CHECK(store.totalSessions() == 2);
+    CHECK(store.averageScore() == doctest::Approx(72.5));
+
+    auto last = store.getLast(1);
+    REQUIRE(last.size() == 1);
+    CHECK(last[0].game_name == "PUBG");
+
+    std::filesystem::remove(db_path, rm_ec);
+}
 #include "core/net_utils.h"
 #include "core/report_exporter.h"
 #include "core/profile_engine.h"

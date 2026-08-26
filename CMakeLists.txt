@@ -51,6 +51,7 @@ set(CORE_SOURCES
     src/remediation/target_discovery.cpp
     src/remediation/legacy_bridge.cpp
     src/core/platform_netscan.cpp
+    src/core/sqlite_history_store.cpp
     src/core/tweak_service.cpp
 )
 
@@ -92,7 +93,7 @@ set(UI_SOURCES
 set(COMMON_LIBS Threads::Threads)
 
 if(WIN32)
-    list(APPEND COMMON_LIBS ws2_32 iphlpapi winmm powrprof)
+    list(APPEND COMMON_LIBS ws2_32 iphlpapi winmm powrprof sqlite3)
 endif()
 
 # Console target (always built)
