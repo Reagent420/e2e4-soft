@@ -1,19 +1,6 @@
-# Build
-build/
-*.o
-*.obj
-
-# IDE
-.vscode/
-.idea/
-*.user
-
-# Distribution zips
-*.zip
-
-# Test artifacts
-test_profiles*.json
-profiles_with_data.json
-push_github.bat
-deploy/
+﻿build/
 build-msys/
+deploy/
+*.zip
+*.log
+*.tmp

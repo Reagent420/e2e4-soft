@@ -38,6 +38,11 @@ public:
     double averageScore() const;
     int totalSessions() const;
 
+    // v3.2: extended analytics
+    double averageScoreLast(int days) const;
+    std::vector<HistoryRecord> getByGame(const std::string& game) const;
+    std::vector<HistoryRecord> getByPeriod(const std::string& from, const std::string& to) const;
+
 private:
     sqlite3* db_ = nullptr;
     void createSchema();
