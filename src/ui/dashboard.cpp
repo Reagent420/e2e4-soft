@@ -2,6 +2,7 @@
 #include "theme.h"
 #include "monitoring_service.h"
 #include "report_export.h"
+#include "core/fps_boost.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -205,6 +206,50 @@ DashboardWidget::DashboardWidget(QWidget* parent)
     boost_btn_->setCursor(Qt::PointingHandCursor);
     connect(boost_btn_, &QPushButton::clicked, this, &DashboardWidget::onBoostClicked);
     root->addWidget(boost_btn_);
+
+    // v2.8: RAM cleaner + timer resolution + startup counter
+    auto* quickRow = new QHBoxLayout();
+    ram_btn_ = new QPushButton(QString::fromUtf8(
+        "\xD0\x9E\xD1%87\xD0%B8%D1%81%D1%82%D0%B8%D1\x82\xD1%8C\x20RAM"), this);
+    ram_btn_->setObjectName("boostButton");
+    ram_btn_->setFixedHeight(36);
+    connect(ram_btn_, &QPushButton::clicked, this, [this]() {
+        ram_btn_->setEnabled(false);
+        auto stats = gno::fpsboost::cleanRam();
+        ram_label_->setText(QString::fromUtf8(
+            "\xD0%9E%D1\x81%D0%B2%D0%BE%D0%B1%D0%BE%D0%B6%D0%B4%D0%B5%D0%BD%D0%BE\x3A\x20%1 MB")
+            .arg(static_cast<int>(stats.bytes_freed_estimate / (1024 * 1024))));
+        ram_btn_->setEnabled(true);
+    });
+    ram_label_ = new QLabel(QStringLiteral(" "), this);
+    quickRow->addWidget(ram_btn_);
+    quickRow->addWidget(ram_label_, 1);
+
+    timer_label_ = new QLabel(this);
+    timer_label_->setStyleSheet(QString(
+        "color:%1; font-size:11px; font-family:Consolas; background:transparent;")
+        .arg(theme::Colors::TEXT_TERTIARY));
+    {
+        auto res = gno::fpsboost::currentTimerResolution();
+        timer_label_->setText(QString::fromUtf8("\xD0%A2%D0%B0%D0%B9%D0%BC%D0%B5%D1%80\x3A\x20%1 ms")
+            .arg(res / 10000.0, 0, 'f', 1));
+    }
+
+    startup_label_ = new QLabel(this);
+    startup_label_->setStyleSheet(QString(
+        "color:%1; font-size:11px; background:transparent;")
+        .arg(theme::Colors::TEXT_TERTIARY));
+    {
+        auto progs = gno::fpsboost::enumStartupPrograms();
+        int enabled = 0;
+        for (const auto& p : progs) if (p.enabled) ++enabled;
+        startup_label_->setText(QString::fromUtf8(
+            "\xD0\x90%D0%B2%D1%82%D0%BE%D0%B7%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D0%BA%D0%B0\x3A\x20%1")
+            .arg(enabled));
+    }
+
+    root->addWidget(timer_label_);
+    root->addWidget(startup_label_);
 
     // comparison measure button
     auto* measureRow = new QHBoxLayout;

@@ -52,6 +52,7 @@ set(CORE_SOURCES
     src/remediation/legacy_bridge.cpp
     src/core/platform_netscan.cpp
     src/core/sqlite_history_store.cpp
+    src/core/fps_boost.cpp
     src/core/tweak_service.cpp
 )
 

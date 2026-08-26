@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QWidget>
 #include <QVector>
@@ -57,6 +57,10 @@ private:
     QLabel* status_value_;
     QPushButton* boost_btn_;
     QPushButton* measure_btn_;
+    QPushButton* ram_btn_ = nullptr;
+    QLabel* ram_label_ = nullptr;
+    QLabel* timer_label_ = nullptr;
+    QLabel* startup_label_ = nullptr;
     QLabel* rec_card_;
     QTimer* measure_timer_;
     bool boosting_ = false;
