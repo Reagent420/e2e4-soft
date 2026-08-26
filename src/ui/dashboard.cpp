@@ -231,7 +231,7 @@ DashboardWidget::DashboardWidget(QWidget* parent)
         .arg(theme::Colors::TEXT_TERTIARY));
     {
         auto res = gno::fpsboost::currentTimerResolution();
-        timer_label_->setText(QString::fromUtf8("\xD0%A2%D0%B0%D0%B9%D0%BC%D0%B5%D1%80\x3A\x20%1 ms")
+        timer_label_->setText(QString::fromUtf8("\xD0\xA2\xD0\xB0\xD0\xB9\xD0\xBC\xD0\xB5\xD1\x80\x3A\x20%1 ms")
             .arg(res / 10000.0, 0, 'f', 1));
     }
 

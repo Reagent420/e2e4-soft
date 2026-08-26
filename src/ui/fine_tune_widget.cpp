@@ -111,7 +111,7 @@ void FineTuneWidget::setupUI() {
 
     auto* row = new QHBoxLayout();
     m_category_ = new QComboBox(this);
-    m_category_->addItem(QString::fromUtf8("\xD0\x92\xD1\x81\xD0%B5"), QString());
+    m_category_->addItem(QString::fromUtf8("\xD0\x92\xD1\x81\xD0\xB5"), QString());
     {
         std::vector<QString> cats;
         for (const auto& spec : tweaks())
@@ -148,10 +148,10 @@ void FineTuneWidget::setupUI() {
 
     m_table_ = new QTableWidget(0, 5, this);
     m_table_->setHorizontalHeaderLabels({QStringLiteral("CATEGORY"),
-                                         QString::fromUtf8("\xD0%9E\xD0%BF%D1%86%D0%B8%D1%8F"),
-                                         QString::fromUtf8("\xD0%A1%D0%B5%D0%B9%D1%87%D0%B0%D1%81"),
-                                         QString::fromUtf8("\xD0%A0%D0%B5%D0%BA%D0%BE%D0%BC%D0%B5%D0%BD%D0%B4"),
-                                         QString::fromUtf8("\xD0%9E\xD0%BF%D0%B8%D1%81%D0%B0%D0%BD%D0%B8%D0%B5")});
+                                         QString::fromUtf8("\xD0\x9E\xD0\xBF\xD1\x86\xD0\xB8\xD1\x8F"),
+                                         QString::fromUtf8("\xD0\xA1\xD0\xB5\xD0\xB9\xD1\x87\xD0\xB0\xD1\x81"),
+                                         QString::fromUtf8("\xD0\xA0\xD0\xB5\xD0\xBA\xD0\xBE\xD0\xBC\xD0\xB5\xD0\xBD\xD0\xB4"),
+                                         QString::fromUtf8("\xD0\x9E\xD0\xBF\xD0\xB8\xD1\x81\xD0\xB0\xD0\xBD\xD0\xB8\xD0\xB5")});
     m_table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     m_table_->setColumnWidth(0, 130);
     m_table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);

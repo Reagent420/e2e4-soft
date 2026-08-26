@@ -363,7 +363,7 @@ void GameProfilesWidget::exportProfile()
     // Threshold presets are not yet unified (planned v1.9.x) - export sane defaults.
     const auto doc = ProfileEngine::fromGameProfile(p, 60.0, 8.0, 2.0);
     const QString path = QFileDialog::getSaveFileName(
-        this, QString::fromUtf8("\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE%D1%80\xD1\x82\x20\xD0\xBF\xD1%80\xD0\xBE\xD1%84\xD0%B8\xD0\xBB\xD1\x8F"),
+        this, QString::fromUtf8("\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82\x20\xD0\xBF\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD1\x8F"),
         game + QStringLiteral(".gnoprofile"),
         QStringLiteral("GNO profile (*.gnoprofile)"));
     if (path.isEmpty()) return;
@@ -379,7 +379,7 @@ void GameProfilesWidget::exportProfile()
 void GameProfilesWidget::importProfile()
 {
     const QString path = QFileDialog::getOpenFileName(
-        this, QString::fromUtf8("\xD0\x98\xD0\xBC\xD0\xBF\xD0\xBE%D1%80\xD1\x82\x20\xD0\xBF\xD1%80\xD0\xBE\xD1%84\xD0%B8\xD0\xBB\xD1\x8F"),
+        this, QString::fromUtf8("\xD0\x98\xD0\xBC\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82\x20\xD0\xBF\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD1\x8F"),
         QString(), QStringLiteral("GNO profile (*.gnoprofile *.txt)"));
     if (path.isEmpty()) return;
     QFile f(path);

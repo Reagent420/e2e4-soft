@@ -443,7 +443,7 @@ void GeoMapWidget::updateDetailsCard() {
         html += QString::fromUtf8(
             "\xD0\x9D\xD0\xB5\xD0%B4\xD0%BE\xD1\x81\xD1%82\xD1%83\xD0\xBF\xD0%B5\xD0\xBD<br>");
     else
-        html += QString::fromUtf8("\xD0\x9D\xD0\xB5\x20\xD0\xBF\xD1%80\xD0\xBE\xD0%B2%D0%B5%D1%80\xD0%B5\xD0\xBD<br>");
+        html += QString::fromUtf8("\xD0\x9D\xD0\xB5\x20\xD0\xBF\xD1\x80\xD0\xBE\xD0\xB2\xD0\xB5\xD1\x80\xD0\xB5\xD0\xBD<br>");
 
     if (selected_ == best_)
         html += QString::fromUtf8("<br><b><span style=\"color:%1\">BEST</span></b>")
