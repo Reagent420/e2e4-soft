@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QLabel>
 #include <QPushButton>
+#include <QComboBox>
 #include <QTableWidget>
 #include <QTimer>
 

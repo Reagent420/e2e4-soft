@@ -2,6 +2,7 @@
 #include "theme.h"
 #include "core/fps_boost.h"
 #include "core/system_audit.h"
+#include "core/system_manager.h"
 
 #include <QApplication>
 #include <QBrush>
@@ -118,7 +119,93 @@ void FpsBoostWidget::setupUI() {
 
     onRefreshServices();
 
+    // ---- Process Manager (v3.1) ----
+    auto* procTitle = new QLabel(QStringLiteral("PROCESS MANAGER"), this);
+    procTitle->setStyleSheet(QString(
+        "font-size:13px; font-weight:700; letter-spacing:2px;"
+        "color:%1; background:transparent;").arg(theme::Colors::ACCENT_NEON));
+
+    m_proc_table_ = new QTableWidget(0, 4, this);
+    m_proc_table_->setHorizontalHeaderLabels({
+        QStringLiteral("PID"),
+        QString::fromUtf8("\xD0\x98\xD0\xBC\xD1%8F"),
+        QStringLiteral("RAM (MB)"),
+        QString::fromUtf8("\xD0\x94%D0%B5%D0%B9%D1\x81%D1%82%D0%B2%D0%B8%D0%B5")});
+    m_proc_table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    m_proc_table_->setColumnWidth(0, 70);
+    m_proc_table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    m_table_->setColumnWidth(2, 90);
+    m_table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
+    m_table_->setColumnWidth(3, 130);
+    m_table_->verticalHeader()->setVisible(false);
+    m_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_table_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table_->setAlternatingRowColors(true);
+
+    auto* procBtn = new QPushButton(QString::fromUtf8(
+        "\xD0\x9E\xD0%B1%D0%BD%D0%BE%D0%B2%D0%B8%D1%82\xD1%8C"), this);
+    connect(procBtn, &QPushButton::clicked, this, [this]() { refreshProcesses(); });
+
+    layout->addWidget(procTitle);
+    layout->addWidget(procBtn);
+    layout->addWidget(m_proc_table_);
+
+    // ---- GPU Preference ----
+    auto* gpuRow = new QHBoxLayout();
+    auto* gpuLbl = new QLabel(QString::fromUtf8(
+        "GPU Preference"), this);
+    gpuLbl->setStyleSheet(QString("color:%1; background:transparent;")
+        .arg(theme::Colors::TEXT_SECONDARY));
+    m_gpu_combo_ = new QComboBox(this);
+    m_gpu_combo_->addItem(QString::fromUtf8("\xD0\x90%D0%B2%D1%82%D0%BE"), 0);
+    m_gpu_combo_->addItem(QString::fromUtf8("\xD0%AD%D0%BA%D0%BE%D0%BD"), 1);
+    m_gpu_combo_->addItem(QString::fromUtf8("\xD0%92%D1%8B%D1%81%D0%BE%D0%BA%D0%B8%D0%B5"), 2);
+    connect(m_gpu_apply_btn_ = new QPushButton(QString::fromUtf8(
+        "\xD0\x9F%D1%80%D0%B8%D0%BC%D0%B5%D0%BD%D0%B8%D1%82\xD1%8C"), this),
+        &QPushButton::clicked, this, [this]() {
+            // GPU preference is set per-exe in the game profiles page
+        });
+    gpuRow->addWidget(gpuLbl);
+    gpuRow->addWidget(m_gpu_combo_);
+    gpuRow->addWidget(m_gpu_apply_btn_);
+    gpuRow->addStretch();
+    layout->addLayout(gpuRow);
+
+    // ---- NIC Driver Info ----
+    m_nic_label_ = new QLabel(this);
+    m_nic_label_->setStyleSheet(QString(
+        "color:%1; font-size:11px; font-family:Consolas;"
+        " background:transparent;").arg(theme::Colors::TEXT_TERTIARY));
+    layout->addWidget(m_nic_label_);
+
     layout->addStretch();
+}
+
+void FpsBoostWidget::refreshProcesses() {
+    auto procs = sysmgr::enumUserProcesses();
+    // Filter: only non-system with RAM > 5 MB
+    std::vector<sysmgr::ProcInfo> user;
+    for (auto& p : procs)
+        if (!p.is_system && p.working_set > 5 * 1024 * 1024)
+            user.push_back(p);
+    std::sort(user.begin(), user.end(),
+              [](const auto& a, const auto& b) { return a.working_set > b.working_set; });
+    if (user.size() > 30) user.resize(30);
+
+    m_proc_table_->setRowCount(static_cast<int>(user.size()));
+    for (int r = 0; r < static_cast<int>(user.size()); ++r) {
+        const auto& p = user[static_cast<std::size_t>(r)];
+        m_proc_table_->setItem(r, 0,
+            new QTableWidgetItem(QString::number(p.pid)));
+        m_proc_table_->setItem(r, 1,
+            new QTableWidgetItem(QString::fromStdString(p.name)));
+        m_proc_table_->setItem(r, 2, new QTableWidgetItem(
+            QString::number(static_cast<int>(p.working_set / (1024 * 1024))) + " MB"));
+        m_proc_table_->setItem(r, 3, new QTableWidgetItem(
+            p.is_system ? "SYS" : "USER"));
+    }
+    m_proc_table_->resizeRowsToContents();
 }
 
 void FpsBoostWidget::onTimerToggle() {
