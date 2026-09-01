@@ -8,6 +8,7 @@
 #include <QColor>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QMessageBox>
 #include <QVBoxLayout>
 #include <thread>
 
@@ -21,6 +22,27 @@
 #include <memory>
 
 namespace gno {
+
+#ifdef PLATFORM_WINDOWS
+namespace {
+constexpr unsigned long GNO_SHTDN_PLANNED = 0x80000000;
+bool ShutdownWindows() {
+    HANDLE hToken;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
+        return false;
+    TOKEN_PRIVILEGES tp{};
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    if (!LookupPrivilegeValueW(nullptr, L"SeShutdownPrivilege", &tp.Privileges[0].Luid)) {
+        CloseHandle(hToken);
+        return false;
+    }
+    AdjustTokenPrivileges(hToken, FALSE, &tp, 0, nullptr, nullptr);
+    CloseHandle(hToken);
+    return InitiateSystemShutdownExA(nullptr, nullptr, 0, TRUE, TRUE, GNO_SHTDN_PLANNED);
+}
+} // namespace
+#endif
 
 namespace {
 
@@ -222,11 +244,41 @@ void FineTuneWidget::onApplyClicked() {
         RegistryTweakAccess access;
         TweakService svc(access, appdataDir().toStdString());
         const std::string result = svc.applyCategory(cat.toStdString());
+        auto reboot_ids = svc.appliedNeedsReboot();
 
-        QMetaObject::invokeMethod(this, [this, result]() {
+        QMetaObject::invokeMethod(this, [this, result, reboot_ids]() {
             QApplication::restoreOverrideCursor();
             m_apply_btn_->setEnabled(true);
             m_status_->setText(QString::fromStdString(result));
+            refreshTable();
+
+            if (!reboot_ids.empty()) {
+                QStringList names;
+                for (const auto& spec : tweaks()) {
+                    for (const auto& id : reboot_ids) {
+                        if (spec.id == id) {
+                            names << QString::fromUtf8(spec.title);
+                            break;
+                        }
+                    }
+                }
+                QMessageBox box(this);
+                box.setIcon(QMessageBox::Warning);
+                box.setWindowTitle(QString::fromUtf8("\xD0\xA2\xD1\x80\xD0\xB5\xD0\xB1\xD1\x83\xD0\xB5\xD1\x82\xD1\x81\xD1\x8F \xD0\xBF\xD0\xB5\xD1\x80\xD0\xB5\xD0\xB7\xD0\xB0\xD0\xB3\xD1\x80\xD1\x83\xD0\xB7\xD0\xBA\xD0\xB0"));
+                box.setText(QString::fromUtf8(
+                    "\xD0\x94\xD0\xBB\xD1\x8F \xD0\xBF\xD1\x80\xD0\xB8\xD0\xBC\xD0\xB5\xD0\xBD\xD0\xB5\xD0\xBD\xD0\xB8\xD1\x8F "
+                    "\xD1\x81\xD0\xBB\xD0\xB5\xD0\xB4\xD1\x83\xD1\x8E\xD1\x89\xD0\xB8\xD1\x85\x20\xD0\xBD\xD0\xB0\xD1\x81\xD1\x82\xD1\x80\xD0\xBE\xD0\xB5\xD0\xBA "
+                    "\xD1\x82\xD1\x80\xD0\xB5\xD0\xB1\xD1\x83\xD0\xB5\xD1\x82\xD1\x81\xD1\x8F \xD0\xBF\xD0\xB5\xD1\x80\xD0\xB5\xD0\xB7\xD0\xB0\xD0\xB3\xD1\x80\xD1\x83\xD0\xB7\xD0\xBA\xD0\xB0:"));
+                box.setDetailedText(names.join("\n"));
+                box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+                box.setDefaultButton(QMessageBox::Yes);
+                box.setButtonText(QMessageBox::Yes, QString::fromUtf8("\xD0\x9F\xD0\xB5\xD1\x80\xD0\xB5\xD0\xB7\xD0\xB0\xD0\xB3\xD1\x80\xD1\x83\xD0\xB7\xD0\xB8\xD1\x82\xD1\x8C \xD1\x81\xD0\xB5\xD0\xB9\xD1\x87\xD0\xB0\xD1\x81"));
+                box.setButtonText(QMessageBox::No, QString::fromUtf8("\xD0\x9F\xD0\xBE\xD0\xB7\xD0\xB6\xD0\xB5"));
+
+                if (box.exec() == QMessageBox::Yes) {
+                    ShutdownWindows();
+                }
+            }
         }, Qt::QueuedConnection);
     }).detach();
 }

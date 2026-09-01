@@ -49,12 +49,16 @@ public:
 
     bool hasRollbackSnapshot() const;
 
+    // Returns IDs of tweaks that were just applied and need a reboot to take effect.
+    std::vector<std::string> appliedNeedsReboot() const;
+
 private:
     std::string snapshotPath() const;
 
     ITweakAccess& access_;
     std::string external_dir_;
     std::string rollback_dir_;
+    std::vector<std::string> last_applied_needs_reboot_;
 };
 
 } // namespace gno

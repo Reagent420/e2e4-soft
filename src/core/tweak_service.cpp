@@ -53,6 +53,7 @@ std::string TweakService::applyCategory(const std::string& category) {
             selected.push_back(&spec);
 
     int applied = 0, failed = 0;
+    last_applied_needs_reboot_.clear();
 
     // 2. capture snapshot
     std::ostringstream snap;
@@ -85,7 +86,12 @@ std::string TweakService::applyCategory(const std::string& category) {
         rec.existed = true;
         rec.dword = spec->dword_value;
         rec.str = spec->sz_value;
-        try { access_.write(*spec, rec); ++applied; }
+        try {
+            access_.write(*spec, rec);
+            ++applied;
+            if (spec->needs_reboot)
+                last_applied_needs_reboot_.push_back(spec->id);
+        }
         catch (...) { ++failed; }
     }
 
@@ -98,6 +104,10 @@ std::string TweakService::applyCategory(const std::string& category) {
     if (failed) res << ", errors: " << failed;
     if (reboot) res << "\nReboot required.";
     return res.str();
+}
+
+std::vector<std::string> TweakService::appliedNeedsReboot() const {
+    return last_applied_needs_reboot_;
 }
 
 std::string TweakService::rollbackLast() {
