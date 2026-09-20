@@ -105,6 +105,15 @@ needed at configure time. To assemble a runnable folder from a build tree:
 ./scripts/smoke-test.sh            # verify GNO.exe actually starts
 ```
 
+To publish a release (branch push, release notes from `CHANGELOG.md`, both
+assets, server-side digest verification) — requires a classic PAT with the
+`repo` and `workflow` scopes:
+
+```bash
+GH_TOKEN=ghp_... ./scripts/publish-release.sh --check   # validate only
+GH_TOKEN=ghp_... ./scripts/publish-release.sh           # push, tag, release
+```
+
 ## Command Line Interface
 
 The console build is `GNO-console.exe` (not the GUI `GNO.exe`):
