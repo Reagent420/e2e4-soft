@@ -1,9 +1,16 @@
-﻿build/
-build-msys/
-build-qt/
-cmake-check/
-deploy/
-deploy_package/
+﻿# Каталоги сборки и раскладки рантайма — только в корне проекта.
+# Якорь "/" обязателен: без него шаблон вида build/ или deploy/ вырезал бы
+# одноимённый каталог на любой глубине (например, src/deploy/ с исходниками).
+/build/
+/build-msys/
+/build-qt/
+/cmake-check/
+/deploy/
+/deploy_package/
+# Релизные артефакты: сам архив и его контрольная сумма (уходят ассетами
+# в GitHub Releases, а не в историю репозитория).
+/GNO-*.zip
+/GNO-*.zip.sha256
 *.zip
 *.log
 *.tmp
