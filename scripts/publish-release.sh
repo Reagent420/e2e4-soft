@@ -58,6 +58,20 @@ for cand in "${PYTHON:-}" python3 python py; do
 done
 [ -n "$PYTHON" ] || die "не найден рабочий python (нужен для JSON). Задайте PYTHON=/путь/python"
 
+# Временные файлы: удаляются на любом выходе, включая die().
+# Пустые имена в rm не передаём — обёртка удаления в песочнице на них ругается.
+BODY_FILE=""
+PAYLOAD=""
+HDRS_FILE="$(mktemp)"
+cleanup() {
+    local f
+    for f in "${BODY_FILE:-}" "${PAYLOAD:-}" "${HDRS_FILE:-}"; do
+        if [ -n "$f" ] && [ -f "$f" ]; then rm -f "$f"; fi
+    done
+    return 0
+}
+trap cleanup EXIT
+
 # --- локальное состояние (сети не требует, поэтому проверяем первым) ---------
 step "1. Проверка локального состояния"
 git rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null \
@@ -101,9 +115,13 @@ TOKEN="${GH_TOKEN:-}"
 AUTH=(-H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json")
 
 step "2. Проверка токена"
-# GET с выгрузкой заголовков (-D - -o /dev/null), а не HEAD: HEAD не обязан
-# отдавать x-oauth-scopes, и проверка молча забраковала бы валидный токен.
-HDRS="$(curl -sS -D - -o /dev/null "${AUTH[@]}" "$API/user" | tr -d '\r')"
+# Заголовки пишем в файл (-D), а тело гасим перенаправлением самого bash.
+# Конструкция `-o /dev/null` здесь НЕ работает: curl — нативный exe и про
+# /dev/null ничего не знает, падает с «client returned ERROR on write» (23).
+# GET, а не HEAD: HEAD не обязан отдавать x-oauth-scopes, и проверка молча
+# забраковала бы валидный токен.
+curl -sS -D "$(winpath "$HDRS_FILE")" "${AUTH[@]}" "$API/user" > /dev/null
+HDRS="$(tr -d '\r' < "$HDRS_FILE")"
 STATUS="$(printf '%s' "$HDRS" | sed -n 's|^HTTP/[0-9.]* \([0-9]\{3\}\).*|\1|p' | tail -1)"
 [ "$STATUS" = "200" ] \
     || die "токен не принят GitHub (HTTP ${STATUS:-нет ответа}). Проверьте значение и срок действия."
@@ -158,8 +176,6 @@ echo "Сервер подтверждает коммит $REMOTE_SHA"
 # --- тело релиза -------------------------------------------------------------
 step "5. Сборка описания релиза"
 BODY_FILE="$(mktemp)"
-PAYLOAD=""
-trap 'rm -f "${BODY_FILE:-}" "${PAYLOAD:-}"' EXIT
 {
     awk -v tag="$VERSION" '
         index($0, "## [" tag "]") == 1 { found = 1; next }
