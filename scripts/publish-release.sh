@@ -59,14 +59,18 @@ done
 [ -n "$PYTHON" ] || die "не найден рабочий python (нужен для JSON). Задайте PYTHON=/путь/python"
 
 # Временные файлы: удаляются на любом выходе, включая die().
-# Пустые имена в rm не передаём — обёртка удаления в песочнице на них ругается.
 BODY_FILE=""
 PAYLOAD=""
 HDRS_FILE="$(mktemp)"
 cleanup() {
     local f
     for f in "${BODY_FILE:-}" "${PAYLOAD:-}" "${HDRS_FILE:-}"; do
-        if [ -n "$f" ] && [ -f "$f" ]; then rm -f "$f"; fi
+        if [ -n "$f" ] && [ -f "$f" ]; then
+            # `rm` под песочницей перехватывается обёрткой безопасного удаления,
+            # которая на смешанных путях ругается в stderr; python удаляет тихо.
+            "$PYTHON" -c 'import os,sys; os.remove(sys.argv[1])' "$(winpath "$f")" 2>/dev/null \
+                || rm -f "$f" 2>/dev/null || true
+        fi
     done
     return 0
 }
