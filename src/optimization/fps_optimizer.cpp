@@ -1,29 +1,22 @@
 #include "fps_optimizer.h"
 
+#include "core/system_audit.h"
+
 #include <sstream>
 
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
-#include <winreg.h>
-#include <tlhelp32.h>
-#include <cwchar>
 #endif
 
 namespace gno {
 
-static std::wstring toWide(const std::string& s) {
-    if (s.empty()) return {};
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring ws(len - 1, 0);
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], len);
-    return ws;
-}
-
 namespace {
 
 #ifdef PLATFORM_WINDOWS
-std::string runPowerShell(const std::string& command) {
-    // runs powercfg and captures stdout
+// powercfg — единственный системный вызов, оставшийся в этом классе: он
+// читает/переключает схемы питания. Движок умеет ставить схему, но не умеет
+// перечислять их список, а getPowerPlans нужен консольному режиму.
+std::string runPowerCfg(const std::string& command) {
     SECURITY_ATTRIBUTES sa;
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
@@ -49,6 +42,10 @@ std::string runPowerShell(const std::string& command) {
     std::vector<char> cmdBuf(cmdline.begin(), cmdline.end());
     cmdBuf.push_back(0);
 
+    // Наследуемый пайп + CREATE_NO_WINDOW: раньше процесс мог зависнуть с
+    // открытым дескриптором, и ReadFile ждал вечно. Таймаут WaitForSingleObject
+    // здесь не спасает (он достижим только после закрытия пайпа), поэтому
+    // закрываем write-конец ДО чтения — дочерний процесс получает EOF.
     BOOL created = CreateProcessA(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE,
                                   CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
     CloseHandle(writePipe);
@@ -72,142 +69,64 @@ std::string runPowerShell(const std::string& command) {
 const char* kHighPerformanceGuid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
 #endif
 
+// Перевод старого конфига в запрос движка. Поля, у которых нет аналога в
+// allowlist движка, не теряются — BoostGate сам сообщает их в skipped,
+// и мы выводим это как warnings: пользователь видит, что пункт не применён,
+// а не тихо игнорируется.
+remediation::BoostRequest toBoostRequest(const FPSBoostConfig& config) {
+    remediation::BoostRequest req;
+    req.disable_game_dvr = config.disable_game_dvr;
+    req.disable_fullscreen_optimizations = config.disable_fullscreen_optimizations;
+    req.disable_mouse_acceleration = config.disable_mouse_acceleration;
+    req.disable_game_mode = config.disable_game_mode;
+    req.optimize_power_plan = config.optimize_power_plan;
+    req.set_high_priority = config.set_high_priority;
+    // Движок намеренно не покрывает virtual memory и hardware scheduling —
+    // эти флаги останутся в skipped с объяснением.
+    req.optimize_virtual_memory = false;
+    return req;
+}
+
 } // namespace
 
-FPSOptimizer::FPSOptimizer() {
-#ifdef PLATFORM_WINDOWS
-    // remember the original active plan so revertAll() can restore it
-    std::string out = runPowerShell("/getactivescheme");
-    auto pos = out.find("GUID");
-    if (pos != std::string::npos) {
-        // format: ... GUID: xxxx  (name)
-        std::istringstream iss(out.substr(pos + 5));
-        std::string guid;
-        iss >> guid;
-        if (!guid.empty() && guid.size() > 8)
-            original_power_plan_ = guid;
-    }
-#endif
-}
+FPSOptimizer::FPSOptimizer(std::string backups_dir)
+    : backups_dir_(std::move(backups_dir)) {}
 
 FPSOptimizer::~FPSOptimizer() = default;
 
 OptimizationResult FPSOptimizer::applyConfig(const FPSBoostConfig& config) {
-    OptimizationResult result;
-    result.success = true;
-    
-    if (config.disable_game_dvr) {
-        auto res = disableGameDVR();
-        if (res.success) {
-            result.applied_changes.insert(result.applied_changes.end(),
-                res.applied_changes.begin(), res.applied_changes.end());
-        } else {
-            result.warnings.insert(result.warnings.end(),
-                res.warnings.begin(), res.warnings.end());
-        }
-    }
-    
-    if (config.disable_fullscreen_optimizations) {
-        auto res = disableFullscreenOptimizations();
-        if (res.success) {
-            result.applied_changes.insert(result.applied_changes.end(),
-                res.applied_changes.begin(), res.applied_changes.end());
-        }
-    }
-    
-    if (config.disable_mouse_acceleration) {
-        auto res = disableMouseAcceleration();
-        if (res.success) {
-            result.applied_changes.insert(result.applied_changes.end(),
-                res.applied_changes.begin(), res.applied_changes.end());
-        }
-    }
-    
-    if (config.optimize_power_plan) {
-        auto res = optimizePowerPlan(config.power_plan_mode);
-        if (res.success) {
-            result.applied_changes.insert(result.applied_changes.end(),
-                res.applied_changes.begin(), res.applied_changes.end());
-        }
-    }
+    remediation::BoostGate gate(backups_dir_);
+    const auto result = gate.applyBoost(toBoostRequest(config));
 
-#ifdef PLATFORM_WINDOWS
-    if (config.disable_game_mode) {
-        HKEY hkey;
-        if (RegOpenKeyExA(HKEY_CURRENT_USER,
-                          "Software\\Microsoft\\Windows\\CurrentVersion\\GameBar",
-                          0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-            DWORD value = 0;
-            RegSetValueExA(hkey, "AutoGameModeEnabled", 0, REG_DWORD, (BYTE*)&value, sizeof(value));
-            RegCloseKey(hkey);
-            result.applied_changes.push_back("Disabled Windows Game Mode");
-        }
-    }
-
-    if (config.optimize_virtual_memory) {
-        HKEY hkey;
-        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-                          "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management",
-                          0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-            DWORD value = 0;
-            RegSetValueExA(hkey, "LargeSystemCache", 0, REG_DWORD, (BYTE*)&value, sizeof(value));
-            RegCloseKey(hkey);
-            result.applied_changes.push_back("Optimized system cache (virtual memory)");
-        } else {
-            result.warnings.push_back("Virtual memory optimization requires administrator rights");
-        }
-    }
-#endif
-
-    if (config.set_high_priority) {
-        // priority is applied per-game when the game starts (GameWatcher integration)
-        result.applied_changes.push_back("High priority will be applied to the game at launch");
-    }
-    
-    applied_config_ = config;
-    result.message = "Configuration applied successfully";
-    
-    if (optimization_callback_) {
-        optimization_callback_(result);
-    }
-    
-    return result;
+    OptimizationResult out;
+    out.success = result.ok;
+    out.applied_changes = result.succeeded;
+    out.warnings = result.skipped;
+    // failed — это реальные отказа движка, а не «движок это не умеет».
+    // Они важнее warnings, поэтому идут в тот же список предупреждений.
+    out.warnings.insert(out.warnings.end(), result.failed.begin(), result.failed.end());
+    out.message = result.detail;
+    return out;
 }
 
 OptimizationResult FPSOptimizer::revertAll() {
-    OptimizationResult result;
-    result.success = true;
-    result.message = "All optimizations reverted";
+    remediation::BoostGate gate(backups_dir_);
+    const auto result = gate.revertBoost();
 
-#ifdef PLATFORM_WINDOWS
-    if (!original_power_plan_.empty()) {
-        std::string out = runPowerShell("/setactive " + original_power_plan_);
-        result.applied_changes.push_back("Restored original power plan");
-    }
-
-    HKEY hkey;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER,
-                      "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR",
-                      0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-        DWORD value = 1;
-        RegSetValueExA(hkey, "AppCaptureEnabled", 0, REG_DWORD, (BYTE*)&value, sizeof(value));
-        RegCloseKey(hkey);
-        result.applied_changes.push_back("Re-enabled Game DVR");
-    }
-#endif
-
-    return result;
+    OptimizationResult out;
+    out.success = result.ok;
+    out.message = result.detail;
+    if (result.ok)
+        out.applied_changes.push_back("Reverted via transactional engine");
+    return out;
 }
 
 std::vector<PowerPlan> FPSOptimizer::getPowerPlans() const {
     std::vector<PowerPlan> plans;
 #ifdef PLATFORM_WINDOWS
-    std::string out = runPowerShell("/list");
+    std::string out = runPowerCfg("/list");
     std::istringstream iss(out);
     std::string line;
-    std::string active_guid;
-    std::string cur = out;
-    auto pos = cur.find("/setactive");
     // parse lines: "Power Scheme GUID: xxxx  (name) *"
     while (std::getline(iss, line)) {
         auto g = line.find("GUID:");
@@ -231,162 +150,47 @@ std::vector<PowerPlan> FPSOptimizer::getPowerPlans() const {
 
 bool FPSOptimizer::setActivePowerPlan(const std::string& guid) {
 #ifdef PLATFORM_WINDOWS
-    std::string out = runPowerShell("/setactive " + guid);
-    return true;
+    if (guid.empty()) return false;
+    runPowerCfg("/setactive " + guid);
+    // powercfg ничего не пишет в stdout ни при успехе, ни при ошибке —
+    // поэтому проверяем фактическую активную схему, а не возвращаем true вслепую.
+    return runPowerCfg("/getactivescheme").find(guid) != std::string::npos;
 #else
     (void)guid;
     return false;
 #endif
 }
 
-OptimizationResult FPSOptimizer::disableGameDVR() {
-    OptimizationResult result;
-    result.success = true;
-    
-#ifdef PLATFORM_WINDOWS
-    HKEY hkey;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER,
-                      "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR",
-                      0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-        DWORD value = 0;
-        RegSetValueExA(hkey, "AppCaptureEnabled", 0, REG_DWORD, (BYTE*)&value, sizeof(value));
-        RegCloseKey(hkey);
-        result.applied_changes.push_back("Disabled Game DVR");
-    }
-    
-    if (RegOpenKeyExA(HKEY_CURRENT_USER,
-                      "System\\GameConfigStore",
-                      0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-        DWORD value = 0;
-        RegSetValueExA(hkey, "GameDVR_Enabled", 0, REG_DWORD, (BYTE*)&value, sizeof(value));
-        RegCloseKey(hkey);
-        result.applied_changes.push_back("Disabled Game DVR in GameConfigStore");
-    }
-#endif
-    
-    return result;
-}
-
-OptimizationResult FPSOptimizer::disableFullscreenOptimizations() {
-    OptimizationResult result;
-    result.success = true;
-    
-#ifdef PLATFORM_WINDOWS
-    HKEY hkey;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER,
-                      "System\\GameConfigStore",
-                      0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-        DWORD value = 1;
-        RegSetValueExA(hkey, "GameDVR_HonorUserFSEBehaviorMode", 0, REG_DWORD, (BYTE*)&value, sizeof(value));
-        RegSetValueExA(hkey, "GameDVR_FSEBehaviorMode", 0, REG_DWORD, (BYTE*)&value, sizeof(value));
-        RegCloseKey(hkey);
-        result.applied_changes.push_back("Disabled fullscreen optimizations");
-    }
-#endif
-    
-    return result;
-}
-
-OptimizationResult FPSOptimizer::disableMouseAcceleration() {
-    OptimizationResult result;
-    result.success = true;
-    
-#ifdef PLATFORM_WINDOWS
-    HKEY hkey;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER,
-                      "Control Panel\\Mouse",
-                      0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-        RegSetValueExA(hkey, "MouseSpeed", 0, REG_SZ, (BYTE*)"0", 2);
-        RegSetValueExA(hkey, "MouseThreshold1", 0, REG_SZ, (BYTE*)"0", 2);
-        RegSetValueExA(hkey, "MouseThreshold2", 0, REG_SZ, (BYTE*)"0", 2);
-        RegCloseKey(hkey);
-        result.applied_changes.push_back("Disabled mouse acceleration");
-    }
-#endif
-    
-    return result;
-}
-
-OptimizationResult FPSOptimizer::optimizePowerPlan(uint32_t mode) {
-    OptimizationResult result;
-    result.success = true;
-    (void)mode;
-
-#ifdef PLATFORM_WINDOWS
-    if (original_power_plan_.empty()) {
-        // capture current plan (we failed at ctor or it was empty)
-        std::string out = runPowerShell("/getactivescheme");
-        auto pos = out.find("GUID");
-        if (pos != std::string::npos) {
-            std::istringstream iss(out.substr(pos + 5));
-            std::string guid;
-            iss >> guid;
-            if (guid.size() > 8) original_power_plan_ = guid;
-        }
-    }
-    std::string out = runPowerShell(std::string("/setactive ") + kHighPerformanceGuid);
-    result.applied_changes.push_back("Switched to High Performance power plan");
-#else
-    result.warnings.push_back("Power plan optimization available on Windows only");
-#endif
-
-    return result;
-}
-
-OptimizationResult FPSOptimizer::setProcessPriority(const std::string& process_name, int priority) {
-    OptimizationResult result;
-    result.success = true;
-    
-#ifdef PLATFORM_WINDOWS
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32W pe;
-        pe.dwSize = sizeof(pe);
-        
-        if (Process32FirstW(snapshot, &pe)) {
-            do {
-                if (_wcsicmp(pe.szExeFile, toWide(process_name).c_str()) == 0) {
-                    HANDLE process = OpenProcess(PROCESS_SET_INFORMATION, FALSE, pe.th32ProcessID);
-                    if (process) {
-                        SetPriorityClass(process, HIGH_PRIORITY_CLASS);
-                        CloseHandle(process);
-                        result.applied_changes.push_back("Set " + process_name + " to high priority");
-                    }
-                    break;
-                }
-            } while (Process32NextW(snapshot, &pe));
-        }
-        
-        CloseHandle(snapshot);
-    }
-#endif
-    
-    return result;
-}
-
 bool FPSOptimizer::isGameDVRDisabled() const {
-    return applied_config_.disable_game_dvr;
+    // Раньше возвращали applied_config_.disable_game_dvr — то есть то, что
+    // мы *хотели* применить, даже если движок отказал. Теперь — реальное
+    // состояние системы через тот же аудит, которым пользуется GUI.
+    return SystemAudit::readGameDvrValue() == "0";
 }
 
 bool FPSOptimizer::isFullscreenOptDisabled() const {
-    return applied_config_.disable_fullscreen_optimizations;
+    // «отключено» — каноническое значение SystemAudit; пусто означает
+    // «игра не запущена» — тогда честно говорим, что не отключено.
+    return SystemAudit::readFullscreenOptValue() == kAuditOffText;
 }
 
 bool FPSOptimizer::isMouseAccelerationDisabled() const {
-    return applied_config_.disable_mouse_acceleration;
+    return SystemAudit::readMouseAccelValue() == kAuditOffText;
 }
 
 bool FPSOptimizer::getCurrentPowerPlan(std::string& guid) const {
-    guid = original_power_plan_;
-    return !original_power_plan_.empty();
+    const std::string plan = SystemAudit::readActivePowerPlan();
+    if (plan.empty()) return false;
+    guid = plan;
+    return true;
 }
 
 FPSBoostConfig FPSOptimizer::getCurrentConfig() const {
-    return applied_config_;
-}
-
-void FPSOptimizer::setOptimizationCallback(OptimizationCallback callback) {
-    optimization_callback_ = std::move(callback);
+    // Конфиг по умолчанию: раньше он отражал «что мы применили», но
+    // применённый конфиг теперь хранится в журнале транзакций движка.
+    // Здесь отдаём безопасные значения по умолчанию — пишущие callers
+    // должны идти через BoostGate.
+    return FPSBoostConfig{};
 }
 
 } // namespace gno

@@ -8,6 +8,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <shlobj.h>
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -27,7 +28,21 @@ namespace gno::persistence {
 
 std::filesystem::path applicationDataRoot() {
 #ifdef _WIN32
+    // SHGetFolderPathA keeps working even when the process environment is
+    // stripped (e.g. a binary started from a POSIX shell where APPDATA is
+    // unset or empty). Environment variables are only a fallback: an EMPTY
+    // value must never win over a real path, otherwise the journal silently
+    // lands in the current working directory and the GUI and the console end
+    // up writing to two different transaction stores.
+    char buffer[MAX_PATH] = {};
+    if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_APPDATA, nullptr, 0, buffer)) && buffer[0] != '\0') {
+        return std::filesystem::path(buffer);
+    }
     if (const auto app_data = environmentPath("APPDATA"); !app_data.empty()) return app_data;
+    if (const auto local = environmentPath("LOCALAPPDATA"); !local.empty()) return local;
+    if (const auto profile = environmentPath("USERPROFILE"); !profile.empty()) {
+        return profile / "AppData" / "Roaming";
+    }
 #elif defined(__APPLE__)
     if (const auto home = environmentPath("HOME"); !home.empty()) {
         return home / "Library" / "Application Support";

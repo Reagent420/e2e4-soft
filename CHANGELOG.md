@@ -2,6 +2,47 @@
 
 All notable changes to GNO are documented in this file.
 
+## [3.1.0]
+
+### Added
+- Update check against GitHub Releases with mandatory **SHA-256 verification**; a
+  release without a digest is refused rather than installed on trust (sidecar
+  `<asset>.sha256` supported as a fallback)
+- "Check for updates" button in Settings, plus a silent asynchronous check on
+  startup when auto-update is enabled (does not block the window)
+- Session log with rotation: `<APPDATA>\GNO\logs\gno-YYYY-MM-DD.log`, 7 days kept,
+  including Qt's own messages — previously everything went to `stderr`, which is
+  discarded in a WIN32 build
+- Diagnostic report and session history export to Markdown, HTML and PDF
+  (local rendering via QPdfWriter)
+- "By last diagnosis" button linking the knowledge base to the most recent
+  diagnostic report
+- Live palette preview in the theme editor (reacts before "Apply")
+- `scripts/deploy.sh` — Qt runtime layout via windeployqt with a completeness check
+- `scripts/smoke-test.sh` + `GNO.exe --smoke-test` — real startup verification,
+  wired into CI
+
+### Changed
+- Version unified to 3.1.0 (single source: `theme::APP_VERSION`)
+- `main_gui.cpp` no longer writes to `stderr`
+- CI: Windows job now deploys the Qt runtime and runs the GUI smoke test, so a
+  build that cannot start is no longer reported as green
+
+### Fixed
+- SHA-256: off-by-one in the padding length left the final block unprocessed,
+  producing wrong digests for empty input, "abc" and 55/56-byte inputs
+- Log rotation never matched (filename length compared against 15 instead of 18)
+- Log directory fallback used the current working directory when `%APPDATA%` was
+  absent, leaving a stray `GNO` folder wherever the app was launched from
+- Update asset selection ignored `.zip` releases, making updates unreachable
+- Settings page advertised a placeholder repository URL
+
+### Removed
+- `core/i18n.h` — dead code: never called, and it read a `app/language` key that
+  was out of sync with the live `language` setting
+- Dead platform shims (`platform_linux/macos/windows`, `fps_optimizer_*` variants,
+  `optimization/system_tweaks`, unused `src/main.cpp`)
+
 ## [3.0.0] — Commercial Release
 
 ### Added

@@ -45,9 +45,11 @@ private slots:
     void refreshRecommendations();
 
 private:
-    QWidget* createMetricCard(const QString& label, QLabel** valueOut, QLabel** deltaOut, const QString& deltaColor);
+    QWidget* createMetricCard(const QString& label, QLabel** valueOut, QLabel** deltaOut,
+                              const QString& deltaColor, const QString& unit = QStringLiteral("ms"));
     void setMetricColor(QLabel* label, double value, double good, double warn);
     void saveReportDialog(const QString& path);
+    void applyBoostState(bool active);
 
     PingGraphWidget* graph_;
     QLabel* ping_value_;
@@ -73,6 +75,7 @@ private:
     static constexpr int kMeasureDuration = 30;
     QVector<double> measure_before_;
     QVector<double> measure_after_;
+    bool measure_boost_was_on_ = false;   // boost state before the measurement started
 };
 
 } // namespace gno

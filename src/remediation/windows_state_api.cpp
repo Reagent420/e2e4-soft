@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <thread>
 
 namespace gno {
 namespace remediation {
@@ -28,15 +29,7 @@ std::string lower(std::string s) {
 
 std::string stripBraces(const std::string& guid) {
     const std::string lowered = lower(guid);
-    const std::size_t start = lowered.find_first_of("0123456789abcdef");
-    if (start == std::string::npos) return lowered;
-    std::string out;
-    for (std::size_t i = start; i < lowered.size() && out.size() < 36; ++i) {
-        if (lowered[i] != '-') out += lowered[i];
-        else out += '-';
-        if (out.size() == 8 || out.size() == 13 || out.size() == 18 || out.size() == 23) out += '-';
-    }
-    // rebuild canonical 8-4-4-4-12 from hex only
+    // Канонический 8-4-4-4-12 собирается только из шестнадцатеричных цифр.
     std::string hex;
     for (char c : lowered)
         if (std::isxdigit(static_cast<unsigned char>(c))) hex += c;
@@ -77,6 +70,31 @@ Error mapLastError(const std::string& context) {
                        context + ": error " + std::to_string(err));
 }
 
+// Для функций, которые ВОЗВРАЩАЮТ код ошибки (Reg* и PowerSetActiveScheme), а
+// не выставляют last-error. GetLastError() там давал «error 0» и терял
+// «access denied» — а именно по PermissionDenied UI понимает, что нужен запуск
+// от администратора.
+Error mapStatus(LSTATUS status, const std::string& context) {
+    if (status == ERROR_ACCESS_DENIED)
+        return Error::make(RemediationError::PermissionDenied, context + ": access denied");
+    return Error::make(RemediationError::ApplyFailed,
+                       context + ": error " + std::to_string(status));
+}
+
+// PID может быть переиспользован ОС сразу после выхода игры. Цель несёт
+// creation_time именно для такой проверки: без неё откат мог поменять
+// приоритет совершенно чужому процессу, успевшему получить тот же pid.
+// creation_time == 0 — цель без метки (такие не приходят из обнаружения),
+// проверку не делаем, чтобы не сломать совместимость со старыми вызовами.
+bool processStillSame(HANDLE handle, std::uint64_t expected_creation_time) {
+    if (expected_creation_time == 0) return true;
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetProcessTimes(handle, &created, &exited, &kernel, &user)) return false;
+    const std::uint64_t actual =
+        (static_cast<std::uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+    return actual == expected_creation_time;
+}
+
 // netsh expects the adapter FRIENDLY name, while the registry key uses the GUID.
 static std::string friendlyNameForGuid(const std::string& guid) {
     ULONG size = 15000;
@@ -107,6 +125,25 @@ std::string runCommand(const std::string& command) {
     HANDLE write_end = nullptr;
     if (!CreatePipe(&read_end, &write_end, &sa, 0)) return {};
 
+    // Job object с KILL_ON_JOB_CLOSE: закрытие его дескриптора убивает ВСЁ
+    // дерево cmd.exe, включая внуков (netsh может запускать свои дочерние
+    // процессы). Без этого зависший наследник продолжал держать write-end
+    // канала, и поток чтения не мог завершиться.
+    HANDLE job = CreateJobObjectA(nullptr, nullptr);
+    if (!job) {
+        CloseHandle(read_end);
+        CloseHandle(write_end);
+        return {};
+    }
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+        CloseHandle(job);
+        CloseHandle(read_end);
+        CloseHandle(write_end);
+        return {};
+    }
+
     STARTUPINFOA si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
@@ -116,21 +153,44 @@ std::string runCommand(const std::string& command) {
 
     PROCESS_INFORMATION pi{};
     std::string cmd_line = "cmd.exe /C " + command;
-    if (!CreateProcessA(nullptr, cmd_line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
-                        nullptr, nullptr, &si, &pi)) {
+    // CREATE_SUSPENDED: назначить процесс в job нужно до того, как он начнёт
+    // плодить дочерние процессы, иначе дерево убьётся не целиком.
+    if (!CreateProcessA(nullptr, cmd_line.data(), nullptr, nullptr, TRUE,
+                        CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &si, &pi)) {
+        CloseHandle(job);
         CloseHandle(read_end);
         CloseHandle(write_end);
         return {};
     }
+    AssignProcessToJobObject(job, pi.hProcess);
+    ResumeThread(pi.hThread);
     CloseHandle(write_end);
 
+    // Чтение — в отдельном потоке: ReadFile на канале блокируется, пока
+    // дочерний процесс держит stdout. Раньше зависший netsh/cmd (UAC, антивирус,
+    // ожидание ввода) держал этот вызов вечно — вместе с потоком оптимизации
+    // и пользовательским интерфейсом.
     std::string output;
-    char buffer[4096];
-    DWORD read = 0;
-    while (ReadFile(read_end, buffer, sizeof(buffer), &read, nullptr) && read > 0)
-        output.append(buffer, read);
+    std::thread reader([&read_end, &output]() {
+        char buffer[4096];
+        DWORD read = 0;
+        while (ReadFile(read_end, buffer, sizeof(buffer), &read, nullptr) && read > 0)
+            output.append(buffer, read);
+    });
+
+    // Жёсткий потолок на любую команду.
+    if (WaitForSingleObject(pi.hProcess, 15000) == WAIT_TIMEOUT) {
+        TerminateProcess(pi.hProcess, 1);
+        // Убиваем дерево: выживший внук держит write-end, и без этого
+        // reader.join() ниже прождал бы его до конца.
+        CloseHandle(job);
+        job = nullptr;
+        WaitForSingleObject(pi.hProcess, 2000);
+    }
+    reader.join();
+
+    if (job) CloseHandle(job);
     CloseHandle(read_end);
-    WaitForSingleObject(pi.hProcess, 15000);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return output;
@@ -267,12 +327,17 @@ SimpleResult WindowsStateApi::setAllowedRegistry(AllowedRegistryKey key, const R
     if (status != ERROR_SUCCESS) {
         if (!value.existed && !value.key_existed) return Ok();
         status = RegCreateKeyExA(loc.root, loc.subkey, 0, nullptr, 0, access, nullptr, &handle, nullptr);
-        if (status != ERROR_SUCCESS) return mapLastError("registry open/create");
+        if (status != ERROR_SUCCESS) return mapStatus(status, "registry open/create");
     }
 
     if (!value.existed) {
-        RegDeleteValueA(handle, loc.name);
+        // Результат удаления проверялся: access denied проглатывался, и движок
+        // считал откат успешным, хотя значение оставалось в реестре.
+        // ERROR_FILE_NOT_FOUND — значение и так отсутствует, это и есть цель.
+        const LSTATUS deleted = RegDeleteValueA(handle, loc.name);
         RegCloseKey(handle);
+        if (deleted != ERROR_SUCCESS && deleted != ERROR_FILE_NOT_FOUND)
+            return mapStatus(deleted, "registry value delete");
         return Ok();
     }
 
@@ -280,7 +345,7 @@ SimpleResult WindowsStateApi::setAllowedRegistry(AllowedRegistryKey key, const R
     status = RegSetValueExA(handle, loc.name, 0, REG_DWORD,
                             reinterpret_cast<const BYTE*>(&raw), sizeof(raw));
     RegCloseKey(handle);
-    if (status != ERROR_SUCCESS) return mapLastError("registry write");
+    if (status != ERROR_SUCCESS) return mapStatus(status, "registry write");
 
     auto verify = getAllowedRegistry(key);
     if (!verify) return verify.error();
@@ -313,8 +378,8 @@ SimpleResult WindowsStateApi::setPowerPlan(const PowerPlanValue& value) {
                &scheme.Data4[2], &scheme.Data4[3], &scheme.Data4[4], &scheme.Data4[5],
                &scheme.Data4[6], &scheme.Data4[7]) != 11)
         return Fail(RemediationError::InvalidTarget, "invalid power scheme guid");
-    if (PowerSetActiveScheme(nullptr, &scheme) != ERROR_SUCCESS)
-        return mapLastError("PowerSetActiveScheme");
+    const LSTATUS scheme_status = PowerSetActiveScheme(nullptr, &scheme);
+    if (scheme_status != ERROR_SUCCESS) return mapStatus(scheme_status, "PowerSetActiveScheme");
 
     auto verify = getPowerPlan();
     if (!verify) return verify.error();
@@ -347,27 +412,41 @@ SimpleResult WindowsStateApi::setFullscreenOptimizations(const ExecutableTarget&
                                                          const FullscreenValue& value) {
     const std::string path = "Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers";
     HKEY handle = nullptr;
-    if (RegCreateKeyExA(HKEY_CURRENT_USER, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE,
-                        nullptr, &handle, nullptr) != ERROR_SUCCESS)
-        return mapLastError("compat layers key");
+    LSTATUS layers_status = RegCreateKeyExA(HKEY_CURRENT_USER, path.c_str(), 0, nullptr, 0,
+                                            KEY_SET_VALUE, nullptr, &handle, nullptr);
+    if (layers_status != ERROR_SUCCESS) return mapStatus(layers_status, "compat layers key");
 
     SimpleResult result = Ok();
     if (!value.existed) {
-        RegDeleteValueA(handle, exe.path.c_str());
+        // Удаляем флаги для этого exe. Результат проверяем — как и в реестровых
+        // действиях, access denied не должен выдаваться за успех.
+        const LSTATUS deleted = RegDeleteValueA(handle, exe.path.c_str());
+        if (deleted != ERROR_SUCCESS && deleted != ERROR_FILE_NOT_FOUND)
+            result = mapStatus(deleted, "compat layers delete");
     } else {
         const std::string flags = value.compatibility_flags;
-        if (RegSetValueExA(handle, exe.path.c_str(), 0, REG_SZ,
-                           reinterpret_cast<const BYTE*>(flags.c_str()),
-                           static_cast<DWORD>(flags.size() + 1)) != ERROR_SUCCESS)
-            result = mapLastError("compat layers write");
+        layers_status = RegSetValueExA(handle, exe.path.c_str(), 0, REG_SZ,
+                                       reinterpret_cast<const BYTE*>(flags.c_str()),
+                                       static_cast<DWORD>(flags.size() + 1));
+        if (layers_status != ERROR_SUCCESS) result = mapStatus(layers_status, "compat layers write");
     }
     RegCloseKey(handle);
 
     if (result) {
         auto verify = getFullscreenOptimizations(exe);
         if (!verify) return verify.error();
-        if (!(verify.value() == value))
-            return Fail(RemediationError::VerificationMismatch, "fullscreen flags did not persist");
+        if (value.existed) {
+            if (!(verify.value() == value))
+                return Fail(RemediationError::VerificationMismatch, "fullscreen flags did not persist");
+        } else if (verify.value().existed) {
+            // При удалении проверяем только отсутствие значения. Сравнивать
+            // структуру целиком нельзя: если ключ Layers до применения
+            // отсутствовал, то после удаления значения ключ остаётся, и старая
+            // проверка падала на VerificationMismatch — откат «не получался» на
+            // машине, где compat-слоёв никогда не было, хотя пользовательское
+            // состояние (само значение) уже корректно удалено.
+            return Fail(RemediationError::VerificationMismatch, "fullscreen flags still present");
+        }
     }
     return result;
 }
@@ -399,20 +478,25 @@ Result<MouseAccelValue> WindowsStateApi::getMouseAccel() {
 
 SimpleResult WindowsStateApi::setMouseAccel(const MouseAccelValue& value) {
     HKEY key = nullptr;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Control Panel\\Mouse", 0, KEY_SET_VALUE, &key)
-        != ERROR_SUCCESS)
-        return mapLastError("mouse key open");
-    auto writeStr = [&](const char* name, std::uint32_t num) -> bool {
+    const LSTATUS open_status =
+        RegOpenKeyExA(HKEY_CURRENT_USER, "Control Panel\\Mouse", 0, KEY_SET_VALUE, &key);
+    if (open_status != ERROR_SUCCESS) return mapStatus(open_status, "mouse key open");
+    LSTATUS first_error = ERROR_SUCCESS;
+    auto writeStr = [&](const char* name, std::uint32_t num) {
         const std::string sval = std::to_string(num);
-        return RegSetValueExA(key, name, 0, REG_SZ,
-                              reinterpret_cast<const BYTE*>(sval.c_str()),
-                              static_cast<DWORD>(sval.size() + 1)) == ERROR_SUCCESS;
+        const LSTATUS status = RegSetValueExA(key, name, 0, REG_SZ,
+                                              reinterpret_cast<const BYTE*>(sval.c_str()),
+                                              static_cast<DWORD>(sval.size() + 1));
+        if (status != ERROR_SUCCESS && first_error == ERROR_SUCCESS) first_error = status;
+        return status == ERROR_SUCCESS;
     };
     bool ok = writeStr("MouseSpeed", value.speed);
     ok = writeStr("MouseThreshold1", value.threshold1) && ok;
     ok = writeStr("MouseThreshold2", value.threshold2) && ok;
     RegCloseKey(key);
-    if (!ok) return mapLastError("mouse write");
+    // Сообщаем настоящий код первой неудачи, а не GetLastError() (Reg* его не
+    // выставляет — раньше здесь было бессмысленное «error 0»).
+    if (!ok) return mapStatus(first_error, "mouse write");
     auto verify = getMouseAccel();
     if (!verify) return verify.error();
     if (!(verify.value() == value))
@@ -469,7 +553,11 @@ SimpleResult WindowsStateApi::setCs2MaxPing(const Cs2MaxPingValue& value) {
     std::ofstream out(path, std::ios::trunc);
     out << content;
     out.flush();
-    if (!out) return mapLastError("CS2 cfg write");
+    // std::ofstream не выставляет last-error Windows — GetLastError() здесь дал
+    // бы мусор; сообщаем понятную причину и путь.
+    if (!out)
+        return Fail(RemediationError::ApplyFailed,
+                    "CS2 cfg write failed: " + path);
 
     auto verify = getCs2MaxPing();
     if (!verify) return verify.error();
@@ -481,6 +569,10 @@ SimpleResult WindowsStateApi::setCs2MaxPing(const Cs2MaxPingValue& value) {
 Result<PriorityLevel> WindowsStateApi::getPriority(const ProcessTarget& process) {
     HANDLE handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process.pid);
     if (!handle) return mapLastError("OpenProcess");
+    if (!processStillSame(handle, process.creation_time)) {
+        CloseHandle(handle);
+        return Fail(RemediationError::InvalidTarget, "process exited and pid was reused");
+    }
     const DWORD cls = GetPriorityClass(handle);
     CloseHandle(handle);
     switch (cls) {
@@ -491,8 +583,16 @@ Result<PriorityLevel> WindowsStateApi::getPriority(const ProcessTarget& process)
 }
 
 SimpleResult WindowsStateApi::setPriority(const ProcessTarget& process, PriorityLevel level) {
-    HANDLE handle = OpenProcess(PROCESS_SET_INFORMATION, FALSE, process.pid);
+    // GetProcessTimes требует права запроса, SetPriorityClass — права записи:
+    // нужен оба, иначе проверка creation_time (а значит и весь откат приоритета)
+    // падала бы с InvalidTarget на любой реальной машине.
+    HANDLE handle =
+        OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process.pid);
     if (!handle) return mapLastError("OpenProcess");
+    if (!processStillSame(handle, process.creation_time)) {
+        CloseHandle(handle);
+        return Fail(RemediationError::InvalidTarget, "process exited and pid was reused");
+    }
     const DWORD cls = level == PriorityLevel::AboveNormal ? ABOVE_NORMAL_PRIORITY_CLASS
                       : level == PriorityLevel::High ? HIGH_PRIORITY_CLASS
                                                      : NORMAL_PRIORITY_CLASS;

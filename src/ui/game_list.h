@@ -42,6 +42,7 @@ private:
     QGridLayout* grid_layout_;
     QVector<GameInfo> games_;
     QVector<QWidget*> game_cards_;
+    QVector<bool> card_visible_;
     QWidget* grid_container_;
     QLabel* status_label_;
     gno::GameDetector detector_;

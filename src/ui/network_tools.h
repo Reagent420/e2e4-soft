@@ -8,6 +8,8 @@
 #include <QLabel>
 #include <QTimer>
 
+#include <atomic>
+
 namespace gno {
 
 class SpeedTest;
@@ -18,6 +20,7 @@ class NetworkToolsWidget : public QWidget {
 
 public:
     explicit NetworkToolsWidget(QWidget* parent = nullptr);
+    ~NetworkToolsWidget() override;
 
 private slots:
     void runSpeedTest();
@@ -42,8 +45,9 @@ private:
     QTextEdit* m_dnsCmp_ = nullptr;
     QTextEdit* m_bloat_ = nullptr;
 
-    SpeedTest* m_speedTest;
-    DNSManager* m_dnsManager;
+    SpeedTest* m_speedTest = nullptr;
+    DNSManager* m_dnsManager = nullptr;
+    std::atomic<bool> dns_busy_{false};   // поток бенчмарка DNS ещё пишет в m_dnsManager
 
     QLabel* m_speedResultLabel;
     QLabel* m_dnsResultLabel;

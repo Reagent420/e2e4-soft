@@ -30,19 +30,14 @@ Sidebar::Sidebar(QWidget* parent)
     m_buttonGroup = new QButtonGroup(this);
     m_buttonGroup->setExclusive(true);
 
-    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard),          0);
-    m_buttonGroup->addButton(createNavButton(NavPage::Games),              1);
-    m_buttonGroup->addButton(createNavButton(NavPage::Profiles),           2);
-    m_buttonGroup->addButton(createNavButton(NavPage::Monitoring),         3);
-    m_buttonGroup->addButton(createNavButton(NavPage::Optimizer),          4);
-    m_buttonGroup->addButton(createNavButton(NavPage::NetworkTools),       5);
-    m_buttonGroup->addButton(createNavButton(NavPage::ProcessMonitor),     6);
-    m_buttonGroup->addButton(createNavButton(NavPage::History),            7);
-    m_buttonGroup->addButton(createNavButton(NavPage::Diagnostics),        8);
-    m_buttonGroup->addButton(createNavButton(NavPage::Remediation),        9);
-    m_buttonGroup->addButton(createNavButton(NavPage::GeoMap),            10);
-    m_buttonGroup->addButton(createNavButton(NavPage::ThemeEditor),          11);
-    m_buttonGroup->addButton(createNavButton(NavPage::Settings),          12);
+    m_buttonGroup->addButton(createNavButton(NavPage::Dashboard),     0);
+    m_buttonGroup->addButton(createNavButton(NavPage::Games),         1);
+    m_buttonGroup->addButton(createNavButton(NavPage::Network),       2);
+    m_buttonGroup->addButton(createNavButton(NavPage::System),        3);
+    m_buttonGroup->addButton(createNavButton(NavPage::Optimizations), 4);
+    m_buttonGroup->addButton(createNavButton(NavPage::Servers),       5);
+    m_buttonGroup->addButton(createNavButton(NavPage::History),       6);
+    m_buttonGroup->addButton(createNavButton(NavPage::Knowledge),     7);
 
     for (int i = 0; i < BUTTON_COUNT; ++i) {
         layout->addWidget(m_buttonGroup->button(i));
@@ -50,8 +45,17 @@ Sidebar::Sidebar(QWidget* parent)
 
     layout->addStretch();
 
+    // Settings — модальная кнопка внизу (не страница стека).
+    m_settingsButton = createNavButton(NavPage::Settings);
+    m_settingsButton->setCheckable(false);
+    layout->addWidget(m_settingsButton);
+
     connect(m_buttonGroup, QOverload<int>::of(&QButtonGroup::idClicked),
             this, &Sidebar::navigationChanged);
+    if (m_settingsButton) {
+        // кнопка не в группе — отдельный сигнал
+        connect(m_settingsButton, &QPushButton::clicked, this, &Sidebar::settingsRequested);
+    }
 
     m_buttonGroup->button(0)->setChecked(true);
 }
@@ -60,19 +64,15 @@ QPushButton* Sidebar::createNavButton(NavPage page)
 {
     QString label;
     switch (page) {
-        case NavPage::Dashboard:     label = QString::fromUtf8("\xD0\x9E\xD0\xB1\xD0\xB7\xD0\xBE\xD1\x80"); break;
-        case NavPage::Games:         label = QString::fromUtf8("\xD0\x98\xD0\xB3\xD1\x80\xD1\x8B"); break;
-        case NavPage::Profiles:      label = QString::fromUtf8("\xD0\x9F\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD0\xB8\x20\xD0\xB8\xD0\xB3\xD1\x80"); break;
-        case NavPage::Monitoring:    label = QString::fromUtf8("\xD0\x9C\xD0\xBE\xD0\xBD\xD0\xB8\xD1\x82\xD0\xBE\xD1\x80\xD0\xB8\xD0\xBD\xD0\xB3"); break;
-        case NavPage::Optimizer:     label = QString::fromUtf8("\xD0\x9E\xD0\xBF\xD1\x82\xD0\xB8\xD0\xBC\xD0\xB8\xD0\xB7\xD0\xB0\xD1\x82\xD0\xBE\xD1\x80"); break;
-        case NavPage::NetworkTools:  label = QString::fromUtf8("\xD0\xA1\xD0\xB5\xD1\x82\xD0\xB5\xD0\xB2\xD1\x8B\xD0\xB5\x20\xD1\x83\xD1\x82\xD0\xB8\xD0\xBB\xD0\xB8\xD1\x82\xD1\x8B"); break;
-        case NavPage::ProcessMonitor: label = QString::fromUtf8("\xD0\x9F\xD1\x80\xD0\xBE\xD1\x86\xD0\xB5\xD1\x81\xD1\x81\xD1\x8B"); break;
-        case NavPage::History:       label = QString::fromUtf8("\xD0\x98\xD1\x81\xD1\x82\xD0\xBE\xD1\x80\xD0\xB8\xD1\x8F"); break;
-        case NavPage::Diagnostics:   label = QString::fromUtf8("\xD0\x94\xD0\xB8\xD0\xB0\xD0\xB3\xD0\xBD\xD0\xBE\xD1\x81\xD1\x82\xD0\xB8\xD0\xBA\xD0\xB0"); break;
-        case NavPage::Remediation:   label = QString::fromUtf8("\xD0\x9E\xD0\xBF\xD1\x82\xD0\xB8\xD0\xBC\xD0\xB8\xD0\xB7\xD0\xB0\xD1\x86\xD0\xB8\xD1\x8F\x20Win"); break;
-        case NavPage::ThemeEditor:      label = QString::fromUtf8("\xD0\xA2\xD0\xBE\xD0\xBD\xD0\xBA\xD0\xB0\xD1\x8F\x20\xD0\xBD\xD0\xB0\xD1\x81\xD1\x82\xD1\x80\xD0\xBE\xD0\xB9\xD0\xBA\xD0\xB0"); break;
-        case NavPage::GeoMap:        label = QString::fromUtf8("\xD0\x9A\xD0\xB0\xD1\x80\xD1\x82\xD0\xB0\x20\xD1\x81\xD0\xB5\xD1\x80\xD0\xB2\xD0\xB5\xD1\x80\xD0\xBE\xD0\xB2"); break;
-        case NavPage::Settings:      label = QString::fromUtf8("\xD0\x9D\xD0\xB0\xD1\x81\xD1\x82\xD1\x80\xD0\xBE\xD0\xB9\xD0\xBA\xD0\xB8"); break;
+        case NavPage::Dashboard:     label = QString::fromUtf8("Обзор"); break;
+        case NavPage::Games:         label = QString::fromUtf8("Игры"); break;
+        case NavPage::Network:       label = QString::fromUtf8("Сеть"); break;
+        case NavPage::System:        label = QString::fromUtf8("Система"); break;
+        case NavPage::Optimizations: label = QString::fromUtf8("Оптимизации"); break;
+        case NavPage::Servers:       label = QString::fromUtf8("Серверы"); break;
+        case NavPage::History:       label = QString::fromUtf8("История"); break;
+        case NavPage::Knowledge:     label = QString::fromUtf8("Знания"); break;
+        case NavPage::Settings:      label = QString::fromUtf8("Настройки"); break;
         default: break;
     }
     auto* button = new QPushButton(label, this);
@@ -121,28 +121,26 @@ QIcon Sidebar::makeIcon(NavPage page, const QColor& color)
         break;
     }
 
-    case NavPage::Profiles: {
-        p.drawEllipse(QPoint(sz / 2, m + 8), 5, 5);
-        QRectF body(m + 8, m + 17, s - 16, m + 10);
-        p.drawChord(body, 0 * 16, 180 * 16);
-        break;
-    }
-
-    case NavPage::Monitoring: {
-        QPolygon poly;
-        poly << QPoint(m, m + s - 2)
-             << QPoint(m + s / 5, m + s / 3)
-             << QPoint(m + 2 * s / 5, m + s / 2)
-             << QPoint(m + 3 * s / 5, m + 3)
-             << QPoint(m + 4 * s / 5, m + s / 4)
-             << QPoint(m + s, m + 6);
-        p.setPen(QPen(color, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    case NavPage::Network: {
+        int cx = sz / 2;
+        int cy = sz / 2;
+        p.setPen(QPen(color, 2));
         p.setBrush(Qt::NoBrush);
-        p.drawPolygon(poly);
+        p.drawEllipse(QPoint(cx, cy), s / 2 - 2, s / 2 - 2);
+        p.drawLine(m + 2, cy, m + s - 2, cy);
+        p.drawEllipse(QPoint(cx, cy), s / 4 - 1, s / 2 - 2);
         break;
     }
 
-    case NavPage::Optimizer: {
+    case NavPage::System: {
+        int bw = (s - 4) / 3;
+        p.drawRoundedRect(QRect(m + 1, m + s / 2, bw, s / 2 - 2), 2, 2);
+        p.drawRoundedRect(QRect(m + 2 + bw, m + s / 3, bw, s * 2 / 3 - 2), 2, 2);
+        p.drawRoundedRect(QRect(m + 3 + bw * 2, m + 2, bw, s - 4), 2, 2);
+        break;
+    }
+
+    case NavPage::Optimizations: {
         QPolygon bolt;
         bolt << QPoint(m + s / 3, m)
              << QPoint(m + 2, m + s / 2 + 2)
@@ -154,23 +152,14 @@ QIcon Sidebar::makeIcon(NavPage page, const QColor& color)
         break;
     }
 
-    case NavPage::NetworkTools: {
-        int cx = sz / 2;
-        int cy = sz / 2;
-        p.setPen(QPen(color, 2));
+    case NavPage::Servers: {
+        p.setPen(QPen(color, 1.5));
         p.setBrush(Qt::NoBrush);
-        p.drawEllipse(QPoint(cx, cy), s / 2 - 2, s / 2 - 4);
-        p.drawLine(m + 2, cy, m + s - 2, cy);
-        p.drawLine(cx, m + 2, cx, m + s - 2);
-        p.drawEllipse(QPoint(cx, cy), s / 4, s / 6);
-        break;
-    }
-
-    case NavPage::ProcessMonitor: {
-        int bw = (s - 4) / 3;
-        p.drawRoundedRect(QRect(m + 1, m + s / 2, bw, s / 2 - 2), 2, 2);
-        p.drawRoundedRect(QRect(m + 2 + bw, m + s / 3, bw, s * 2 / 3 - 2), 2, 2);
-        p.drawRoundedRect(QRect(m + 3 + bw * 2, m + 2, bw, s - 4), 2, 2);
+        p.drawEllipse(QPoint(sz / 2, sz / 2), s / 2 - 2, s / 2 - 2);
+        p.drawLine(m + 4, sz / 2, m + s - 4, sz / 2);
+        p.drawEllipse(QPoint(sz / 2 - 4, sz / 2), 4, 4);
+        p.drawEllipse(QPoint(sz / 2 + 6, sz / 2 - 4), 3, 3);
+        p.drawEllipse(QPoint(sz / 2 - 2, sz / 2 + 6), 2, 2);
         break;
     }
 
@@ -183,33 +172,13 @@ QIcon Sidebar::makeIcon(NavPage page, const QColor& color)
         break;
     }
 
-    case NavPage::Diagnostics: {
-        // stethoscope / magnifier
+    case NavPage::Knowledge: {
+        // book
         p.setPen(QPen(color, 2));
         p.setBrush(Qt::NoBrush);
-        p.drawEllipse(QPoint(m + 8, m + 8), 6, 6);
-        p.drawLine(m + 12, m + 12, m + s - 2, m + s - 2);
-        p.drawLine(m + 8, m + 20, m + 8, m + s - 4);
-        p.drawEllipse(QPoint(m + 8, m + s - 4), 2, 2);
-        break;
-    }
-
-    case NavPage::Remediation: {
-        // wrench-like: rounded rect + diagonal handle
-        p.setPen(Qt::NoPen);
-        p.setBrush(color);
-        p.drawRoundedRect(m + 2, sz / 2 - 3, s - 8, 6, 3, 3);
-        p.drawRect(sz / 2 - 3, m + 4, 6, s - 8);
-        break;
-    }
-    case NavPage::GeoMap: {
-        p.setPen(QPen(color, 1.5));
-        p.setBrush(Qt::NoBrush);
-        p.drawEllipse(QPoint(sz / 2, sz / 2), s / 2 - 2, s / 2 - 2);
-        p.drawLine(m + 4, sz / 2, m + s - 4, sz / 2);
-        p.drawEllipse(QPoint(sz / 2 - 4, sz / 2), 4, 4);
-        p.drawEllipse(QPoint(sz / 2 + 6, sz / 2 - 4), 3, 3);
-        p.drawEllipse(QPoint(sz / 2 - 2, sz / 2 + 6), 2, 2);
+        p.drawLine(sz / 2, m + 2, sz / 2, m + s - 2);
+        p.drawArc(QRect(m, m + 2, s / 2, s - 4), 90 * 16, 180 * 16);
+        p.drawArc(QRect(sz / 2, m + 2, s / 2, s - 4), -90 * 16, 180 * 16);
         break;
     }
 
@@ -245,6 +214,10 @@ QIcon Sidebar::makeIcon(NavPage page, const QColor& color)
 
 void Sidebar::setNavigationIndex(int index)
 {
+    if (index == static_cast<int>(NavPage::Settings)) {
+        if (m_settingsButton) m_settingsButton->setChecked(true);
+        return;
+    }
     auto* button = m_buttonGroup->button(index);
     if (button) {
         button->setChecked(true);

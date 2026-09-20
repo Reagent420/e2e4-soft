@@ -20,6 +20,7 @@ signals:
 
 private slots:
     void onResetDefaults();
+    void onCheckUpdates();
 
 private:
     void setupUI();
@@ -43,6 +44,7 @@ private:
     QCheckBox* verbose_log_;
     QCheckBox* auto_update_;
     QCheckBox* dev_mode_;
+    QPushButton* check_updates_;
 
     // pro presets section
     QComboBox* pro_game_combo_;

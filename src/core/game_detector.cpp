@@ -73,6 +73,13 @@ void GameDetector::loadGameDatabase(const std::string& json_path) {
 }
 
 void GameDetector::detectRunningGames() {
+    // Флаг is_running жил на самом объекте supported_games_ и раньше не
+    // сбрасывался: после закрытия игры карточка навсегда помечалась
+    // «● запущена», потому что detectRunningGames() вызывался на одном и
+    // том же детекторе (член GameListWidget) при каждом «Обновить».
+    for (auto& game : supported_games_) {
+        game.is_running = false;
+    }
     running_games_.clear();
     
 #ifdef PLATFORM_WINDOWS

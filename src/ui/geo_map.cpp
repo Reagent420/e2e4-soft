@@ -2,6 +2,7 @@
 #include "theme.h"
 #include "core/speed_test.h"
 #include "core/server_map_model.h"
+#include "core/settings_keys.h"
 #include <QTextEdit>
 
 #include <QApplication>
@@ -18,6 +19,8 @@
 #include <atomic>
 #include <cmath>
 #include <thread>
+
+#include <QPointer>
 
 namespace gno {
 
@@ -256,7 +259,7 @@ GeoMapWidget::GeoMapWidget(QWidget* parent) : QWidget(parent) {
     // Load saved probe results from previous sessions
     {
         QSettings settings;
-        settings.beginGroup(QStringLiteral("map/probe"));
+        settings.beginGroup(SettingsKeys::MapProbeGroup());
         for (auto& s : servers_) {
             const QString key = QString::fromStdString(s.ip);
             if (settings.contains(key)) {
@@ -348,7 +351,7 @@ void GeoMapWidget::setupUI() {
     m_details_ = new QTextEdit(panelWrap);
     m_details_->setReadOnly(true);
     m_details_->setStyleSheet(QString(
-        "QTextEdit { background-color: %1; color: %2; border: 1px solid %7;"
+        "QTextEdit { background-color: %1; color: %2; border: 1px solid %3;"
         " border-radius: 8px; padding: 10px; font-size: 12px; }")
                                   .arg(theme::Colors::BG_SURFACE, theme::Colors::TEXT_PRIMARY,
                                        theme::Colors::BORDER));
@@ -395,13 +398,13 @@ void GeoMapWidget::setupUI() {
 
 void GeoMapWidget::loadSettings() {
     QSettings s;
-    const int ri = m_region_->findData(s.value("map/region", "all").toString());
+    const int ri = m_region_->findData(s.value(SettingsKeys::MapRegion(), QStringLiteral("all")).toString());
     if (ri >= 0) m_region_->setCurrentIndex(ri);
-    m_labels_->setChecked(s.value("map/labels", true).toBool());
-    m_grid_->setChecked(s.value("map/grid", true).toBool());
+    m_labels_->setChecked(s.value(SettingsKeys::MapLabels(), true).toBool());
+    m_grid_->setChecked(s.value(SettingsKeys::MapGrid(), true).toBool());
     m_labels_shown_ = m_labels_->isChecked();
     m_grid_shown_ = m_grid_->isChecked();
-    const int sec = s.value("map/interval", 0).toInt();
+    const int sec = s.value(SettingsKeys::MapInterval(), 0).toInt();
     const int ii = std::max(0, m_interval_->findData(sec));
     m_interval_->setCurrentIndex(ii);
     if (sec > 0) m_timer_->start(sec * 1000);
@@ -409,10 +412,10 @@ void GeoMapWidget::loadSettings() {
 
 void GeoMapWidget::saveSettings() {
     QSettings s;
-    s.setValue("map/region", m_region_->currentData().toString());
-    s.setValue("map/labels", m_labels_->isChecked());
-    s.setValue("map/grid", m_grid_->isChecked());
-    s.setValue("map/interval", m_interval_->currentData().toInt());
+    s.setValue(SettingsKeys::MapRegion(), m_region_->currentData().toString());
+    s.setValue(SettingsKeys::MapLabels(), m_labels_->isChecked());
+    s.setValue(SettingsKeys::MapGrid(), m_grid_->isChecked());
+    s.setValue(SettingsKeys::MapInterval(), m_interval_->currentData().toInt());
 }
 
 void GeoMapWidget::rebuildVisibleServers() {
@@ -441,7 +444,7 @@ void GeoMapWidget::updateDetailsCard() {
     if (s.latency_ms >= 0) html += QStringLiteral("<b>%1 ms</b><br>").arg(s.latency_ms);
     else if (s.latency_ms == -2)
         html += QString::fromUtf8(
-            "\xD0\x9D\xD0\xB5\xD0%B4\xD0%BE\xD1\x81\xD1%82\xD1%83\xD0\xBF\xD0%B5\xD0\xBD<br>");
+            "\xD0\x9D\xD0\xB5\xD0\xB4\xD0\xBE\xD1\x81\xD1\x82\xD1\x83\xD0\xBF\xD0\xB5\xD0\xBD<br>");
     else
         html += QString::fromUtf8("\xD0\x9D\xD0\xB5\x20\xD0\xBF\xD1\x80\xD0\xBE\xD0\xB2\xD0\xB5\xD1\x80\xD0\xB5\xD0\xBD<br>");
 
@@ -462,14 +465,17 @@ void GeoMapWidget::startProbeThread(bool all) {
     if (targets.empty()) {
         m_check_all_btn_->setEnabled(true);
         m_check_sel_btn_->setEnabled(true);
+        m_progress_->setText(QString::fromUtf8("Нет серверов в регионе"));
         return;
     }
+    m_progress_->setText(QStringLiteral("0 / %1").arg(targets.size()));
 
     std::thread([this, targets]() {
         static std::atomic<bool> busy{false};
         bool expected = false;
         if (!busy.compare_exchange_strong(expected, true)) return;
 
+        QPointer<GeoMapWidget> guard(this);
         SpeedTest speedtest;
         std::vector<std::pair<int, int>> results;
         int done = 0;
@@ -481,31 +487,40 @@ void GeoMapWidget::startProbeThread(bool all) {
                                              ? static_cast<int>(std::lround(res.latency_ms))
                                              : -2);
                 ++done;
-                emit probeProgress(QStringLiteral("%1 / %2").arg(done).arg(targets.size()));
+                if (guard)
+                    QMetaObject::invokeMethod(guard, [guard, done, total = static_cast<int>(targets.size())]() {
+                        if (guard && guard->m_progress_)
+                            guard->m_progress_->setText(
+                                QStringLiteral("%1 / %2").arg(done).arg(total));
+                    }, Qt::QueuedConnection);
             }
         } catch (...) {}
         busy = false;
 
-        QMetaObject::invokeMethod(this, [this, results]() {
-            ServerMapModel::applyProbeResults(servers_, results);
+        if (!guard) return;   // widget destroyed while probing → do not touch it
+
+        QMetaObject::invokeMethod(guard, [guard, results]() {
+            if (!guard) return;
+            ServerMapModel::applyProbeResults(guard->servers_, results);
 
             // Save probe results for persistence across sessions
             {
                 QSettings settings;
-                settings.beginGroup(QStringLiteral("map/probe"));
+                settings.beginGroup(SettingsKeys::MapProbeGroup());
                 for (const auto& [idx, lat] : results) {
-                    if (idx >= 0 && idx < static_cast<int>(servers_.size()))
+                    if (idx >= 0 && idx < static_cast<int>(guard->servers_.size()))
                         settings.setValue(
                             QString::fromStdString(
-                                servers_[static_cast<std::size_t>(idx)].ip), lat);
+                                guard->servers_[static_cast<std::size_t>(idx)].ip), lat);
                 }
                 settings.endGroup();
             }
-            best_ = ServerMapModel::bestServer(servers_);
-            updateDetailsCard();
-            canvas_->update();
-            m_check_all_btn_->setEnabled(true);
-            m_check_sel_btn_->setEnabled(true);
+            guard->best_ = ServerMapModel::bestServer(guard->servers_);
+            guard->updateDetailsCard();
+            guard->canvas_->update();
+            guard->m_progress_->setText(QStringLiteral(" "));
+            guard->m_check_all_btn_->setEnabled(true);
+            guard->m_check_sel_btn_->setEnabled(true);
         }, Qt::QueuedConnection);
     }).detach();
 }

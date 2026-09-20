@@ -182,13 +182,6 @@ inline const std::vector<TweakSpec>& tweaks() {
          TweakRoot::HKLM, "SYSTEM\\CurrentControlSet\\Services\\DoSvc",
          "Start", TweakType::Dword, 4, "", false},
 
-        // ---------------- FPS BOOST (v2.4.0) ----------------
-        {"fps_system_resp", "FPS Boost", "System Responsiveness = 0",
-         "Все ядра CPU отдаются игре вместо фоновых задач (по умолчанию 20%)",
-         TweakRoot::HKLM,
-         "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
-         "SystemResponsiveness", TweakType::Dword, 0, "", false},
-
         // ---------------- ДОПОЛНИТЕЛЬНЫЕ (v2.4.0+) ----------------
         {"exp_search_bing_off", "Поиск", "Bing-подсказки выключены",
          "Пуск ищет только локально без веб-вставок",

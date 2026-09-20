@@ -2,11 +2,14 @@
 
 #include <QMainWindow>
 #include <QStackedWidget>
+#include <QPointer>
 #include <functional>
 #include <vector>
 #include <QStatusBar>
 #include <QLabel>
 #include <QCloseEvent>
+
+class SettingsPageWidget;
 
 namespace gno {
 
@@ -30,25 +33,28 @@ signals:
     void overlaySettingsChanged(bool enabled, int corner, int opacity);
     void soundSettingsChanged(bool enabled);
     void notificationsSettingsChanged(bool enabled);
+    void boostRequested(bool on);   // Dashboard → безопасный движок буста (main_gui)
 
 protected:
     void closeEvent(QCloseEvent* event) override;
 
 private slots:
     void onNavigationChanged(int index);
+    void openSettings();
 
 private:
     void setupUi();
     void setupPages();
     QWidget* ensurePage(int index);
 
-    Sidebar* m_sidebar;
-    QStackedWidget* m_stackedWidget;
-    QLabel* m_statusLabel;
-    QLabel* m_pingLabel;
-    QLabel* m_jitterLabel;
-    QLabel* m_lossLabel;
-    QLabel* m_boostLabel;
+    Sidebar* m_sidebar = nullptr;
+    QStackedWidget* m_stackedWidget = nullptr;
+    QLabel* m_statusLabel = nullptr;
+    QLabel* m_pingLabel = nullptr;
+    QLabel* m_jitterLabel = nullptr;
+    QLabel* m_lossLabel = nullptr;
+    QLabel* m_boostLabel = nullptr;
+    QPointer<SettingsPageWidget> m_settingsWidget;
     std::vector<std::function<QWidget*()>> m_page_creators_;
     std::vector<bool> m_page_created_;
 };

@@ -3,6 +3,11 @@
 #include <sstream>
 #include <fstream>
 
+#include "remediation/boost_gate.h"
+#include "remediation/remediation_service.h"
+#include "remediation/target_discovery.h"
+#include "remediation/windows_state_api.h"
+
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
 #include <winreg.h>
@@ -12,30 +17,18 @@ namespace gno {
 
 namespace {
 
-#ifdef PLATFORM_WINDOWS
-std::string readRegDword(HKEY root, const char* subkey, const char* name) {
-    HKEY hkey;
-    if (RegOpenKeyExA(root, subkey, 0, KEY_READ, &hkey) != ERROR_SUCCESS)
-        return "";
-    DWORD value = 0;
-    DWORD size = sizeof(value);
-    DWORD type = 0;
-    LONG res = RegQueryValueExA(hkey, name, nullptr, &type, reinterpret_cast<BYTE*>(&value), &size);
-    RegCloseKey(hkey);
-    if (res != ERROR_SUCCESS || type != REG_DWORD)
-        return "";
-    return std::to_string(value);
-}
+namespace rem = remediation;
 
-bool writeRegDword(HKEY root, const char* subkey, const char* name, DWORD value) {
-    HKEY hkey;
-    if (RegOpenKeyExA(root, subkey, 0, KEY_SET_VALUE, &hkey) != ERROR_SUCCESS)
-        return false;
-    LONG res = RegSetValueExA(hkey, name, 0, REG_DWORD, reinterpret_cast<BYTE*>(&value), sizeof(value));
-    RegCloseKey(hkey);
-    return res == ERROR_SUCCESS;
+// Единственный способ прочитать состояние — спросить сам движок. Дублировать
+// пути реестра нельзя: они уже один раз разошлись с движком, и вкладка
+// «Что изменилось» показывала «не применилось» там, где всё применилось.
+bool readAllowedRegistry(rem::AllowedRegistryKey key, std::uint32_t& out) {
+    rem::WindowsStateApi api;
+    auto data = api.getAllowedRegistry(key);
+    if (!data || !data.value().existed) return false;
+    out = data.value().value;
+    return true;
 }
-#endif
 
 } // namespace
 
@@ -63,64 +56,78 @@ bool SystemAudit::canWriteToFile(const std::string& path) {
 }
 
 std::string SystemAudit::readGameDvrValue() {
-#ifdef PLATFORM_WINDOWS
-    return readRegDword(HKEY_CURRENT_USER,
-                        "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR",
-                        "AppCaptureEnabled");
-#else
-    return "";
-#endif
+    std::uint32_t v = 0;
+    if (!readAllowedRegistry(rem::AllowedRegistryKey::GameDvrEnabled, v)) return "";
+    return std::to_string(v);
 }
 
+// Движок отключает оптимизации полноэкранного режима не через
+// GameDVR_FSEBehaviorMode (этот ключ он вообще не трогает), а через флаги
+// совместимости конкретного exe. Поэтому и читаем именно их.
 std::string SystemAudit::readFullscreenOptValue() {
-#ifdef PLATFORM_WINDOWS
-    return readRegDword(HKEY_CURRENT_USER, "System\\GameConfigStore",
-                        "GameDVR_FSEBehaviorMode");
-#else
-    return "";
-#endif
+    auto game = rem::discoverRunningGameProcess();
+    if (!game) return ""; // игра не запущена — проверять нечего
+
+    rem::WindowsStateApi api;
+    auto state = api.getFullscreenOptimizations(rem::ExecutableTarget{game->path});
+    if (!state) return "";
+    const auto& v = state.value();
+    // Ищем ровно тот флаг, который ставит движок, а не любое совпадение
+    // подстроки — иначе чужой флаг в той же строке дал бы ложное «отключено».
+    if (v.existed && v.compatibility_flags.find(rem::kEngineFullscreenFlags) != std::string::npos)
+        return kAuditOffText;
+    // Записи нет или флаг не выставлен — оптимизации работают.
+    return kAuditOnText;
 }
 
 std::string SystemAudit::readGameModeValue() {
-#ifdef PLATFORM_WINDOWS
-    return readRegDword(HKEY_CURRENT_USER,
-                        "Software\\Microsoft\\Windows\\CurrentVersion\\GameBar",
-                        "AutoGameModeEnabled");
-#else
-    return "";
-#endif
+    std::uint32_t v = 0;
+    if (!readAllowedRegistry(rem::AllowedRegistryKey::GameModeAllow, v)) return "";
+    return std::to_string(v);
 }
 
-std::string SystemAudit::readTcpValue(const char* value_name) {
-#ifdef PLATFORM_WINDOWS
-    return readRegDword(HKEY_CURRENT_USER,
-                        "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-                        value_name);
-#else
-    (void)value_name;
-    return "";
-#endif
+std::string SystemAudit::readTcpRttValue() {
+    std::uint32_t v = 0;
+    if (!readAllowedRegistry(rem::AllowedRegistryKey::TcpInitialRetransmissionTimeout, v)) return "";
+    return std::to_string(v);
 }
 
 std::string SystemAudit::readActivePowerPlan() {
-#ifdef PLATFORM_WINDOWS
-    // registry mirror of the active power scheme
-    HKEY hkey;
-    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-                      "SYSTEM\\CurrentControlSet\\Control\\Power\\User\\PowerSchemes",
-                      0, KEY_READ, &hkey) != ERROR_SUCCESS)
-        return "";
-    char buf[128] = {0};
-    DWORD size = sizeof(buf);
-    LONG res = RegQueryValueExA(hkey, "ActivePowerScheme", nullptr, nullptr,
-                                reinterpret_cast<BYTE*>(buf), &size);
-    RegCloseKey(hkey);
-    if (res != ERROR_SUCCESS || size == 0)
-        return "";
-    return buf;
-#else
-    return "";
-#endif
+    rem::WindowsStateApi api;
+    auto plan = api.getPowerPlan();
+    if (!plan) return "";
+    return plan.value().identifier;
+}
+
+std::string SystemAudit::readMouseAccelValue() {
+    rem::WindowsStateApi api;
+    auto ma = api.getMouseAccel();
+    if (!ma) return "";
+    const auto& v = ma.value();
+    const bool off = v.speed == 0 && v.threshold1 == 0 && v.threshold2 == 0;
+    return off ? kAuditOffText : kAuditOnText;
+}
+
+std::string SystemAudit::readDnsServersValue() {
+    auto iface = rem::discoverPrimaryInterface();
+    if (!iface) return "";
+    const auto* target = std::get_if<rem::InterfaceTarget>(&*iface);
+    if (!target) return "";
+    rem::WindowsStateApi api;
+    auto dns = api.getDns(*target);
+    if (!dns) return "";
+    return rem::summarizeValue(rem::ActionValue{dns.value()});
+}
+
+std::string SystemAudit::readMtuValue() {
+    auto iface = rem::discoverPrimaryInterface();
+    if (!iface) return "";
+    const auto* target = std::get_if<rem::InterfaceTarget>(&*iface);
+    if (!target) return "";
+    rem::WindowsStateApi api;
+    auto mtu = api.getMtu(*target);
+    if (!mtu) return "";
+    return rem::summarizeValue(rem::ActionValue{mtu.value()});
 }
 
 std::vector<SettingChange> SystemAudit::verifyFpsSettings() {
@@ -128,55 +135,55 @@ std::vector<SettingChange> SystemAudit::verifyFpsSettings() {
 
     SettingChange dvr;
     dvr.section = "FPS";
-    dvr.name = "Запись игр (Game DVR)";
+    dvr.name = "Запись игр (GameDVR_Enabled)";
     dvr.action = "Отключить фоновую запись";
     dvr.old_value = readGameDvrValue();
     dvr.new_value = "0 (выключено)";
     if (dvr.old_value == "0") {
         dvr.status = SettingChange::Status::Verified;
-        dvr.detail = "Запись игр отключена — программа видит значение 0 в реестре.";
+        dvr.detail = "Запись игр отключена — движок видит GameDVR_Enabled = 0.";
     } else if (dvr.old_value.empty()) {
         dvr.status = SettingChange::Status::NotApplied;
         dvr.detail = "Параметр не найден в реестре — оптимизация не применялась.";
     } else {
         dvr.status = SettingChange::Status::Failed;
-        dvr.detail = "Запись игр всё ещё включена (значение " + dvr.old_value + "). Нужны права администратора или проверьте настройки Windows.";
+        dvr.detail = "Запись игр всё ещё включена (GameDVR_Enabled = " + dvr.old_value + ").";
     }
     out.push_back(dvr);
 
     SettingChange fse;
     fse.section = "FPS";
-    fse.name = "Оптимизации полноэкранного режима";
+    fse.name = "Оптимизации полноэкранного режима (флаг совместимости)";
     fse.action = "Отключить задержку ввода";
     fse.old_value = readFullscreenOptValue();
-    fse.new_value = "1 (отключено)";
-    if (fse.old_value == "1") {
+    fse.new_value = kAuditOffText;
+    if (fse.old_value == kAuditOffText) {
         fse.status = SettingChange::Status::Verified;
-        fse.detail = "Оптимизации полноэкранного режима отключены — программа видит значение 1.";
+        fse.detail = "Для запущенной игры выставлен флаг совместимости — оптимизации отключены.";
     } else if (fse.old_value.empty()) {
         fse.status = SettingChange::Status::NotApplied;
-        fse.detail = "Параметр не найден — оптимизация не применялась.";
+        fse.detail = "Игра не запущена — проверить можно только при запущенной игре.";
     } else {
-        fse.status = SettingChange::Status::Failed;
-        fse.detail = "Параметр всё ещё = " + fse.old_value + ". Не удалось применить.";
+        fse.status = SettingChange::Status::NotApplied;
+        fse.detail = "Флаг совместимости не выставлен — оптимизации полноэкранного режима работают.";
     }
     out.push_back(fse);
 
     SettingChange gm;
     gm.section = "FPS";
-    gm.name = "Игровой режим Windows";
+    gm.name = "Игровой режим (AllowAutoGameMode)";
     gm.action = "Отключить Game Mode";
     gm.old_value = readGameModeValue();
     gm.new_value = "0 (выключен)";
     if (gm.old_value == "0") {
         gm.status = SettingChange::Status::Verified;
-        gm.detail = "Игровой режим отключён — программа видит значение 0.";
+        gm.detail = "Игровой режим отключён — движок видит AllowAutoGameMode = 0.";
     } else if (gm.old_value.empty()) {
         gm.status = SettingChange::Status::NotApplied;
         gm.detail = "Параметр не найден — оптимизация не применялась.";
     } else {
         gm.status = SettingChange::Status::Failed;
-        gm.detail = "Игровой режим включён (значение " + gm.old_value + ").";
+        gm.detail = "Игровой режим включён (AllowAutoGameMode = " + gm.old_value + ").";
     }
     out.push_back(gm);
 
@@ -188,13 +195,13 @@ std::vector<SettingChange> SystemAudit::verifyFpsSettings() {
     pp.new_value = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c (Высокая производительность)";
     if (pp.old_value == "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c") {
         pp.status = SettingChange::Status::Verified;
-        pp.detail = "Активен план «Высокая производительность» — программа видит его GUID в реестре.";
+        pp.detail = "Активен план «Высокая производительность» — Windows подтверждает по API.";
     } else if (pp.old_value.empty()) {
         pp.status = SettingChange::Status::NotApplied;
         pp.detail = "Не удалось прочитать активный план питания.";
     } else {
-        pp.status = SettingChange::Status::Failed;
-        pp.detail = "Активен другой план питания (" + pp.old_value + "). Не применялся или был откатан.";
+        pp.status = SettingChange::Status::NotApplied;
+        pp.detail = "Активен другой план питания (" + pp.old_value + ").";
     }
     out.push_back(pp);
 
@@ -204,41 +211,66 @@ std::vector<SettingChange> SystemAudit::verifyFpsSettings() {
 std::vector<SettingChange> SystemAudit::verifyNetworkSettings() {
     std::vector<SettingChange> out;
 
-    SettingChange ack;
-    ack.section = "Network";
-    ack.name = "Адаптивные ACK (TcpAckFrequency)";
-    ack.action = "Снизить задержку подтверждений";
-    ack.old_value = readTcpValue("TcpAckFrequency");
-    ack.new_value = "1";
-    if (ack.old_value == "1") {
-        ack.status = SettingChange::Status::Verified;
-        ack.detail = "Программа видит TcpAckFrequency = 1 в реестре — оптимизация активна.";
-    } else if (ack.old_value.empty()) {
-        ack.status = SettingChange::Status::NotApplied;
-        ack.detail = "Параметр не найден — TCP-оптимизация не применялась.";
+    // Движок настраивает именно InitialRtt (HKLM\...\Tcpip\Parameters). Раньше
+    // здесь проверялись TcpAckFrequency/TCPNoDelay из Internet Settings —
+    // параметры, которые движок никогда не пишет, поэтому проверка всегда
+    // показывала «не применено» после успешного применения.
+    SettingChange rtt;
+    rtt.section = "Network";
+    rtt.name = "Начальный RTT TCP (TcpInitialRtt)";
+    rtt.action = "Ускорить установку соединения";
+    rtt.old_value = readTcpRttValue();
+    rtt.new_value = std::to_string(rem::kEngineTcpInitialRtt);
+    if (rtt.old_value == rtt.new_value) {
+        rtt.status = SettingChange::Status::Verified;
+        rtt.detail = "TcpInitialRtt = " + rtt.old_value + " — оптимизация TCP активна.";
+    } else if (rtt.old_value.empty()) {
+        rtt.status = SettingChange::Status::NotApplied;
+        rtt.detail = "Параметр не задан — TCP-оптимизация не применялась.";
     } else {
-        ack.status = SettingChange::Status::Failed;
-        ack.detail = "TcpAckFrequency = " + ack.old_value + " — не применено.";
+        rtt.status = SettingChange::Status::NotApplied;
+        rtt.detail = "TcpInitialRtt = " + rtt.old_value + " — движок это значение не менял.";
     }
-    out.push_back(ack);
+    out.push_back(rtt);
 
-    SettingChange nodelay;
-    nodelay.section = "Network";
-    nodelay.name = "TCP NoDelay";
-    nodelay.action = "Отключить задержку отправки";
-    nodelay.old_value = readTcpValue("TCPNoDelay");
-    nodelay.new_value = "1";
-    if (nodelay.old_value == "1") {
-        nodelay.status = SettingChange::Status::Verified;
-        nodelay.detail = "Программа видит TCPNoDelay = 1 — оптимизация активна.";
-    } else if (nodelay.old_value.empty()) {
-        nodelay.status = SettingChange::Status::NotApplied;
-        nodelay.detail = "Параметр не найден — TCP-оптимизация не применялась.";
+    const std::string dns_expected =
+        std::string(rem::kEngineDnsPrimary) + ", " + rem::kEngineDnsSecondary;
+    SettingChange dns;
+    dns.section = "Network";
+    dns.name = "DNS-серверы";
+    dns.action = "Быстрые резолверы";
+    dns.old_value = readDnsServersValue();
+    dns.new_value = dns_expected;
+    if (dns.old_value == dns_expected) {
+        dns.status = SettingChange::Status::Verified;
+        dns.detail = "Активный адаптер использует " + dns.old_value + ".";
+    } else if (dns.old_value.empty()) {
+        dns.status = SettingChange::Status::NotApplied;
+        dns.detail = "Не удалось прочитать DNS активного адаптера.";
     } else {
-        nodelay.status = SettingChange::Status::Failed;
-        nodelay.detail = "TCPNoDelay = " + nodelay.old_value + " — не применено.";
+        dns.status = SettingChange::Status::NotApplied;
+        dns.detail = "Активный адаптер использует " + dns.old_value +
+                     " — программа DNS не меняла.";
     }
-    out.push_back(nodelay);
+    out.push_back(dns);
+
+    SettingChange mtu;
+    mtu.section = "Network";
+    mtu.name = "MTU активного адаптера";
+    mtu.action = "Убрать фрагментацию";
+    mtu.old_value = readMtuValue();
+    mtu.new_value = std::to_string(rem::kEngineMtuValue) + " байт";
+    if (mtu.old_value == mtu.new_value) {
+        mtu.status = SettingChange::Status::Verified;
+        mtu.detail = "MTU = " + mtu.old_value + " — как задал движок.";
+    } else if (mtu.old_value.empty()) {
+        mtu.status = SettingChange::Status::NotApplied;
+        mtu.detail = "Не удалось прочитать MTU активного адаптера.";
+    } else {
+        mtu.status = SettingChange::Status::NotApplied;
+        mtu.detail = "MTU = " + mtu.old_value + " — значение движка не применялось.";
+    }
+    out.push_back(mtu);
 
     return out;
 }
@@ -264,22 +296,24 @@ std::vector<Capability> SystemAudit::getCapabilities() {
 
     add("game_dvr", "Отключение записи игр",
         "Останавливает фоновую запись Windows Game DVR, которая снижает FPS.",
-        "Программа читает параметр AppCaptureEnabled в реестре. Сейчас он = " + (readGameDvrValue().empty() ? "не задан" : readGameDvrValue()) + ".",
+        "Программа читает GameDVR_Enabled через движок. Сейчас он = " + (readGameDvrValue().empty() ? "не задан" : readGameDvrValue()) + ".",
         false, false, "Доступно (работает для текущего пользователя)");
 
     add("fullscreen_opt", "Отключение оптимизаций полноэкранного режима",
         "Убирает задержку ввода в полноэкранных играх.",
-        "Программа проверяет GameDVR_FSEBehaviorMode. Сейчас = " + (readFullscreenOptValue().empty() ? "не задан" : readFullscreenOptValue()) + ".",
-        false, false, "Доступно");
+        "Программа ставит флаг совместимости для exe запущенной игры. Сейчас = " +
+            (readFullscreenOptValue().empty() ? "игра не запущена" : readFullscreenOptValue()) + ".",
+        false, false, "Доступно (нужна запущенная игра)");
 
     add("mouse_accel", "Отключение ускорения мыши",
         "Прямой ввод от мыши — точнее прицеливание в шутерах.",
-        "Программа проверяет параметры мыши в реестре и может их изменить.",
+        "Программа читает Control Panel\\Mouse и может изменить его. Сейчас = " +
+            (readMouseAccelValue().empty() ? "не прочитано" : readMouseAccelValue()) + ".",
         false, false, "Доступно");
 
     add("power_plan", "План «Высокая производительность»",
         "Переводит Windows на план питания с максимальной производительностью.",
-        "Программа читает ActivePowerScheme. Активный план = " + (readActivePowerPlan().empty() ? "не определён" : readActivePowerPlan()) + ".",
+        "Программа спрашивает активный план у Windows. Сейчас = " + (readActivePowerPlan().empty() ? "не определён" : readActivePowerPlan()) + ".",
         true, false, admin ? "Доступно (права есть)" : "Требуются права администратора");
 
     add("priority", "Высокий приоритет игрового процесса",
@@ -289,13 +323,16 @@ std::vector<Capability> SystemAudit::getCapabilities() {
 
     add("virtual_memory", "Оптимизация виртуальной памяти",
         "Настраивает системный кэш для уменьшения подтормаживаний.",
-        "Программа изменяет LargeSystemCache в реестре.",
-        true, false, admin ? "Доступно (права есть)" : "Требуются права администратора");
+        "Программа этого не делает: параметр вне белого списка движка, "
+        "изменение системного кэша небезопасно. Настраивается вручную: "
+        "Свойства системы → Дополнительно → Быстродействие.",
+        true, false, "Недоступно (вне белого списка движка)");
 
     add("tcp_opt", "Оптимизация TCP-стека",
-        "Адаптивные ACK и NoDelay снижают задержку в играх.",
-        "Программа записывает TcpAckFrequency и TCPNoDelay в реестр. Сейчас = " + (readTcpValue("TcpAckFrequency").empty() ? "не задано" : readTcpValue("TcpAckFrequency")) + ".",
-        false, false, "Доступно (для текущего пользователя)");
+        "Начальный RTT TCP снижает время установки игровых соединений.",
+        "Программа записывает TcpInitialRtt в HKLM\\SYSTEM\\CurrentControlSet\\Services\\"
+        "Tcpip\\Parameters. Сейчас = " + (readTcpRttValue().empty() ? "не задано" : readTcpRttValue()) + ".",
+        true, false, admin ? "Доступно (права есть)" : "Требуются права администратора");
 
     add("mtu", "Оптимизация MTU",
         "Подбор размера пакета уменьшает фрагментацию и потери.",

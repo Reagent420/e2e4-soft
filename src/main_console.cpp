@@ -2,6 +2,7 @@
 #include <string>
 #include <chrono>
 #include <thread>
+#include <filesystem>
 #include <iomanip>
 #include <vector>
 #include <algorithm>
@@ -19,6 +20,7 @@
 #include "monitoring/packet_loss_monitor.h"
 #include "monitoring/jitter_calculator.h"
 #include "optimization/fps_optimizer.h"
+#include "remediation/boost_gate.h"
 #include "monitoring/stats_collector.h"
 
 void printHeader(const std::string& title) {
@@ -33,7 +35,7 @@ void printSeparator() {
 
 void printHelp() {
     std::cout << R"(
-E2E4 Soft - Game Network Optimizer v1.4.0
+E2E4 Soft - Game Network Optimizer v3.0.0
 
 Usage: E2E4-console [OPTIONS]
 
@@ -46,6 +48,8 @@ Network Testing:
 
 Game Optimization:
   --boost               Apply FPS boost optimizations
+  --revert              Roll back the boost applied by --boost (transactional)
+  --boost-status        Show whether a boost transaction is currently active
   --game <name>         Apply profile for specific game
   --list-games          List all supported games
   --list-installed      List installed games
@@ -83,9 +87,12 @@ int main(int argc, char* argv[]) {
     int ping_count = 5;
     bool run_tests = true;
     bool run_speedtest = false;
+    bool run_multipath = false;
     bool run_dns_benchmark = false;
     std::string dns_server;
     bool run_boost = false;
+    bool run_revert = false;
+    bool show_boost_status = false;
     std::string game_name;
     bool list_games = false;
     bool list_installed = false;
@@ -104,12 +111,15 @@ int main(int argc, char* argv[]) {
             printHelp();
             return 0;
         } else if (arg == "-v" || arg == "--version") {
-            std::cout << "GNO-console v1.4.0\n";
+            std::cout << "GNO-console v3.0.0\n";
             return 0;
         } else if (arg == "--target" && i + 1 < argc) {
             target = argv[++i];
         } else if (arg == "--ping" && i + 1 < argc) {
             ping_count = std::stoi(argv[++i]);
+        } else if (arg == "--multipath") {
+            run_multipath = true;
+            run_tests = false;
         } else if (arg == "--speedtest") {
             run_speedtest = true;
             run_tests = false;
@@ -121,6 +131,12 @@ int main(int argc, char* argv[]) {
             run_tests = false;
         } else if (arg == "--boost") {
             run_boost = true;
+            run_tests = false;
+        } else if (arg == "--revert") {
+            run_revert = true;
+            run_tests = false;
+        } else if (arg == "--boost-status") {
+            show_boost_status = true;
             run_tests = false;
         } else if (arg == "--game" && i + 1 < argc) {
             game_name = argv[++i];
@@ -242,12 +258,15 @@ int main(int argc, char* argv[]) {
 
     if (apply_dns) {
         gno::DNSManager dm;
-        if (dm.applyDNS(dns_primary, dns_secondary)) {
+        dm.applyDNS(dns_primary, dns_secondary);
+        const auto& outcome = dm.lastOutcome();
+        if (outcome.applied) {
             std::cout << "DNS applied: " << dns_primary;
             if (!dns_secondary.empty()) std::cout << ", " << dns_secondary;
             std::cout << "\n";
         } else {
-            std::cout << "Failed to apply DNS\n";
+            // Движок объясняет причину сам: нет адаптера, нет прав, уже настроено.
+            std::cout << (outcome.message.empty() ? "Failed to apply DNS" : outcome.message) << "\n";
         }
         return 0;
     }
@@ -304,23 +323,52 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (run_boost) {
-        gno::FPSOptimizer fpsOpt;
-        gno::FPSBoostConfig config;
-        config.disable_game_dvr = true;
-        config.disable_fullscreen_optimizations = true;
-        config.disable_mouse_acceleration = true;
-        config.optimize_power_plan = true;
-        auto result = fpsOpt.applyConfig(config);
-        if (result.success) {
-            std::cout << "FPS Boost applied:\n";
-            for (const auto& c : result.applied_changes) {
-                std::cout << "  - " << c << "\n";
-            }
-        } else {
-            std::cout << "FPS Boost failed: " << result.message << "\n";
-        }
+    // Same backups dir the UI (RemediationWidget / OptimizerWidget) uses, so the
+    // console path and the GUI path share one transaction journal + marker file.
+    auto backupsDir = []() { return gno::remediation::defaultBackupsDir(); };
+
+    if (show_boost_status) {
+        gno::remediation::BoostGate gate(backupsDir());
+        std::cout << "Boost transaction active: " << (gate.hasActiveBoost() ? "YES" : "NO") << "\n";
+        const std::string latest = gate.latestAppliedTransactionId();
+        std::cout << "Revertable changes: " << (latest.empty() ? "NO" : "YES (" + latest + ")") << "\n";
         return 0;
+    }
+
+    if (run_revert) {
+        gno::remediation::BoostGate gate(backupsDir());
+        if (!gate.hasRevertableChanges()) {
+            std::cout << "Nothing to revert: no applied changes in the journal.\n";
+            return 0;
+        }
+        auto rolled = gate.revertBoost();
+        std::cout << (rolled.ok ? "Rollback OK" : "Rollback FAILED")
+                  << " (transaction " << rolled.transaction_id << ")\n";
+        std::cout << "  " << rolled.detail << "\n";
+        std::cout << "  boost active now: " << (gate.hasActiveBoost() ? "YES" : "NO") << "\n";
+        return rolled.ok ? 0 : 1;
+    }
+
+    if (run_boost) {
+        gno::remediation::BoostRequest req;
+        req.disable_game_dvr = true;
+        req.disable_fullscreen_optimizations = true;
+        req.disable_mouse_acceleration = true;
+        req.optimize_power_plan = true;
+        gno::remediation::BoostGate gate(backupsDir());
+        auto result = gate.applyBoost(req);
+        if (result.applied) {
+            std::cout << "FPS Boost applied via safe engine (rollback available):\n";
+            for (const auto& c : result.succeeded) std::cout << "  - " << c << "\n";
+            for (const auto& c : result.skipped) std::cout << "  [skip] " << c << "\n";
+            std::cout << "  transaction: " << result.transaction_id << "\n";
+        } else {
+            std::cout << "Boost not applied: " << result.detail << "\n";
+            for (const auto& c : result.succeeded) std::cout << "  - " << c << "\n";
+            for (const auto& c : result.skipped) std::cout << "  [skip] " << c << "\n";
+            for (const auto& c : result.failed) std::cout << "  [fail] " << c << "\n";
+        }
+        return result.ok ? 0 : 1;
     }
 
     if (!game_name.empty()) {
@@ -361,16 +409,22 @@ int main(int argc, char* argv[]) {
         profiles.set(profile);
         std::cout << "Profile applied for " << game_name << "\n";
         
-        // Apply FPS boost
-        gno::FPSOptimizer fpsOpt;
-        gno::FPSBoostConfig config;
-        config.disable_game_dvr = profile.fps_boost_enabled;
-        config.disable_fullscreen_optimizations = profile.fps_boost_enabled;
-        config.disable_mouse_acceleration = profile.fps_boost_enabled;
-        config.optimize_power_plan = profile.network_optimization;
-        fpsOpt.applyConfig(config);
-        std::cout << "Optimizations applied.\n";
-        return 0;
+        // Apply FPS boost through the safe transactional engine
+        gno::remediation::BoostRequest req;
+        req.disable_game_dvr = profile.fps_boost_enabled;
+        req.disable_fullscreen_optimizations = profile.fps_boost_enabled;
+        req.disable_mouse_acceleration = profile.fps_boost_enabled;
+        req.optimize_power_plan = profile.network_optimization;
+        gno::remediation::BoostGate gate(gno::remediation::defaultBackupsDir());
+        auto boost_result = gate.applyBoost(req);
+        if (boost_result.applied) {
+            std::cout << "Optimizations applied (safe engine, rollback available).\n";
+        } else {
+            std::cout << "Optimizations not applied: " + boost_result.detail << "\n";
+            for (const auto& c : boost_result.failed)
+                std::cout << "  [fail] " << c << "\n";
+        }
+        return boost_result.applied ? 0 : 1;
     }
 
     if (run_watch) {
@@ -409,10 +463,53 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    if (run_multipath) {
+        // MultipathEngine зондирует каждый локальный шлюз как отдельный путь.
+        // Раньше класс компилировался, но нигде не использовался — теперь у него
+        // есть точка входа в консоли.
+        gno::MultipathConfig cfg;
+        cfg.probe_interval_ms = 2000;
+        cfg.auto_switch = true;
+
+        gno::MultipathEngine engine(cfg);
+
+        engine.setMetricsUpdateCallback(
+            [](const std::vector<gno::PathMetrics>& paths) {
+                std::cout << "\n--- Multipath: " << paths.size() << " path(s) ---\n";
+                for (const auto& p : paths) {
+                    std::cout << "  Path " << p.path_id
+                              << " | latency " << std::fixed << std::setprecision(1)
+                              << p.latency_ms << " ms"
+                              << " | jitter " << std::setprecision(2) << p.jitter_ms << " ms"
+                              << " | loss " << std::setprecision(1) << p.packet_loss_percent
+                              << "% | " << (p.is_healthy ? "healthy" : "unhealthy") << "\n";
+                }
+            });
+        engine.setPathSwitchCallback([](uint32_t old_id, uint32_t new_id) {
+            std::cout << "[SWITCH] active path " << old_id << " -> " << new_id << "\n";
+        });
+
+        engine.start(target);
+        if (!engine.isActive()) {
+            std::cerr << "Failed to start multipath engine.\n";
+            return 1;
+        }
+        if (engine.getPathMetrics().empty()) {
+            std::cout << "No routable interfaces with a gateway found; nothing to probe.\n";
+            engine.stop();
+            return 0;
+        }
+
+        std::cout << "Multipath engine probing local gateways (target: " << target
+                  << "). Press Ctrl+C to stop.\n";
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
+
     // Default: run all tests
-    if (run_tests) {
-        std::cout << "========================================\n";
-        std::cout << "  GNO - Game Network Optimizer v1.4.0\n";
+    if (run_tests) {        std::cout << "========================================\n";
+        std::cout << "  GNO - Game Network Optimizer v3.0.0\n";
         std::cout << "========================================\n";
 
         // Test 1: Network Utils

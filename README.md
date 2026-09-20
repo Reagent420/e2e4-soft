@@ -4,8 +4,8 @@
 
 **Advanced Network Diagnostics & System Optimization for Competitive Gaming**
 
-[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/Reagent420/e2e4-soft/releases)
-[![Tests](https://img.shields.io/badge/tests-34%20passing-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)](https://github.com/Reagent420/e2e4-soft/releases)
+[![Tests](https://img.shields.io/badge/tests-187%20passing-brightgreen.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -41,6 +41,15 @@ Curated database of common and complex gaming problems organized by title: sympt
 ### 📊 Analytics
 Score trend charts over session history, per-game alert thresholds, weekly health aggregation, CSV/PNG/JSON report export.
 
+### 📄 Report Export
+Diagnostic reports and session history export to **Markdown, HTML and PDF** (A4, 300 dpi) from the UI — the PDF is generated locally, nothing is uploaded.
+
+### 🔄 Signed Updates
+Built-in update check against GitHub Releases. A new build is accepted **only if its SHA-256 matches** the digest published with the release; if no digest is available the download is refused rather than installed on trust. Verified files are saved to disk — installation stays in your hands.
+
+### 🗒️ Session Log
+Every run writes a rotating log to `%APPDATA%\GNO\logs` (7 days kept), including Qt's own warnings. When something goes wrong on a machine you don't control, the log is the evidence.
+
 ---
 
 ## Safety Model
@@ -69,13 +78,13 @@ These limitations are stated openly because trust matters more than marketing.
 
 ## Installation
 
-Download `GNO-v3.0.0.zip` from [Releases](https://github.com/Reagent420/e2e4-soft/releases), extract, run `GNO.exe`. Qt libraries included.
+Download `GNO-v3.1.0.zip` from [Releases](https://github.com/Reagent420/e2e4-soft/releases), extract, run `GNO.exe`. Qt libraries included.
 
 For full functionality, run as Administrator.
 
 ## Building from Source
 
-Requirements: MSYS2 + MinGW64, CMake ≥ 3.20, Qt6 (Widgets, Charts)
+Requirements: MSYS2 + MinGW64, CMake ≥ 3.20, Qt6 (Widgets, Charts, Network)
 
 ```bash
 pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake \
@@ -85,17 +94,29 @@ git clone https://github.com/Reagent420/e2e4-soft.git
 cd e2e4-soft && mkdir build && cd build
 cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build .
-./bin/GNO-tests.exe    # 34 cases / 216 assertions
+./bin/GNO-tests.exe    # 187 cases / 1014 assertions
+```
+
+SQLite is vendored in `third_party/sqlite` (see its README) — no network access is
+needed at configure time. To assemble a runnable folder from a build tree:
+
+```bash
+./scripts/deploy.sh                # lay out the Qt runtime next to the exe
+./scripts/smoke-test.sh            # verify GNO.exe actually starts
 ```
 
 ## Command Line Interface
 
+The console build is `GNO-console.exe` (not the GUI `GNO.exe`):
+
 ```text
-E2E4-console --target 1.1.1.1 --ping 10
-E2E4-console --boost --game "Counter-Strike 2"
-E2E4-console --speedtest
-E2E4-console --dns-benchmark
-E2E4-console --watch
+GNO-console --target 1.1.1.1 --ping 10
+GNO-console --multipath            # per-path probing and route selection
+GNO-console --boost --game "Counter-Strike 2"
+GNO-console --speedtest
+GNO-console --dns-benchmark
+GNO-console --watch
+GNO-console --help                 # full flag list
 ```
 
 ---
@@ -106,6 +127,8 @@ E2E4-console --watch
 |---|---|
 | Language | C++20 |
 | UI Framework | Qt 6 (Widgets, Charts) |
+| Networking | Qt 6 Network (update check), Win32 IP Helper / Winsock (probing) |
+| Storage | SQLite 3.49.1 (vendored) + JSON files |
 | Build System | CMake + Ninja |
 | Testing | doctest |
 | Compiler | MinGW GCC 16.x |
@@ -115,9 +138,10 @@ E2E4-console --watch
 
 | Metric | Value |
 |---|---|
-| Source files | 80+ |
-| Lines of code | ~15,000+ |
-| Test assertions | 216 |
+| Source files | 161 |
+| Lines of code | ~34,000 |
+| Test cases | 187 |
+| Test assertions | 1014 |
 | Whitelisted actions | 10 |
 | Registry tweaks | 28 |
 | Supported games | 23 |

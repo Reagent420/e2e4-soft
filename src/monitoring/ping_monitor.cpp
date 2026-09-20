@@ -142,11 +142,15 @@ ICMPResult PingMonitor::ping(const std::string& target_ip, uint32_t timeout_ms) 
         result.bytes = echo_reply->DataSize;
         result.ttl = echo_reply->Options.Ttl;
         result.error = DiagnosticError::None;
+    } else {
+        // Нет ответа за таймаут — это не внутренняя ошибка монитора,
+        // а штатный случай «хост не отвечает».
+        result.error = DiagnosticError::Timeout;
     }
-    
+
     IcmpCloseHandle(icmp_handle);
 #endif
-    
+
     return result;
 }
 

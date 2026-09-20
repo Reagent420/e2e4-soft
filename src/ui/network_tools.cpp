@@ -9,10 +9,12 @@
 #include "remediation/target_discovery.h"
 #include <QApplication>
 #include <QProcess>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QHash>
 #include <QDateTime>
 #include <thread>
+#include <mutex>
 #include <random>
 #include "theme.h"
 
@@ -38,6 +40,20 @@ NetworkToolsWidget::NetworkToolsWidget(QWidget* parent)
 
     m_pollTimer = new QTimer(this);
     connect(m_pollTimer, &QTimer::timeout, this, &NetworkToolsWidget::onSpeedTestResult);
+}
+
+NetworkToolsWidget::~NetworkToolsWidget()
+{
+    // SpeedTest/DNSManager — не QObject, родительства нет, удалять некому.
+    // Если бенчмарк DNS ещё в полёте, m_dnsManager удалять опасно (use-after-free
+    // в рабочем потоке): в этом случае жертвуем памятью ради безопасности —
+    // поток допишет в ОРФАН-объект и завершится, а виджет уже мёртв.
+    if (!dns_busy_.load()) {
+        delete m_speedTest;
+        delete m_dnsManager;
+    }
+    m_speedTest = nullptr;
+    m_dnsManager = nullptr;
 }
 
 void NetworkToolsWidget::setupUI()
@@ -102,8 +118,11 @@ void NetworkToolsWidget::setupUI()
     dnsResetBtn->setObjectName("sidebarButton");
     dnsResetBtn->setFixedWidth(140);
     connect(dnsResetBtn, &QPushButton::clicked, this, [this]() {
+        // Сброс тоже идёт через движок: раньше показывали «DNS сброшен»
+        // независимо от того, получилось ли что-то на самом деле.
         m_dnsManager->resetToDHCP();
-        m_dnsResultLabel->setText(QString::fromUtf8("DNS сброшен — настройки автоматические (DHCP)"));
+        const auto& outcome = m_dnsManager->lastOutcome();
+        m_dnsResultLabel->setText(QString::fromStdString(outcome.message));
     });
     dnsBtnRow->addWidget(dnsResetBtn);
     dnsBtnRow->addStretch();
@@ -206,11 +225,24 @@ void NetworkToolsWidget::runDNSBenchmark()
 {
     m_dnsResultLabel->setText(QString::fromUtf8("Тестируем DNS-серверы…"));
 
-    std::thread([this]() {
+    // Виджет может быть закрыт, пока идёт бенчмарк (поток пишет в m_dnsManager
+    // и постит результат в GUI): без QPointer invokeMethod ушёл бы в удалённый
+    // объект. Флаг также удерживает деструктор от удаления m_dnsManager, пока
+    // рабочий поток в нём пишет.
+    dns_busy_.store(true);
+    QPointer<NetworkToolsWidget> self(this);
+    std::thread([self, this]() {
         auto results = m_dnsManager->benchmarkAll();
         auto fastest = m_dnsManager->getFastestServer();
+        // Флаг снимаем после последнего обращения к m_dnsManager из рабочего
+        // потока. Обращения из GUI-ламбды ниже безопасны и без флага: они
+        // выполняются только пока виджет жив (иначе Qt выкинет отложенное
+        // событие из очереди при удалении объекта).
+        dns_busy_.store(false);
 
-        QMetaObject::invokeMethod(this, [this, fastest]() {
+        if (!self) return;
+        QMetaObject::invokeMethod(self, [self, this, fastest, results]() {
+            if (!self) return;
             if (fastest.success) {
                 m_dnsResultLabel->setText(
                     QString("Быстрый DNS: %1 (%2 мс)")
@@ -260,7 +292,7 @@ void NetworkToolsWidget::runDNSBenchmark()
                 grid->addWidget(btn, row, 2);
                 row++;
             }
-        });
+        }, Qt::QueuedConnection);
     }).detach();
 }
 
@@ -270,8 +302,13 @@ void NetworkToolsWidget::onDNSResult()
 
 void NetworkToolsWidget::applyDNS(const QString& primary, const QString& secondary)
 {
+    // Прежде здесь писали «DNS установлен: X» сразу после вызова заглушки,
+    // которая ничего не применяла. Теперь показываем реальный результат
+    // транзакционного движка: успех, уже настроено, нет адаптера, нет прав —
+    // движок сам формулирует сообщение.
     m_dnsManager->applyDNS(primary.toStdString(), secondary.toStdString());
-    m_dnsResultLabel->setText(QString("DNS установлен: %1").arg(primary));
+    const auto& outcome = m_dnsManager->lastOutcome();
+    m_dnsResultLabel->setText(QString::fromStdString(outcome.message));
 }
 
 // ===================== v1.7.0 extended utilities =====================
@@ -305,7 +342,7 @@ QTextEdit* makeOut(QWidget* parent) {
     e->setMaximumHeight(190);
     e->setFontFamily(QStringLiteral("Consolas"));
     e->setStyleSheet(QString("QTextEdit { background-color: %1; color: %2;"
-                             " border: 1px solid %7; border-radius: 8px; padding: 8px; font-size: 12px; }")
+                             " border: 1px solid %3; border-radius: 8px; padding: 8px; font-size: 12px; }")
                          .arg(theme::Colors::BG_SURFACE, theme::Colors::TEXT_PRIMARY,
                               theme::Colors::BORDER));
     return e;
@@ -328,11 +365,19 @@ std::vector<double> twoProbeJitter(SpeedTest& st, const std::string& ip) {
 
 } // namespace
 
+// resolveToIp вызывается из нескольких отсоединённых рабочих потоков
+// (ping/traceroute/scan), поэтому кэш резолва обязан быть потокобезопасным:
+// функция-local static QHash без блокировки — это гонка данных (UB).
+static std::mutex g_resolveCacheMutex;
+static QHash<QString, QPair<QString, qint64>> g_resolveCache; // host -> (ip, expiry)
+
 QString NetworkToolsWidget::resolveToIp(const QString& host) {
-    static QHash<QString, QPair<QString, qint64>> cache; // host -> (ip, expiry)
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    auto it = cache.find(host);
-    if (it != cache.end() && it.value().second > now) return it.value().first;
+    {
+        std::lock_guard<std::mutex> lock(g_resolveCacheMutex);
+        auto it = g_resolveCache.find(host);
+        if (it != g_resolveCache.end() && it.value().second > now) return it.value().first;
+    }
     addrinfo hints{};
     hints.ai_family = AF_INET;
     addrinfo* res = nullptr;
@@ -345,7 +390,10 @@ QString NetworkToolsWidget::resolveToIp(const QString& host) {
              (sa->sin_addr.S_un.S_addr >> 16) & 0xFF,
              (sa->sin_addr.S_un.S_addr >> 24) & 0xFF);
     freeaddrinfo(res);
-    cache.insert(host, {QString(buf), now + 5 * 60 * 1000});
+    {
+        std::lock_guard<std::mutex> lock(g_resolveCacheMutex);
+        g_resolveCache.insert(host, {QString(buf), now + 5 * 60 * 1000});
+    }
     return buf;
 }
 
@@ -359,7 +407,8 @@ void NetworkToolsWidget::addUtilitySections(QVBoxLayout* layout)
     m_dnsHosts_ = new QLineEdit(this);
     m_dnsHosts_->setPlaceholderText(
         U8("\xD0\xBF\xD1\x80\xD0\xBE\xD0\xB4\x2D\xD1\x85\xD0\xBE\xD1\x81\xD1\x82\x2E\xD0\xB8\xD0\xB3\xD1\x80\xD1\x8B\x2E\xD1\x80\xD1\x83\x2C\x20\x73\x74\x65\x61\x6D\x63\x6F\x6D\x6D\x75\x6E\x69\x74\x79\x2E\x63\x6F\x6D"));
-    auto* dnsHostsLbl = new QLabel(U8("\xD0\x94\xD0\xBE\xD0\xBC\xD0\xB5\xD0\xBD\xD1\x8B\x20\xD0\xB4\xD0\xBB\xD1\x8F\x20DNS"), this);
+    auto* dnsHostsLbl = new QLabel(U8("\xD0\x94\xD0\xBE\xD0\xBC\xD0\xB5\xD0\xBD\xD1\x8B\x20\xD0\xB4\xD0\xBB\xD1\x8F\x20"
+                                      "DNS"), this);
 
     layout->addWidget(targetLbl);
     layout->addWidget(m_target_);
@@ -456,7 +505,7 @@ void NetworkToolsWidget::addUtilitySections(QVBoxLayout* layout)
             auto eps = remoteTcpEndpointsForPid(game->pid);
             std::ostringstream out;
             out << US("\xD0\x9F\xD1\x80\xD0\xBE\xD1\x86\xD0\xB5\xD1\x81\xD1\x81\x3A\x20") << game->path << "\n\n";
-            if (eps.empty()) out << US("\xD0\x9D\xD0\xB5\xD1\x82\x20\xD0\xB0\xD0\xBA\xD1\x82\xD0\xB8\xD0\xB2\xD0\xBD\xD1\x8B\xD1\x85\x20\x54\x43\x50\x2D\xD1\x81\xD0\xBE\xD0\xB5\xD0\xB4\xD0\xB8\xD0\xBD\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB9\x2E\x5C\x6E");
+            if (eps.empty()) out << US("\xD0\x9D\xD0\xB5\xD1\x82\x20\xD0\xB0\xD0\xBA\xD1\x82\xD0\xB8\xD0\xB2\xD0\xBD\xD1\x8B\xD1\x85\x20\x54\x43\x50\x2D\xD1\x81\xD0\xBE\xD0\xB5\xD0\xB4\xD0\xB8\xD0\xBD\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB9\x2E\n");
             int shown = 0;
             SpeedTest st;
             for (const auto& ep : eps) {
@@ -469,7 +518,7 @@ void NetworkToolsWidget::addUtilitySections(QVBoxLayout* layout)
             }
             auto listeners = listeningTcpPortsForPid(game->pid);
             if (!listeners.empty()) {
-                out << US("\x5C\x6E\xD0\xA1\xD0\xBB\xD1\x83\xD1\x88\xD0\xB0\xD0\xB5\xD1\x82\x20\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82\xD1\x8B\x3A\x20");
+                out << US("\n\xD0\xA1\xD0\xBB\xD1\x83\xD1\x88\xD0\xB0\xD0\xB5\xD1\x82\x20\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82\xD1\x8B\x3A\x20");
                 for (auto p : listeners) out << p << " ";
                 out << "\n";
             }
@@ -579,7 +628,7 @@ void NetworkToolsWidget::addUtilitySections(QVBoxLayout* layout)
             if (auto game = discoverRunningGameProcess()) {
                 auto l = listeningTcpPortsForPid(game->pid);
                 if (!l.empty()) {
-                    out << US("\x5C\x6E\xD0\x98\xD0\xB3\xD1\x80\xD0\xB0\x20\xD1\x81\xD0\xBB\xD1\x83\xD1\x88\xD0\xB0\xD0\xB5\xD1\x82\x3A\x20");
+                    out << US("\n\xD0\x98\xD0\xB3\xD1\x80\xD0\xB0\x20\xD1\x81\xD0\xBB\xD1\x83\xD1\x88\xD0\xB0\xD0\xB5\xD1\x82\x3A\x20");
                     for (auto p : l) out << p << " ";
                     out << "\n";
                 }

@@ -19,11 +19,15 @@ void StatsCollector::start(const std::string& session_name) {
 
 void StatsCollector::stop() {
     std::lock_guard<std::mutex> lock(session_mutex_);
-    
+
+    // Повторный stop() ничего не делает: иначе в past_sessions_ появлялся бы
+    // пустой дубль сессии.
+    if (!recording_) return;
+
     current_session_.end_time = std::chrono::steady_clock::now();
     past_sessions_.push_back(current_session_);
     recording_ = false;
-    
+
     if (session_callback_) {
         session_callback_(current_session_);
     }
@@ -52,27 +56,29 @@ void StatsCollector::recordSnapshot(const NetworkSnapshot& snapshot) {
 
 void StatsCollector::recordPing(double latency_ms) {
     std::lock_guard<std::mutex> lock(session_mutex_);
-    
+
     if (!recording_) return;
-    
+
     current_session_.total_ping_ms += latency_ms;
     current_session_.total_samples++;
 }
 
 void StatsCollector::recordPacketLoss(double loss_percent) {
     std::lock_guard<std::mutex> lock(session_mutex_);
-    
+
     if (!recording_) return;
-    
+
     current_session_.total_packet_loss_percent += loss_percent;
+    current_session_.total_samples++;
 }
 
 void StatsCollector::recordJitter(double jitter_ms) {
     std::lock_guard<std::mutex> lock(session_mutex_);
-    
+
     if (!recording_) return;
-    
+
     current_session_.total_jitter_ms += jitter_ms;
+    current_session_.total_samples++;
 }
 
 SessionStats StatsCollector::getCurrentSession() const {
@@ -114,25 +120,46 @@ bool StatsCollector::saveSession(const std::string& filepath) const {
 bool StatsCollector::loadSession(const std::string& filepath) {
     std::ifstream file(filepath);
     if (!file.is_open()) return false;
-    
+
+    std::vector<NetworkSnapshot> loaded;
+
     std::string line;
-    std::getline(file, line);
-    
     while (std::getline(file, line)) {
+        // Шапка файла ("Session:", "Samples:", "Average ...", "Snapshots:")
+        // и пустые строки — это не данные снапшота.
+        if (line.empty()) continue;
+        if (line.find_first_not_of("0123456789.,- \t") != std::string::npos) continue;
+
         std::stringstream ss(line);
         std::string token;
-        
+
         NetworkSnapshot snap;
-        std::getline(ss, token, ',');
-        snap.ping_ms = std::stod(token);
-        std::getline(ss, token, ',');
-        snap.jitter_ms = std::stod(token);
-        std::getline(ss, token, ',');
-        snap.packet_loss_percent = std::stod(token);
-        
-        current_session_.snapshots.push_back(snap);
+        double values[3] = {0.0, 0.0, 0.0};
+        int parsed = 0;
+        while (parsed < 3 && std::getline(ss, token, ',')) {
+            try {
+                size_t used = 0;
+                double v = std::stod(token, &used);
+                if (used == 0) break;
+                values[parsed++] = v;
+            } catch (const std::exception&) {
+                break;
+            }
+        }
+        if (parsed != 3) continue; // неполная/мусорная строка
+
+        snap.ping_ms = values[0];
+        snap.jitter_ms = values[1];
+        snap.packet_loss_percent = values[2];
+        loaded.push_back(snap);
     }
-    
+
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    current_session_ = SessionStats{};
+    current_session_.snapshots = std::move(loaded);
+    current_session_.total_samples =
+        static_cast<uint32_t>(current_session_.snapshots.size());
+
     return true;
 }
 

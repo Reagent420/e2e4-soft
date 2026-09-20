@@ -176,25 +176,14 @@ void OverlayWidget::refresh() {
 
     // session timer
     if (!game.isEmpty()) {
-        // session duration is tracked by the service via its own clock; here we
-        // approximate using the elapsed time from the start notification by
-        // re-reading the record start time through history.
-        auto records = service_->history()->getLast(1);
-        QString dur;
-        if (!records.empty()) {
-            QDateTime start = QDateTime::fromString(QString::fromStdString(records.back().start_time_str),
-                                                    "yyyy-MM-dd HH:mm:ss");
-            if (start.isValid()) {
-                qint64 secs = start.secsTo(QDateTime::currentDateTime());
-                if (secs < 0) secs = 0;
-                dur = QString::fromUtf8("Сессия: %1:%2")
-                          .arg(secs / 60, 2, 10, QLatin1Char('0'))
-                          .arg(secs % 60, 2, 10, QLatin1Char('0'));
-            }
-        }
-        if (dur.isEmpty())
-            dur = QString::fromUtf8("Сессия: 00:00");
-        timer_lbl_->setText(dur);
+        // Раньше таймер пересчитывался по последней записи истории
+        // (history()->getLast(1)), но getLast() отдаёт только завершённые
+        // сессии: оверлей показывал время от старта предыдущей игры и рос
+        // бесконечно. Теперь берём надёжный session_clock_ самого сервиса.
+        const qint64 secs = service_->sessionElapsedSeconds();
+        timer_lbl_->setText(QString::fromUtf8("Сессия: %1:%2")
+                                .arg(secs / 60, 2, 10, QLatin1Char('0'))
+                                .arg(secs % 60, 2, 10, QLatin1Char('0')));
     } else {
         timer_lbl_->setText(QString::fromUtf8("Сессия: —"));
     }

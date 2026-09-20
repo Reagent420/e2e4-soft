@@ -23,6 +23,14 @@ SystemTray::SystemTray(QObject* parent)
     m_trayIcon->show();
 }
 
+// QMenu — это QWidget, поэтому его нельзя отдать на QObject-родительство
+// (SystemTray не QWidget). Без явного удаления меню утекало: buildMenu()
+// вызывается из конструктора, а ~SystemTray() был = default.
+SystemTray::~SystemTray()
+{
+    delete m_menu;
+}
+
 void SystemTray::buildMenu()
 {
     m_menu = new QMenu();
@@ -87,11 +95,6 @@ void SystemTray::updatePacketLoss(double lossPercent)
     m_packetLoss = lossPercent;
 
     // v1.6: live quality score in tooltip + one-shot degradation alert.
-    const int score = static_cast<int>(ConnectionGrader::evaluate(
-        m_ping, m_jitter, m_packetLoss).score);
-    m_trayIcon->setToolTip(QString::fromUtf8("E2E4 Soft - %1/100 | %2 ms | %3%")
-        .arg(score).arg(m_ping).arg(m_packetLoss, 0, 'f', 1));
-
     const bool degraded = m_packetLoss > m_max_loss_alert_ || m_ping > m_max_ping_alert_;
     if (degraded && !m_degrade_notified_) {
         m_degrade_notified_ = true;
@@ -156,10 +159,19 @@ void SystemTray::updateIcon()
 
     m_trayIcon->setIcon(QIcon(pixmap));
 
+    // Оценка качества считается здесь, в единственном месте, где тултип
+    // формируется: раньше его задавал updatePacketLoss(), а следом
+    // updateIcon() затирал своим вариантом — и «живой» счётчик качества
+    // никогда не был виден в трее.
+    const int score = static_cast<int>(ConnectionGrader::evaluate(
+        m_ping, m_jitter, m_packetLoss).score);
+
     QString tooltip = QString::fromUtf8("E2E4 Soft — Оптимизатор игровой сети\n"
-                              "Пинг: %1 мс | Джиттер: %2 мс\n"
-                              "Потери пакетов: %3%\n"
-                              "Оптимизация: %4")
+                              "Качество: %1/100\n"
+                              "Пинг: %2 мс | Джиттер: %3 мс\n"
+                              "Потери пакетов: %4%\n"
+                              "Оптимизация: %5")
+                          .arg(score)
                           .arg(m_ping)
                           .arg(m_jitter)
                           .arg(m_packetLoss, 0, 'f', 1)

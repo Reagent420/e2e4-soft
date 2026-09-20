@@ -49,6 +49,22 @@ public:
     // Applies a fix by action id; returns description of what was done.
     static std::string applyFix(const std::string& action_id);
 
+    // Результат применения с машинно-читаемым признаком успеха. Нужен там, где
+    // по тексту сообщения нельзя понять, изменилось ли что-то на самом деле
+    // (автопилот при запуске игры).
+    struct FixOutcome {
+        bool applied = false;       // изменение реально внесено движком
+        bool informational = false; // не ошибка, но и не применение (подсказка/намеренный отказ)
+        std::string message;        // человекочитаемый текст для UI
+    };
+    static FixOutcome applyFixDetailed(const std::string& action_id);
+
+    // Применяет выбранный пользователем DNS через транзакционный движок.
+    // applyFixDetailed("dns") ставит пару движка 1.1.1.1/1.0.0.1, а эта перегрузка —
+    // те серверы, что выбраны в таблице DNS (или сброс на DHCP при automatic=true).
+    // Адреса отвалидированы заранее: они подставляются в netsh-команду.
+    static FixOutcome applyDnsDetailed(const std::vector<std::string>& servers, bool automatic = false);
+
 private:
     static void add(GameDiagnostics& d, DiagnosticCheck c);
 };

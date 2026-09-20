@@ -4,15 +4,6 @@
 #include <algorithm>
 #include <cmath>
 
-#ifdef PLATFORM_WINDOWS
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <iphlpapi.h>
-#include <icmpapi.h>
-#pragma comment(lib, "iphlpapi.lib")
-#pragma comment(lib, "ws2_32.lib")
-#endif
-
 namespace gno {
 
 SpeedTest::SpeedTest() {
@@ -36,43 +27,33 @@ bool SpeedTest::isRunning() const { return running_; }
 
 std::vector<ServerNode> SpeedTest::getServers() const { return servers_; }
 
+void SpeedTest::setPingProbe(IcmpPing probe) {
+    ping_probe_ = std::move(probe);
+}
+
 PingResult SpeedTest::benchmarkServer(const std::string& server_ip, int probes) {
     PingResult result;
     result.server_name = "Custom";
     result.server_ip = server_ip;
 
-#ifdef PLATFORM_WINDOWS
-    HANDLE icmp = IcmpCreateFile();
-    if (icmp != INVALID_HANDLE_VALUE) {
-        struct in_addr addr;
-        inet_pton(AF_INET, server_ip.c_str(), &addr);
+    const IcmpPing probe = ping_probe_ ? ping_probe_ : defaultIcmpPing();
 
-        char send[] = "GNO";
-        char recv_buf[1024] = {};
+    double total = 0;
+    int ok = 0;
 
-        double total = 0;
-        int ok = 0;
-
-        for (int i = 0; i < probes && i < 10; ++i) {
-            auto start = std::chrono::steady_clock::now();
-            DWORD reply = IcmpSendEcho(icmp, addr.S_un.S_addr,
-                send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), 2000);
-            auto end = std::chrono::steady_clock::now();
-
-            if (reply > 0) {
-                total += std::chrono::duration<double, std::milli>(end - start).count();
-                ok++;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    for (int i = 0; i < probes && i < 10; ++i) {
+        const double ms = probe(server_ip, 2000);
+        if (ms >= 0.0) {
+            total += ms;
+            ok++;
         }
-
-        if (ok > 0) {
-            result.latency_ms = total / ok;
-            result.success = true;
-        }
-        IcmpCloseHandle(icmp);
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
-#endif
+
+    if (ok > 0) {
+        result.latency_ms = total / ok;
+        result.success = true;
+    }
 
     return result;
 }
@@ -83,38 +64,25 @@ void SpeedTest::runBenchmark(const std::string& target_ip) {
     running_ = true;
 
     if (!target_ip.empty()) {
-        bench_thread_ = std::thread([this, target_ip]() {
+        // Зонд захватываем в локалку ДО запуска потока: потом его могут
+        // переустановить, а читать ping_probe_ из воркера в тот же момент
+        // небезопасно.
+        const IcmpPing probe = ping_probe_ ? ping_probe_ : defaultIcmpPing();
+        bench_thread_ = std::thread([this, target_ip, probe]() {
             PingResult r;
             r.server_name = "Custom";
             r.server_ip = target_ip;
 
-#ifdef PLATFORM_WINDOWS
-            HANDLE icmp = IcmpCreateFile();
-            if (icmp != INVALID_HANDLE_VALUE) {
-                struct in_addr addr;
-                inet_pton(AF_INET, target_ip.c_str(), &addr);
-
-                char send[] = "GNO";
-                char recv_buf[1024] = {};
-
-                auto start = std::chrono::steady_clock::now();
-                DWORD reply = IcmpSendEcho(icmp, addr.S_un.S_addr,
-                    send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), 3000);
-                auto end = std::chrono::steady_clock::now();
-
-                if (reply > 0) {
-                    r.latency_ms = std::chrono::duration<double, std::milli>(end - start).count();
-                    r.success = true;
-                }
-                IcmpCloseHandle(icmp);
+            const double ms = probe(target_ip, 3000);
+            if (ms >= 0.0) {
+                r.latency_ms = ms;
+                r.success = true;
             }
-#endif
 
             {
                 std::lock_guard<std::mutex> lock(results_mutex_);
                 results_.push_back(r);
             }
-            if (callback_) callback_(r);
             running_ = false;
         });
     } else {
@@ -128,6 +96,8 @@ void SpeedTest::stop() {
 }
 
 void SpeedTest::benchmarkThread() {
+    const IcmpPing probe = ping_probe_ ? ping_probe_ : defaultIcmpPing();
+
     for (const auto& server : servers_) {
         if (!running_) break;
 
@@ -135,47 +105,27 @@ void SpeedTest::benchmarkThread() {
         result.server_name = server.name;
         result.server_ip = server.ip;
 
-#ifdef PLATFORM_WINDOWS
-        HANDLE icmp = IcmpCreateFile();
-        if (icmp != INVALID_HANDLE_VALUE) {
-            struct in_addr addr;
-            inet_pton(AF_INET, server.ip.c_str(), &addr);
+        double total = 0;
+        int success_count = 0;
 
-            char send[] = "GNO";
-            char recv_buf[1024] = {};
-
-            double total = 0;
-            int success_count = 0;
-
-            for (int i = 0; i < 5 && running_; ++i) {
-                auto start = std::chrono::steady_clock::now();
-                DWORD reply = IcmpSendEcho(icmp, addr.S_un.S_addr,
-                    send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), 2000);
-                auto end = std::chrono::steady_clock::now();
-
-                if (reply > 0) {
-                    double ms = std::chrono::duration<double, std::milli>(end - start).count();
-                    total += ms;
-                    success_count++;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        for (int i = 0; i < 5 && running_; ++i) {
+            const double ms = probe(server.ip, 2000);
+            if (ms >= 0.0) {
+                total += ms;
+                success_count++;
             }
-
-            if (success_count > 0) {
-                result.latency_ms = total / success_count;
-                result.success = true;
-            }
-            IcmpCloseHandle(icmp);
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
-#else
-        result.success = false;
-#endif
+
+        if (success_count > 0) {
+            result.latency_ms = total / success_count;
+            result.success = true;
+        }
 
         {
             std::lock_guard<std::mutex> lock(results_mutex_);
             results_.push_back(result);
         }
-        if (callback_) callback_(result);
     }
     running_ = false;
 }

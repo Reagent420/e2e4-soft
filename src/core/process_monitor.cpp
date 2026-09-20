@@ -14,14 +14,6 @@
 
 namespace gno {
 
-static std::wstring toWide(const std::string& s) {
-    if (s.empty()) return {};
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring ws(len - 1, 0);
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &ws[0], len);
-    return ws;
-}
-
 ProcessMonitor::ProcessMonitor() = default;
 ProcessMonitor::~ProcessMonitor() { stopMonitoring(); }
 

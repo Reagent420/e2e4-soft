@@ -107,7 +107,8 @@ static QLabel* makeSmallLabel(const QString& text, const QColor& color = QColor(
     return l;
 }
 
-QWidget* DashboardWidget::createMetricCard(const QString& label, QLabel** valueOut, QLabel** deltaOut, const QString& deltaColor) {
+QWidget* DashboardWidget::createMetricCard(const QString& label, QLabel** valueOut, QLabel** deltaOut,
+                                          const QString& deltaColor, const QString& unit) {
     auto* card = new QWidget;
     card->setObjectName("metricCard");
 
@@ -125,7 +126,11 @@ QWidget* DashboardWidget::createMetricCard(const QString& label, QLabel** valueO
     (*valueOut)->setStyleSheet("font-size:28px; font-weight:700; color:white; background:transparent;");
     row->addWidget(*valueOut);
 
-    auto* unitLabel = new QLabel(label.contains("потерь") ? "%" : "ms");
+    // Единица измерения передаётся явно: раньше выводилась через
+    // label.contains("потерь"), а все подписи в верхнем регистре
+    // ("ПОТЕРИ ПАКЕТОВ") — проверка никогда не срабатывала, и карточка
+    // потерь показывала «ms» вместо «%».
+    auto* unitLabel = new QLabel(unit);
     unitLabel->setStyleSheet("color:rgba(255,255,255,0.4); font-size:13px; background:transparent;");
     unitLabel->setContentsMargins(0, 6, 0, 0);
     row->addWidget(unitLabel);
@@ -182,7 +187,8 @@ DashboardWidget::DashboardWidget(QWidget* parent)
     jitterDelta->setText("стабильность соединения");
 
     QLabel* lossDelta;
-    auto* lossCard = createMetricCard("ПОТЕРИ ПАКЕТОВ", &loss_value_, &lossDelta, "#22c55e");
+    auto* lossCard = createMetricCard("ПОТЕРИ ПАКЕТОВ", &loss_value_, &lossDelta, "#22c55e",
+                                      QStringLiteral("%"));
     lossDelta->setText("% потерянных пакетов");
 
     QLabel* routeDelta;
@@ -210,14 +216,14 @@ DashboardWidget::DashboardWidget(QWidget* parent)
     // v2.8: RAM cleaner + timer resolution + startup counter
     auto* quickRow = new QHBoxLayout();
     ram_btn_ = new QPushButton(QString::fromUtf8(
-        "\xD0\x9E\xD1%87\xD0%B8%D1%81%D1%82%D0%B8%D1\x82\xD1%8C\x20RAM"), this);
+        "\xD0\x9E\xD1\x87\xD0\xB8\xD1\x81\xD1\x82\xD0\xB8\xD1\x82\xD1\x8C\x20RAM"), this);
     ram_btn_->setObjectName("boostButton");
     ram_btn_->setFixedHeight(36);
     connect(ram_btn_, &QPushButton::clicked, this, [this]() {
         ram_btn_->setEnabled(false);
         auto stats = gno::fpsboost::cleanRam();
         ram_label_->setText(QString::fromUtf8(
-            "\xD0%9E%D1\x81%D0%B2%D0%BE%D0%B1%D0%BE%D0%B6%D0%B4%D0%B5%D0%BD%D0%BE\x3A\x20%1 MB")
+            "\xD0\x9E\xD1\x81\xD0\xB2\xD0\xBE\xD0\xB1\xD0\xBE\xD0\xB6\xD0\xB4\xD0\xB5\xD0\xBD\xD0\xBE\x3A\x20%1 MB")
             .arg(static_cast<int>(stats.bytes_freed_estimate / (1024 * 1024))));
         ram_btn_->setEnabled(true);
     });
@@ -244,7 +250,7 @@ DashboardWidget::DashboardWidget(QWidget* parent)
         int enabled = 0;
         for (const auto& p : progs) if (p.enabled) ++enabled;
         startup_label_->setText(QString::fromUtf8(
-            "\xD0\x90%D0%B2%D1%82%D0%BE%D0%B7%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D0%BA%D0%B0\x3A\x20%1")
+            "\xD0\x90\xD0\xB2\xD1\x82\xD0\xBE\xD0\xB7\xD0\xB0\xD0\xB3\xD1\x80\xD1\x83\xD0\xB7\xD0\xBA\xD0\xB0\x3A\x20%1")
             .arg(enabled));
     }
 
@@ -332,8 +338,8 @@ void DashboardWidget::setConnected(bool connected) {
     boost_btn_->setEnabled(connected);
 }
 
-void DashboardWidget::onBoostClicked() {
-    boosting_ = !boosting_;
+void DashboardWidget::applyBoostState(bool active) {
+    boosting_ = active;
     MonitoringService::instance().setBoostActive(boosting_);
     if (boosting_) {
         boost_btn_->setObjectName("boostButtonActive");
@@ -345,6 +351,12 @@ void DashboardWidget::onBoostClicked() {
     boost_btn_->style()->unpolish(boost_btn_);
     boost_btn_->style()->polish(boost_btn_);
     emit boostToggled(boosting_);
+}
+
+void DashboardWidget::onBoostClicked() {
+    // Источник истины — сервис: если буст включили из трея, локальный boosting_
+    // рассинхронизируется, и следующий клик посчитает неправильное направление.
+    applyBoostState(!MonitoringService::instance().isBoostActive());
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +372,12 @@ void DashboardWidget::onMeasureClicked() {
     measure_after_.clear();
     measure_seconds_ = 0;
     measure_phase_ = 1;
+
+    // The "before" phase must be measured without optimizations, even if the
+    // user had the boost active — otherwise the baseline is meaningless.
+    measure_boost_was_on_ = boosting_;
+    if (boosting_)
+        applyBoostState(false);
 
     svc.startMeasure(QString::fromUtf8("Без оптимизации"));
     measure_btn_->setEnabled(false);
@@ -380,8 +398,7 @@ void DashboardWidget::onMeasureTick() {
             // phase 1 done → enable boost
             measure_phase_ = 2;
             measure_seconds_ = 0;
-            if (!boosting_)
-                emit boostToggled(true);   // main_gui applies real optimizations
+            applyBoostState(true);   // main_gui applies real optimizations
             svc.startMeasure(QString::fromUtf8("С оптимизацией"));
             measure_btn_->setText(QString::fromUtf8("⚡ Измеряем с оптимизацией… 30 с"));
         }
@@ -394,9 +411,9 @@ void DashboardWidget::onMeasureTick() {
             measure_phase_ = 0;
             svc.stopMeasure();
 
-            // disable boost again (main_gui reverts optimizations)
-            if (boosting_)
-                emit boostToggled(false);
+            // Restore the boost state the user had before the measurement:
+            // always revert the optimization we enabled for phase 2.
+            applyBoostState(measure_boost_was_on_);
 
             measure_btn_->setEnabled(true);
             measure_btn_->setText("📊  Сравнительный замер «до / после»");

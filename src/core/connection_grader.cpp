@@ -5,7 +5,21 @@ namespace gno {
 
 ConnectionQuality ConnectionGrader::evaluate(double ping_ms, double jitter_ms, double packet_loss_percent) {
     ConnectionQuality result;
-    
+
+    // Нет данных: все три метрики нулевые/отрицательные. Раньше такой набор
+    // набирал 100 баллов и рисовался как «A+ Excellent», хотя на самом деле
+    // это ни одного собранного замера (сессия без семплов, свежий сервис).
+    // Реальное соединение никогда не даёт ping == 0 одновременно с jitter == 0
+    // и loss == 0 — минимум по сети всегда > 0.
+    if (ping_ms <= 0.0 && jitter_ms <= 0.0 && packet_loss_percent <= 0.0) {
+        result.grade = QualityGrade::Unknown;
+        result.score = 0;
+        result.grade_str = gradeToString(QualityGrade::Unknown);
+        result.description = gradeDescription(QualityGrade::Unknown);
+        result.color = gradeColor(QualityGrade::Unknown);
+        return result;
+    }
+
     result.ping_score = calculatePingScore(ping_ms);
     result.jitter_score = calculateJitterScore(jitter_ms);
     result.loss_score = calculateLossScore(packet_loss_percent);
@@ -73,6 +87,7 @@ std::string ConnectionGrader::gradeToString(QualityGrade grade) {
         case QualityGrade::C:      return "C";
         case QualityGrade::D:      return "D";
         case QualityGrade::F:      return "F";
+        case QualityGrade::Unknown: return "--";
         default:                   return "?";
     }
 }
@@ -85,6 +100,7 @@ std::string ConnectionGrader::gradeColor(QualityGrade grade) {
         case QualityGrade::C:      return "#EAB308"; // yellow
         case QualityGrade::D:      return "#F97316"; // orange
         case QualityGrade::F:      return "#EF4444"; // red
+        case QualityGrade::Unknown: return "#64748B"; // gray
         default:                   return "#64748B"; // gray
     }
 }
@@ -97,6 +113,7 @@ std::string ConnectionGrader::gradeDescription(QualityGrade grade) {
         case QualityGrade::C:      return "Fair - Noticeable lag at times";
         case QualityGrade::D:      return "Poor - Frequent lag/stutter";
         case QualityGrade::F:      return "Critical - Unplayable";
+        case QualityGrade::Unknown: return "No data - no measurements collected yet";
         default:                   return "Unknown";
     }
 }

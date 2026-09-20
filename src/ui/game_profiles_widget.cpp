@@ -12,6 +12,7 @@
 
 #include "../core/game_profiles.h"
 #include "../core/game_detector.h"
+#include "../core/settings_keys.h"
 
 namespace gno {
 
@@ -83,7 +84,7 @@ void GameProfilesWidget::setupUI()
     m_powerPlanCb = new QCheckBox(QString::fromUtf8("Переключить на план «Высокая производительность»"), editorGroup);
     m_priorityCb = new QCheckBox(QString::fromUtf8("Поднять приоритет процесса игры"), editorGroup);
     m_tcpCb = new QCheckBox(QString::fromUtf8("Оптимизировать TCP-стек (адаптивные ACK)"), editorGroup);
-    m_mtuCb = new QCheckBox(QString::fromUtf8("Установить MTU 1400"), editorGroup);
+    m_mtuCb = new QCheckBox(QString::fromUtf8("Установить MTU 1500"), editorGroup);
     m_dnsCb = new QCheckBox(QString::fromUtf8("Установить быстрый DNS (1.1.1.1)"), editorGroup);
     m_proConfigCb = new QCheckBox(QString::fromUtf8("Применить про-конфиг (autoexec.cfg / GameUserSettings.ini)"), editorGroup);
     for (QCheckBox* cb : {m_gameDvrCb, m_powerPlanCb, m_priorityCb, m_tcpCb, m_mtuCb, m_dnsCb, m_proConfigCb}) {
@@ -120,12 +121,12 @@ void GameProfilesWidget::setupUI()
     // v2.1: per-game alert thresholds (feed tray alerts and .gnoprofile export)
     auto* thRow = new QHBoxLayout();
     auto* rttLbl = new QLabel(QString::fromUtf8(
-        "\xD0\x9C\xD0\xB0\xD0\xBA\xD1\x81\x20\xD0\xBF\xD0%B8%D0\xBD%D0%B3\x3A"), editorGroup);
+        "\xD0\x9C\xD0\xB0\xD0\xBA\xD1\x81\x20\xD0\xBF\xD0\xB8\xD0\xBD\xD0\xB3\x3A"), editorGroup);
     m_rttSpin = new QSpinBox(editorGroup);
     m_rttSpin->setRange(20, 500);
     m_rttSpin->setValue(80);
     auto* lossLbl = new QLabel(QString::fromUtf8(
-        "\xD0\x9C\xD0%B0%D0%BA%D1\x81\x20\xD0\xBF%D0\xBE%D1%82%D0%B5%D1%80%D0%B8\x3A\x25"), editorGroup);
+        "\xD0\x9C\xD0\xB0\xD0\xBA\xD1\x81\x20\xD0\xBF\xD0\xBE\xD1\x82\xD0\xB5\xD1\x80\xD0\xB8\x3A\x25"), editorGroup);
     m_lossSpin = new QSpinBox(editorGroup);
     m_lossSpin->setRange(0, 20);
     m_lossSpin->setValue(2);
@@ -136,12 +137,10 @@ void GameProfilesWidget::setupUI()
     editorLayout->addLayout(thRow);
 
     connect(m_rttSpin, &QSpinBox::valueChanged, this, [this](int v) {
-        QSettings().setValue(QStringLiteral("thresholds/") + m_gameCombo->currentText()
-                             + QStringLiteral("/ping"), v);
+        QSettings().setValue(SettingsKeys::ThresholdPing(m_gameCombo->currentText()), v);
     });
     connect(m_lossSpin, &QSpinBox::valueChanged, this, [this](int v) {
-        QSettings().setValue(QStringLiteral("thresholds/") + m_gameCombo->currentText()
-                             + QStringLiteral("/loss"), v);
+        QSettings().setValue(SettingsKeys::ThresholdLoss(m_gameCombo->currentText()), v);
     });
 
     auto* btnRow = new QHBoxLayout();
@@ -152,11 +151,11 @@ void GameProfilesWidget::setupUI()
     btnRow->addWidget(saveBtn);
 
     auto* exportBtn = new QPushButton(QString::fromUtf8(
-        "\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE\xD1%80\xD1\x82"), editorGroup);
+        "\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82"), editorGroup);
     connect(exportBtn, &QPushButton::clicked, this, &GameProfilesWidget::exportProfile);
     btnRow->addWidget(exportBtn);
     auto* importBtn = new QPushButton(QString::fromUtf8(
-        "\xD0\x98\xD0\xBC\xD0\xBF\xD0\xBE%D1%80\xD1\x82"), editorGroup);
+        "\xD0\x98\xD0\xBC\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82"), editorGroup);
     connect(importBtn, &QPushButton::clicked, this, &GameProfilesWidget::importProfile);
     btnRow->addWidget(importBtn);
 
@@ -198,6 +197,16 @@ void GameProfilesWidget::onGameSelected(int index)
             gameName = g.name;
             break;
         }
+    }
+
+    // Пороги.alerts хранятся per-game; подгружаем их при смене игры, иначе
+    // спины показывают значения предыдущей игры, а пользователь их не
+    // редактировал.
+    const QString key = QString::fromStdString(gameName);
+    if (!key.isEmpty()) {
+        QSettings s;
+        m_rttSpin->setValue(s.value(SettingsKeys::ThresholdPing(key), 80).toInt());
+        m_lossSpin->setValue(s.value(SettingsKeys::ThresholdLoss(key), 2).toInt());
     }
 
     if (gameName.empty() || !m_profiles->has(gameName)) {
@@ -356,12 +365,15 @@ void GameProfilesWidget::exportProfile()
     const QString game = m_gameCombo->currentText();
     if (!m_profiles || !m_profiles->has(game.toStdString())) {
         m_statusLabel->setText(QString::fromUtf8(
-            "\xD0\xA1\xD0\xBD\xD0\xB0\xD1%87\xD0\xB0\xD0\xBB\xD0\xB0\x20\xD1\x81\xD0\xBE\xD1%85\xD1%80\xD0\xB0%D0\xBD\xD0%B8\xD1\x82\xD0%B5\x20\xD0\xBF\xD1%80\xD0\xBE\xD1%84\xD0%B8\xD0\xBB\xD1\x8C"));
+            "\xD0\xA1\xD0\xBD\xD0\xB0\xD1\x87\xD0\xB0\xD0\xBB\xD0\xB0\x20\xD1\x81\xD0\xBE\xD1\x85\xD1\x80\xD0\xB0\xD0\xBD\xD0\xB8\xD1\x82\xD0\xB5\x20\xD0\xBF\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD1\x8C"));
         return;
     }
     const GameProfile p = m_profiles->get(game.toStdString());
-    // Threshold presets are not yet unified (planned v1.9.x) - export sane defaults.
-    const auto doc = ProfileEngine::fromGameProfile(p, 60.0, 8.0, 2.0);
+    // Выгружаем сохранённые per-game пороги, а не захардкоженные значения.
+    QSettings s;
+    const double max_ping = s.value(SettingsKeys::ThresholdPing(game), 80).toDouble();
+    const double max_loss = s.value(SettingsKeys::ThresholdLoss(game), 2).toDouble();
+    const auto doc = ProfileEngine::fromGameProfile(p, max_ping, 8.0, max_loss);
     const QString path = QFileDialog::getSaveFileName(
         this, QString::fromUtf8("\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82\x20\xD0\xBF\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD1\x8F"),
         game + QStringLiteral(".gnoprofile"),
@@ -372,7 +384,7 @@ void GameProfilesWidget::exportProfile()
         const std::string ini = ProfileEngine::toIni(doc);
         f.write(ini.data(), static_cast<qint64>(ini.size()));
         m_statusLabel->setText(QString::fromUtf8(
-            "\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE%D1%80\xD1\x82\x3A\x20") + path);
+            "\xD0\xAD\xD0\xBA\xD1\x81\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82\x3A\x20") + path);
     }
 }
 
@@ -387,7 +399,7 @@ void GameProfilesWidget::importProfile()
     ProfileDocument doc;
     if (!ProfileEngine::fromIni(QString::fromUtf8(f.readAll()).toStdString(), doc)) {
         m_statusLabel->setText(QString::fromUtf8(
-            "\xD0\x9D\xD0\xB5\xD0\xB2\xD0%B5%D1%80\xD0\xBD\xD1%8B\xD0\xB9\x20\xD1%84\xD0\xB0%D0%B9\xD0\xBB\x20\xD0\xBF%D1%80\xD0\xBE\xD1%84\xD0%B8\xD0\xBB\xD1\x8F"));
+            "\xD0\x9D\xD0\xB5\xD0\xB2\xD0\xB5\xD1\x80\xD0\xBD\xD1\x8B\xD0\xB9\x20\xD1\x84\xD0\xB0\xD0\xB9\xD0\xBB\x20\xD0\xBF\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD1\x8F"));
         return;
     }
     GameProfile p;                    // defaults first...
@@ -397,6 +409,6 @@ void GameProfilesWidget::importProfile()
     m_profiles->set(p);
     refreshProfileList();
     m_statusLabel->setText(QString::fromUtf8(
-        "\xD0\x98\xD0\xBC\xD0\xBF\xD0\xBE%D1%80\xD1%82\x3A\x20") + doc.game_name.c_str());
+        "\xD0\x98\xD0\xBC\xD0\xBF\xD0\xBE\xD1\x80\xD1\x82\x3A\x20") + doc.game_name.c_str());
 }
 } // namespace gno

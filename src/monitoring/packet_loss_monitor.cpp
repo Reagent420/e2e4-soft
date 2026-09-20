@@ -22,10 +22,12 @@ PacketLossMonitor::~PacketLossMonitor() {
 
 void PacketLossMonitor::start(const std::string& target_ip, uint32_t interval_ms, uint32_t packet_count) {
     if (running_) return;
-    
+
     target_ip_ = target_ip;
+    interval_ms_ = interval_ms;
+    packet_count_ = packet_count;
     running_ = true;
-    
+
     monitor_thread_ = std::thread(&PacketLossMonitor::monitorLoop, this);
 }
 
@@ -101,29 +103,32 @@ void PacketLossMonitor::setPacketLossCallback(PacketLossCallback callback) {
 
 void PacketLossMonitor::monitorLoop() {
     while (running_) {
-        PacketLossResult result = measure(target_ip_, 50, 3000);
-        
+        PacketLossResult result = measure(target_ip_, packet_count_, 3000);
+
         {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_ = result;
             loss_history_.push_back(result.loss_percent);
-            
+
             if (loss_history_.size() > 100) {
                 loss_history_.erase(loss_history_.begin());
             }
-            
+
             double sum = 0.0;
             for (double loss : loss_history_) {
                 sum += loss;
             }
-            result.avg_loss_percent = sum / loss_history_.size();
+            // Раньше среднее считалось в локальную копию result уже после
+            // записи stats_ — getStats() всегда отдавал avg_loss_percent == 0.
+            stats_.avg_loss_percent = sum / loss_history_.size();
+            result.avg_loss_percent = stats_.avg_loss_percent;
         }
-        
+
         if (packet_loss_callback_) {
             packet_loss_callback_(result);
         }
-        
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms_));
     }
 }
 

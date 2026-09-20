@@ -33,6 +33,13 @@ struct AuditSnapshot {
     std::vector<SettingChange> changes;
 };
 
+// Канонические человекочитаемые значения («отключено»/«включено»). UI сравнивает
+// с ними прочитанное из системы, поэтому обе стороны обязаны брать строки
+// отсюда, а не дублировать литералы: расхождение молча превращает строку
+// «Что изменилось» в вечное «не применилось».
+inline constexpr const char* kAuditOffText = "отключено";
+inline constexpr const char* kAuditOnText = "включено";
+
 class SystemAudit {
 public:
     // Elevation / permission checks
@@ -45,11 +52,22 @@ public:
     static std::vector<SettingChange> verifyNetworkSettings();
 
     // Capture the current state of a setting before changing it.
-    static std::string readGameDvrValue();
-    static std::string readFullscreenOptValue();
-    static std::string readGameModeValue();
-    static std::string readTcpValue(const char* value_name);
-    static std::string readActivePowerPlan();
+    //
+    // ВАЖНО: все значения читаются через remediation::WindowsStateApi — тот же
+    // API, которым движок их пишет. Раньше здесь были продублированы пути
+    // реестра, и они разошлись с движком: проверка смотрела в другие ветки и
+    // объявляла «не применилось» то, что на самом деле применилось. Пока чтение
+    // идёт через движок, разойтись снова оно не может.
+    //
+    // Возвращают человекочитаемое значение, а не сырой мусор из реестра.
+    static std::string readGameDvrValue();       // GameDVR_Enabled: 0/1
+    static std::string readFullscreenOptValue(); // «отключено»/«включено»/«не задано»
+    static std::string readGameModeValue();      // AllowAutoGameMode: 0/1
+    static std::string readTcpRttValue();        // TcpInitialRtt, напр. «5000»
+    static std::string readActivePowerPlan();    // GUID активной схемы, в нижнем регистре
+    static std::string readMouseAccelValue();    // «отключено»/«включено»
+    static std::string readDnsServersValue();    // «1.1.1.1, 1.0.0.1» или «авто (провайдер)»
+    static std::string readMtuValue();           // напр. «1500 байт»
 
     // Capability matrix: what the program can and cannot do in the current session.
     static std::vector<Capability> getCapabilities();

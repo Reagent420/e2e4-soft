@@ -7,7 +7,10 @@ namespace gno {
 namespace theme {
 
 constexpr const char* APP_NAME = "E2E4 Soft — Оптимизатор игровой сети";
-constexpr const char* APP_VERSION = "3.0.0";
+// Версия продукта. Обновление проверяется по GitHub-релизу (core/updater.h):
+// тег релиза должен совпадать с этим значением, иначе апдейтер предложит
+// обновиться. Держать в синхроне с CHANGELOG.md.
+constexpr const char* APP_VERSION = "3.1.0";
 
 struct Colors {
     static constexpr auto BG_PRIMARY       = "#0A0E17";
@@ -21,6 +24,10 @@ struct Colors {
     static constexpr auto SUCCESS          = "#39FF14";
     static constexpr auto WARNING          = "#FFB000";
     static constexpr auto ERROR            = "#FF2E88";
+    // Тот же цвет, но с именем, которое не перехватывает макрос ERROR из
+    // <windows.h> (wingdi.h определяет ERROR как 0 — использовать
+    // Colors::ERROR в файлах с windows.h нельзя).
+    static constexpr auto DANGER           = "#FF2E88";
     static constexpr auto TEXT_PRIMARY     = "#EAF6FF";
     static constexpr auto TEXT_SECONDARY   = "#9DB8D6";
     static constexpr auto TEXT_TERTIARY    = "#6B87A8";
@@ -41,6 +48,7 @@ struct LightColors {
     static constexpr auto SUCCESS          = "#16A34A";
     static constexpr auto WARNING          = "#D97706";
     static constexpr auto ERROR            = "#DC2626";
+    static constexpr auto DANGER           = "#DC2626";
     static constexpr auto TEXT_PRIMARY     = "#0F172A";
     static constexpr auto TEXT_SECONDARY   = "#475569";
     static constexpr auto TEXT_TERTIARY    = "#94A3B8";

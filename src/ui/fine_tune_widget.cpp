@@ -2,6 +2,7 @@
 #include "theme.h"
 #include "core/tweak_service.h"
 #include "core/tweak_registry.h"
+#include "core/json_persistence.h"
 
 #include <QApplication>
 #include <QBrush>
@@ -9,6 +10,7 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QPointer>
 #include <QVBoxLayout>
 #include <thread>
 
@@ -47,8 +49,7 @@ bool ShutdownWindows() {
 namespace {
 
 QString appdataDir() {
-    const char* env = std::getenv("APPDATA");
-    return QString::fromLatin1(env ? env : "") + QStringLiteral("/GNO");
+    return QString::fromStdString((gno::persistence::applicationDataRoot() / "GNO").string());
 }
 
 // Реальный доступ к реестру по спецификации твика.
@@ -124,9 +125,9 @@ void FineTuneWidget::setupUI() {
                              .arg(theme::Colors::ACCENT_NEON));
 
     auto* subtitle = new QLabel(QString::fromUtf8(
-        "\xD0\x9A\xD0\xB0%D1%82\xD0\xB0%D0\xBB%D0%BE%D0%B3\x20\xD0\xBF%D1%80\xD0\xBE%D0%B2%D0%B5%D1%80%D0%B5%D0%BD%D0%BD%D1%8B\xD1%85\x20"
-        "\xD1%82\xD0%B2%D0%B8%D0%BA%D0%BE%D0%B2\x20Windows\x2E\x20\xD0\xA1\xD0\xBD%D0%B0%D0\xBF%D1%88%D0%BE%D1%82\x20\xD1\x81\xD0\xBE%D1\x85%D1%80%D0%B0%D0%BD%D1%8F%D0%B5%D1%82\xD1%81%D1%8F\x20"
-        "\xD0\xBF%D0%B5%D1%80%D0%B5%D0%B4\x20%D0%BA%D0%B0%D0%B6%D0%B4%D1%8B%D0%BC\x20%D0\xBF%D0%B0%D0%BA%D0%B5%D1%82%D0%BE%D0%BC\x20\x2D\x20\xD0\xBE%D1%82%D0%BA%D0%B0%D1%82\x20\xD0\xB2\x20%D0%BE%D0%B4%D0\xBD%D1%83\x20%D0\xBA%D0%BD%D0%BE%D0\xBF%D0%BA%D1%83\x2E"), this);
+        "\xD0\x9A\xD0\xB0\xD1\x82\xD0\xB0\xD0\xBB\xD0\xBE\xD0\xB3\x20\xD0\xBF\xD1\x80\xD0\xBE\xD0\xB2\xD0\xB5\xD1\x80\xD0\xB5\xD0\xBD\xD0\xBD\xD1\x8B\xD1\x85\x20"
+        "\xD1\x82\xD0\xB2\xD0\xB8\xD0\xBA\xD0\xBE\xD0\xB2\x20Windows\x2E\x20\xD0\xA1\xD0\xBD\xD0\xB0\xD0\xBF\xD1\x88\xD0\xBE\xD1\x82\x20\xD1\x81\xD0\xBE\xD1\x85\xD1\x80\xD0\xB0\xD0\xBD\xD1\x8F\xD0\xB5\xD1\x82\xD1\x81\xD1\x8F\x20"
+        "\xD0\xBF\xD0\xB5\xD1\x80\xD0\xB5\xD0\xB4\x20\xD0\xBA\xD0\xB0\xD0\xB6\xD0\xB4\xD1\x8B\xD0\xBC\x20\xD0\xBF\xD0\xB0\xD0\xBA\xD0\xB5\xD1\x82\xD0\xBE\xD0\xBC\x20\x2D\x20\xD0\xBE\xD1\x82\xD0\xBA\xD0\xB0\xD1\x82\x20\xD0\xB2\x20\xD0\xBE\xD0\xB4\xD0\xBD\xD1\x83\x20\xD0\xBA\xD0\xBD\xD0\xBE\xD0\xBF\xD0\xBA\xD1\x83\x2E"), this);
     subtitle->setWordWrap(true);
     subtitle->setStyleSheet(QString("color:%1; background:transparent;")
                                 .arg(theme::Colors::TEXT_SECONDARY));
@@ -142,7 +143,7 @@ void FineTuneWidget::setupUI() {
         for (auto& c : cats) m_category_->addItem(c, c);
     }
     m_only_diff_ = new QCheckBox(QString::fromUtf8(
-        "\xD0%A2%D0%BE%D0%BB%D1%8C%D0%BA%D0%BE\x20%D0\xBE%D1%82%D0\xBB%D0%B8%D1%87%D0%B0%D1%8E%D1%89%D0%B8%D0%B5%D1%81%D1%8F"), this);
+        "\xD0\xA2\xD0\xBE\xD0\xBB\xD1\x8C\xD0\xBA\xD0\xBE\x20\xD0\xBE\xD1\x82\xD0\xBB\xD0\xB8\xD1\x87\xD0\xB0\xD1\x8E\xD1\x89\xD0\xB8\xD0\xB5\xD1\x81\xD1\x8F"), this);
     m_only_diff_->setChecked(false);
 
     row->addWidget(new QLabel(QStringLiteral("CATEGORY"), this));
@@ -154,10 +155,10 @@ void FineTuneWidget::setupUI() {
     auto* btnRow = new QHBoxLayout();
     m_refresh_btn_ = new QPushButton(QStringLiteral("REFRESH"), this);
     m_apply_btn_ = new QPushButton(QString::fromUtf8(
-        "\xD0\x9F\xD1%80\xD0%B8%D0%BC%D0%B5%D0%BD%D0%B8%D1%82%D1%8C\x20%D0\xBA%D0%B0%D1%82%D0%B5%D0%B3%D0%BE%D1%80%D0%B8%D1%8E"), this);
+        "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xBC\xD0\xB5\xD0\xBD\xD0\xB8\xD1\x82\xD1\x8C\x20\xD0\xBA\xD0\xB0\xD1\x82\xD0\xB5\xD0\xB3\xD0\xBE\xD1\x80\xD0\xB8\xD1\x8E"), this);
     m_apply_btn_->setObjectName("boostButton");
     m_rollback_btn_ = new QPushButton(QString::fromUtf8(
-        "\xD0\x9E\xD1\x82%D0%BA%D0%B0%D1%82\x20\xD0\xBF%D0%BE%D1%81%D0%BB%D0%B5%D0%B4%D0%BD%D0%B5%D0%B3%D0\xBE\x20\xD0\xBF%D0%B0%D0%BA%D0%B5%D1%82%D0\xB0"), this);
+        "\xD0\x9E\xD1\x82\xD0\xBA\xD0\xB0\xD1\x82\x20\xD0\xBF\xD0\xBE\xD1\x81\xD0\xBB\xD0\xB5\xD0\xB4\xD0\xBD\xD0\xB5\xD0\xB3\xD0\xBE\x20\xD0\xBF\xD0\xB0\xD0\xBA\xD0\xB5\xD1\x82\xD0\xB0"), this);
     btnRow->addWidget(m_refresh_btn_);
     btnRow->addWidget(m_apply_btn_);
     btnRow->addWidget(m_rollback_btn_);
@@ -229,7 +230,7 @@ void FineTuneWidget::refreshTable() {
     m_table_->resizeRowsToContents();
 
     m_status_->setText(QString::fromUtf8(
-        "\xD0%9E\xD1%82%D0%BB%D0%B8%D1%87%D0%B0%D1%8E%D1%82%D1%81%D1%8F\x20%D0%BE%D1%82\x20%D1%80%D0%B5%D0%BA%D0%BE%D0%BC%D0%B5%D0%BD%D0%B4%D0%BE%D0%B2%D0%B0%D0%BD%D0%BD%D1%8B%D1%85\x3A\x20")
+        "\xD0\x9E\xD1\x82\xD0\xBB\xD0\xB8\xD1\x87\xD0\xB0\xD1\x8E\xD1\x82\xD1\x81\xD1\x8F\x20\xD0\xBE\xD1\x82\x20\xD1\x80\xD0\xB5\xD0\xBA\xD0\xBE\xD0\xBC\xD0\xB5\xD0\xBD\xD0\xB4\xD0\xBE\xD0\xB2\xD0\xB0\xD0\xBD\xD0\xBD\xD1\x8B\xD1\x85\x3A\x20")
         + QString::number(differing));
 }
 
@@ -246,11 +247,13 @@ void FineTuneWidget::onApplyClicked() {
         const std::string result = svc.applyCategory(cat.toStdString());
         auto reboot_ids = svc.appliedNeedsReboot();
 
-        QMetaObject::invokeMethod(this, [this, result, reboot_ids]() {
+        QPointer<FineTuneWidget> guard(this);
+        QMetaObject::invokeMethod(guard, [guard, result, reboot_ids]() {
+            if (!guard) return;
             QApplication::restoreOverrideCursor();
-            m_apply_btn_->setEnabled(true);
-            m_status_->setText(QString::fromStdString(result));
-            refreshTable();
+            guard->m_apply_btn_->setEnabled(true);
+            guard->m_status_->setText(QString::fromStdString(result));
+            guard->refreshTable();
 
             if (!reboot_ids.empty()) {
                 QStringList names;
@@ -262,7 +265,7 @@ void FineTuneWidget::onApplyClicked() {
                         }
                     }
                 }
-                QMessageBox box(this);
+                QMessageBox box(guard.data());
                 box.setIcon(QMessageBox::Warning);
                 box.setWindowTitle(QString::fromUtf8("\xD0\xA2\xD1\x80\xD0\xB5\xD0\xB1\xD1\x83\xD0\xB5\xD1\x82\xD1\x81\xD1\x8F \xD0\xBF\xD0\xB5\xD1\x80\xD0\xB5\xD0\xB7\xD0\xB0\xD0\xB3\xD1\x80\xD1\x83\xD0\xB7\xD0\xBA\xD0\xB0"));
                 box.setText(QString::fromUtf8(
@@ -292,11 +295,13 @@ void FineTuneWidget::onRollbackClicked() {
         TweakService svc(access, appdataDir().toStdString());
         const std::string result = svc.rollbackLast();
 
-        QMetaObject::invokeMethod(this, [this, result]() {
+        QPointer<FineTuneWidget> guard(this);
+        QMetaObject::invokeMethod(guard, [guard, result]() {
+            if (!guard) return;
             QApplication::restoreOverrideCursor();
-            m_rollback_btn_->setEnabled(true);
-            m_status_->setText(QString::fromStdString(result));
-            refreshTable();
+            guard->m_rollback_btn_->setEnabled(true);
+            guard->m_status_->setText(QString::fromStdString(result));
+            guard->refreshTable();
         }, Qt::QueuedConnection);
     }).detach();
 }

@@ -39,7 +39,6 @@ private:
     QSpinBox* m_maxRoutesSpin;
     QSpinBox* m_rttSpin = nullptr;
     QSpinBox* m_lossSpin = nullptr;
-    class QDoubleSpinBox* m_jitterSpin = nullptr;
     // granular per-game actions ("Функции и действия")
     QCheckBox* m_gameDvrCb;
     QCheckBox* m_powerPlanCb;

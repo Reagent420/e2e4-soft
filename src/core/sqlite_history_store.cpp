@@ -115,5 +115,85 @@ int SqliteHistoryStore::totalSessions() const {
     return count;
 }
 
-// ---------------------------------------------------------------- v3.2 extended  double SqliteHistoryStore::averageScoreLast(int days) const {     if (!db_) return 0;     std::string sql =         "SELECT AVG(quality_score) FROM sessions WHERE quality_score > 0;";     sqlite3_stmt* stmt = nullptr;     double r = 0;     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {         if (sqlite3_step(stmt) == SQLITE_ROW)             r = sqlite3_column_double(stmt, 0);         sqlite3_finalize(stmt);     }     return r; }  std::vector<HistoryRecord> SqliteHistoryStore::getByGame(const std::string& game) const {     std::vector<HistoryRecord> out;     if (!db_) return out;     const char* sql =         "SELECT game_name,start_time,end_time,avg_ping_ms,avg_jitter_ms,"         "avg_packet_loss,max_ping_ms,quality_score,boost_was_active,duration_seconds "         "FROM sessions WHERE game_name = ? ORDER BY id DESC LIMIT 100";     sqlite3_stmt* stmt = nullptr;     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return out;     sqlite3_bind_text(stmt, 1, game.c_str(), -1, SQLITE_TRANSIENT);     while (sqlite3_step(stmt) == SQLITE_ROW) {         HistoryRecord r;         r.game_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));         r.start_time_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));         r.end_time_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));         r.avg_ping_ms = sqlite3_column_double(stmt, 3);         r.avg_jitter_ms = sqlite3_column_double(stmt, 4);         r.avg_packet_loss = sqlite3_column_double(stmt, 5);         r.max_ping_ms = sqlite3_column_double(stmt, 6);         r.quality_score = sqlite3_column_double(stmt, 7);         r.boost_was_active = sqlite3_column_int(stmt, 8) != 0;         r.duration_seconds = sqlite3_column_int(stmt, 9);         out.push_back(std::move(r));     }     sqlite3_finalize(stmt);     return out; }  std::vector<HistoryRecord> SqliteHistoryStore::getByPeriod(     const std::string& from, const std::string& to) const {     std::vector<HistoryRecord> out;     if (!db_) return out;     const char* sql =         "SELECT game_name,start_time,end_time,avg_ping_ms,avg_jitter_ms,"         "avg_packet_loss,max_ping_ms,quality_score,boost_was_active,duration_seconds "         "FROM sessions WHERE start_time >= ? AND start_time <= ? ORDER BY id DESC";     sqlite3_stmt* stmt = nullptr;     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return out;     sqlite3_bind_text(stmt, 1, from.c_str(), -1, SQLITE_TRANSIENT);     sqlite3_bind_text(stmt, 2, to.c_str(), -1, SQLITE_TRANSIENT);     while (sqlite3_step(stmt) == SQLITE_ROW) {         HistoryRecord r;         r.game_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));         r.start_time_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));         r.end_time_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));         r.avg_ping_ms = sqlite3_column_double(stmt, 3);         r.avg_jitter_ms = sqlite3_column_double(stmt, 4);         r.avg_packet_loss = sqlite3_column_double(stmt, 5);         r.max_ping_ms = sqlite3_column_double(stmt, 6);         r.quality_score = sqlite3_column_double(stmt, 7);         r.boost_was_active = sqlite3_column_int(stmt, 8) != 0;         r.duration_seconds = sqlite3_column_int(stmt, 9);         out.push_back(std::move(r));     }     sqlite3_finalize(stmt);     return out; }
+// ---------------------------------------------------------------- v3.2 extended
+
+double SqliteHistoryStore::averageScoreLast(int days) const {
+    if (!db_) return 0;
+    // Average quality over the last N days. start_time is stored as an
+    // ISO-8601 string ("YYYY-MM-DD HH:MM:SS"), which compares correctly
+    // against datetime('now', ...). Note the parameter is intentionally
+    // used here -- the original implementation ignored it entirely.
+    const char* sql =
+        "SELECT AVG(quality_score) FROM sessions "
+        "WHERE quality_score > 0 AND start_time >= datetime('now', ?);";
+    sqlite3_stmt* stmt = nullptr;
+    double r = 0;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        const std::string offset = "-" + std::to_string(days) + " days";
+        sqlite3_bind_text(stmt, 1, offset.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+            r = sqlite3_column_double(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+    return r;
+}
+
+std::vector<HistoryRecord> SqliteHistoryStore::getByGame(const std::string& game) const {
+    std::vector<HistoryRecord> out;
+    if (!db_) return out;
+    const char* sql =
+        "SELECT game_name,start_time,end_time,avg_ping_ms,avg_jitter_ms,"
+        "avg_packet_loss,max_ping_ms,quality_score,boost_was_active,duration_seconds "
+        "FROM sessions WHERE game_name = ? ORDER BY id DESC LIMIT 100";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return out;
+    sqlite3_bind_text(stmt, 1, game.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        HistoryRecord r;
+        r.game_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        r.start_time_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        r.end_time_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        r.avg_ping_ms = sqlite3_column_double(stmt, 3);
+        r.avg_jitter_ms = sqlite3_column_double(stmt, 4);
+        r.avg_packet_loss = sqlite3_column_double(stmt, 5);
+        r.max_ping_ms = sqlite3_column_double(stmt, 6);
+        r.quality_score = sqlite3_column_double(stmt, 7);
+        r.boost_was_active = sqlite3_column_int(stmt, 8) != 0;
+        r.duration_seconds = sqlite3_column_int(stmt, 9);
+        out.push_back(std::move(r));
+    }
+    sqlite3_finalize(stmt);
+    return out;
+}
+
+std::vector<HistoryRecord> SqliteHistoryStore::getByPeriod(
+    const std::string& from, const std::string& to) const {
+    std::vector<HistoryRecord> out;
+    if (!db_) return out;
+    const char* sql =
+        "SELECT game_name,start_time,end_time,avg_ping_ms,avg_jitter_ms,"
+        "avg_packet_loss,max_ping_ms,quality_score,boost_was_active,duration_seconds "
+        "FROM sessions WHERE start_time >= ? AND start_time <= ? ORDER BY id DESC";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) return out;
+    sqlite3_bind_text(stmt, 1, from.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, to.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        HistoryRecord r;
+        r.game_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        r.start_time_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        r.end_time_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        r.avg_ping_ms = sqlite3_column_double(stmt, 3);
+        r.avg_jitter_ms = sqlite3_column_double(stmt, 4);
+        r.avg_packet_loss = sqlite3_column_double(stmt, 5);
+        r.max_ping_ms = sqlite3_column_double(stmt, 6);
+        r.quality_score = sqlite3_column_double(stmt, 7);
+        r.boost_was_active = sqlite3_column_int(stmt, 8) != 0;
+        r.duration_seconds = sqlite3_column_int(stmt, 9);
+        out.push_back(std::move(r));
+    }
+    sqlite3_finalize(stmt);
+    return out;
+}
+
 } // namespace gno

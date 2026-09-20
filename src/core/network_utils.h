@@ -24,8 +24,8 @@ struct NetworkUtils {
     // Local network improvements (no server needed)
     static bool setMTU(const std::string& interface_name, uint32_t mtu);
     static bool getMTU(const std::string& interface_name, uint32_t& mtu_out);
-    static bool applyTCPOptimizations(bool enable);
-    static uint32_t recommendMTU();
+    // Прямых правок TCP-параметров и «рекомендаций MTU» здесь больше нет:
+    // единственный путь — remediation-движок (remediation::kEngineMtuValue).
 };
 
 } // namespace gno

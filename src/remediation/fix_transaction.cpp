@@ -1,6 +1,8 @@
 ﻿#include "remediation/fix_transaction.h"
+#include "remediation/remediation_service.h"   // summarizeValue для диагностики
 
-#include <mutex>`n#include <cstdio>
+#include <mutex>
+#include <cstdio>
 
 namespace gno {
 namespace remediation {
@@ -24,9 +26,17 @@ FixTransaction::FixTransaction(std::string transaction_id,
     record_.transaction_id = transaction_id_;
     record_.schema_version = 1;
     record_.status = TransactionStatus::Unprepared;
+    // Фиксируем время создания один раз: при откате запись сохраняется повторно,
+    // и если бы время бралось из mtime файла, оно бы «обновлялось».
+    record_.created_at = formatLocalTimestamp();
 }
 
-const TransactionRecord& FixTransaction::record() const {
+TransactionRecord FixTransaction::record() const {
+    // Копирование под блокировкой: старая версия возвращала const&, мьютекс
+    // отпускался при возврате, и вызывающий работал с record_ без защиты.
+    // Худший случай — execute() → persist(record()): ссылка на record_
+    // переживает запись файла в backup store, и параллельный setRecord()
+    // мог разорвать JSON, который мы только что записали на диск.
     std::lock_guard<std::mutex> lock(state_mutex_);
     return record_;
 }
@@ -48,15 +58,16 @@ SimpleResult FixTransaction::persist(const TransactionRecord& record) {
 }
 
 Result<TransactionRecord> FixTransaction::busyResult() const {
-    return Fail(RemediationError::Busy, "another transaction operation is in progress");
+    // Текст доходит до пользователя (BoostGate кладёт detail в результат, UI его
+    // показывает), поэтому он на русском, как и остальные сообщения движка.
+    return Fail(RemediationError::Busy,
+                "операция над этой транзакцией уже выполняется — дождитесь завершения");
 }
 
 bool FixTransaction::rollbackEligible(const TransactionRecord& record) const {
-    const bool status_ok = record.status == TransactionStatus::Applied ||
-                           record.status == TransactionStatus::Failed ||
-                           record.status == TransactionStatus::Cancelled ||
-                           record.status == TransactionStatus::RollbackFailed;
-    return status_ok && !record.applied_action_order.empty();
+    // Правило живёт в remediation_types.h: его же используют UI и BoostGate,
+    // чтобы кнопка отката и движок не разъезжались.
+    return remediation::isRollbackEligible(record);
 }
 
 Result<TransactionRecord> FixTransaction::prepare() {
@@ -92,7 +103,12 @@ Result<TransactionRecord> FixTransaction::prepare() {
         }
         if (!isValidState(observed.value())) {
             operation_mutex_.unlock();
-            return Fail(RemediationError::PreflightFailed, "observed state out of bounds");
+            // Без имени действия непонятно, что именно не прошло проверку:
+            // одна «невозможная» величина в системе рушила всю транзакцию.
+            return Fail(RemediationError::PreflightFailed,
+                        "observed state out of bounds for " +
+                            to_string(actions_[i]->id()) + ": " +
+                            summarizeValue(observed.value().value));
         }
 
         auto prepared = actions_[i]->prepare(targets_[i], observed.value());
@@ -158,51 +174,59 @@ Result<TransactionRecord> FixTransaction::execute() {
     if (!prepared_save)
         return Fail(RemediationError::BackupFailed, prepared_save.detail());
 
+    // Счётчики для отчёта: сколько действий реально не применилось и почему
+    // (первая причина уходит в detail, остальные видны в outcomes).
+    int failed_count = 0;
+    RemediationError first_error = RemediationError::None;
+    std::string first_error_detail;
+
     for (std::size_t i = 0; i < actions_.size(); ++i) {
         auto applied = actions_[i]->apply(current.prepared_actions[i]);
         ActionOutcome outcome = current.outcomes[i];
         outcome.attempted = true;
 
-        if (!applied) {
+        // Одно действие, которое не применилось (например, MTU без прав
+        // администратора), не должно отменять остальные. Раньше execute()
+        // выходил на первой ошибке: все следующие пункты оставались
+        // «не проверено», UI показывал их как «не применилось», хотя их даже
+        // не пытались применить. Применённый префикс по-прежнему откатывается
+        // (rollbackEligible принимает status=Applied с непустым
+        // applied_action_order).
+        auto fail_this = [&](RemediationError code, const std::string& detail) {
             outcome.status = ActionStatus::Failed;
-            outcome.error = applied.code();
-            outcome.detail = applied.detail();
+            outcome.error = code;
+            outcome.detail = detail;
             current.outcomes[i] = outcome;
-            current.status = TransactionStatus::Failed;
-            current.error = applied.code();
-            current.detail = applied.detail();
+            ++failed_count;
+            if (first_error == RemediationError::None) {
+                first_error = code;
+                first_error_detail = detail;
+            }
+        };
+
+        if (!applied) {
+            fail_this(applied.code(), applied.detail());
             setRecord(current);
             persist(current);
-            return Result<TransactionRecord>(Error{applied.code(), applied.detail()});
+            continue;
         }
 
         auto verified = actions_[i]->observe(targets_[i]);
         if (!verified) {
-            outcome.status = ActionStatus::Failed;
-            outcome.error = verified.code();
-            outcome.detail = verified.detail();
-            current.outcomes[i] = outcome;
-            current.status = TransactionStatus::Failed;
-            current.error = verified.code();
-            current.detail = verified.detail();
+            fail_this(verified.code(), verified.detail());
             setRecord(current);
             persist(current);
-            return Result<TransactionRecord>(Error{verified.code(), verified.detail()});
+            continue;
         }
 
         if (!(verified.value() == current.prepared_actions[i].proposed) ||
             !isValidState(verified.value())) {
-            outcome.status = ActionStatus::Failed;
-            outcome.error = RemediationError::VerificationMismatch;
             outcome.state = verified.value();
-            outcome.detail = "post-apply state did not match the prepared value";
-            current.outcomes[i] = outcome;
-            current.status = TransactionStatus::Failed;
-            current.error = RemediationError::VerificationMismatch;
-            current.detail = outcome.detail;
+            fail_this(RemediationError::VerificationMismatch,
+                      "post-apply state did not match the prepared value");
             setRecord(current);
             persist(current);
-            return Fail(RemediationError::VerificationMismatch, outcome.detail);
+            continue;
         }
 
         outcome.status = ActionStatus::Applied;
@@ -211,10 +235,8 @@ Result<TransactionRecord> FixTransaction::execute() {
         outcome.detail.clear();
         current.outcomes[i] = outcome;
         current.applied_action_order.push_back(actions_[i]->id());
-        current.status = (i + 1 == actions_.size()) ? TransactionStatus::Applied
-                                                    : TransactionStatus::Applying;
+        current.status = TransactionStatus::Applying;
         current.error = RemediationError::None;
-        current.detail.clear();
         setRecord(current);
 
         auto saved = persist(record());
@@ -228,6 +250,24 @@ Result<TransactionRecord> FixTransaction::execute() {
         }
     }
 
+    if (failed_count > 0) {
+        // Статус записи = Applied, если хоть что-то применилось: журнал должен
+        // остаться откатываемым. Ошибку отдаём через Result, чтобы вызывающий
+        // отчитался по каждому действию отдельно.
+        current.status = current.applied_action_order.empty() ? TransactionStatus::Failed
+                                                             : TransactionStatus::Applied;
+        current.error = first_error;
+        current.detail = first_error_detail;
+        setRecord(current);
+        persist(current);
+        return Result<TransactionRecord>(Error{first_error, first_error_detail});
+    }
+
+    current.status = TransactionStatus::Applied;
+    current.error = RemediationError::None;
+    current.detail.clear();
+    setRecord(current);
+    persist(current);
     return record();
 }
 

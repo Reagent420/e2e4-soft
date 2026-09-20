@@ -57,8 +57,17 @@ private:
     static std::string getAppDataPath();
     GameProfile parseProfile(const std::string& json);
     static std::string escapeJson(const std::string& s);
+    static std::string serializeProfiles(const std::vector<GameProfile>& profiles);
 
     std::vector<GameProfile> profiles_;
+
+    // Потокобезопасность: GUI (GameProfilesWidget) и рабочий поток
+    // MonitoringService (handleGameStart / discoverRunningGameProcess) создают
+    // каждый свой экземпляр GameProfiles, но читают/пишут один и тот же файл
+    // profiles.json. Флаг dirty_ отделает экземпляры, которые реально меняли
+    // данные, от «только чтение»: раньше деструктор сохранял своё состояние
+    // безусловно и затирал изменения, сохранённые другим потоком.
+    bool dirty_ = false;
 };
 
 } // namespace gno

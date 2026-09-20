@@ -80,4 +80,96 @@ std::vector<PlainSection> PlainLanguageReport::build(double avg_rtt_ms, double j
     return sections;
 }
 
+std::string PlainLanguageReport::outcomeLabel(DiagnosticOutcome outcome) {
+    switch (outcome) {
+        case DiagnosticOutcome::ImprovementLikely:   return "Улучшение вероятно";
+        case DiagnosticOutcome::NoImprovementFound:  return "Улучшать нечего";
+        case DiagnosticOutcome::LocalNetworkProblem: return "Проблема в локальной сети";
+        case DiagnosticOutcome::InsufficientData:    return "Недостаточно данных";
+    }
+    return "Неизвестный исход";
+}
+
+std::string PlainLanguageReport::confidenceLabel(ConfidenceLevel level) {
+    switch (level) {
+        case ConfidenceLevel::High:   return "высокая";
+        case ConfidenceLevel::Medium: return "средняя";
+        case ConfidenceLevel::Low:    return "низкая";
+    }
+    return "неизвестная";
+}
+
+std::string PlainLanguageReport::errorLabel(DiagnosticError error) {
+    switch (error) {
+        case DiagnosticError::None:                  return "Ошибок нет";
+        case DiagnosticError::PermissionDenied:      return "Недостаточно прав для диагностики";
+        case DiagnosticError::UnsupportedCapability: return "Возможность не поддерживается";
+        case DiagnosticError::GameNotDetected:       return "Игра не запущена";
+        case DiagnosticError::EndpointNotObserved:   return "У игры нет активных соединений";
+        case DiagnosticError::EndpointNotAllowlisted:return "Соединение не разрешено для анализа";
+        case DiagnosticError::ProbeUnavailable:      return "Эталонные адреса недоступны";
+        case DiagnosticError::Timeout:               return "Превышено время ожидания";
+        case DiagnosticError::Cancelled:             return "Диагностика отменена";
+        case DiagnosticError::InsufficientResponses: return "Слишком мало ответов от сервера";
+        case DiagnosticError::MalformedResponse:     return "Некорректный ответ";
+        case DiagnosticError::InternalFailure:       return "Внутренняя ошибка";
+    }
+    return "Неизвестная ошибка";
+}
+
+std::string PlainLanguageReport::formatDiagnosticReport(const DiagnosticReport& report,
+                                                        std::vector<std::string>* evidence_out) {
+    std::string text = "Исход: " + outcomeLabel(report.outcome) +
+                       " (уверенность: " + confidenceLabel(report.confidence) + ").";
+
+    if (!report.endpoint.ip.isUnspecified()) {
+        text += " Соединение игры: " + report.endpoint.ip.toString() + ":" +
+                std::to_string(report.endpoint.port) + " (" +
+                (report.endpoint.protocol == TransportProtocol::Tcp ? "TCP" : "UDP") + ").";
+    }
+
+    if (evidence_out) {
+        for (const auto& line : report.evidence)
+            evidence_out->push_back(line);
+    }
+    return text;
+}
+
+std::string PlainLanguageReport::diagnosticRecommendation(const DiagnosticReport& report) {
+    // Метрики, которые удалось измерить: Prefer шлюз (он говорит о локальной
+    // сети), иначе — прямой маршрут до сервера игры.
+    const MetricSummary* measured = nullptr;
+    if (report.gateway.sent > 0) measured = &report.gateway;
+    else if (report.direct.sent > 0) measured = &report.direct;
+
+    switch (report.outcome) {
+        case DiagnosticOutcome::LocalNetworkProblem:
+            if (measured)
+                return "Скорее всего, виновата локальная сеть: задержка " +
+                       fmt(measured->median_ms, 0) + " мс, потери " +
+                       fmt(measured->loss_percent) + "%. Проверьте кабель или Wi-Fi и перезагрузите роутер.";
+            return "Скорее всего, виновата локальная сеть — проверьте кабель или Wi-Fi и перезагрузите роутер.";
+
+        case DiagnosticOutcome::ImprovementLikely:
+            return "До сервера игры задержка " + fmt(report.direct.median_ms, 0) +
+                   " мс, а до публичных эталонов — " +
+                   (report.candidates.empty()
+                        ? std::string("в норме")
+                        : fmt(report.candidates.front().client_to_probe.median_ms, 0) + " мс") +
+                   ". GNO не строит VPN, поэтому перенаправить трафик нельзя: "
+                   "смените регион сервера в настройках игры или обратитесь к провайдеру.";
+
+        case DiagnosticOutcome::NoImprovementFound:
+            return "Маршрут до сервера игры в норме (задержка " +
+                   fmt(report.direct.median_ms, 0) + " мс, потери " +
+                   fmt(report.direct.loss_percent) +
+                   "%) — локальная сеть и маршрут провайдера не виноваты в лагах.";
+
+        case DiagnosticOutcome::InsufficientData:
+            // Не actionable: рекомендовать нечего, пока не накопится данных.
+            return {};
+    }
+    return {};
+}
+
 } // namespace gno

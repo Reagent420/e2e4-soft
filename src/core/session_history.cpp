@@ -27,7 +27,17 @@ static std::time_t parseTimeStr(const std::string& str) {
     return std::mktime(&tm);
 }
 
-SessionHistory::SessionHistory() {
+static double parseDouble(const std::string& s) {
+    // std::stod бросает исключение на мусоре: повреждённый history.json раньше
+    // валил конструктор SessionHistory, то есть всё приложение при старте.
+    try {
+        return std::stod(s);
+    } catch (...) {
+        return 0.0;
+    }
+}
+
+SessionHistory::SessionHistory(std::string path) : explicit_path_(std::move(path)) {
     loadFromFile();
 }
 
@@ -46,6 +56,7 @@ std::string SessionHistory::getAppDataPath() const {
 }
 
 std::string SessionHistory::getSavePath() const {
+    if (!explicit_path_.empty()) return explicit_path_;
     return getAppDataPath() + "\\GNO\\history.json";
 }
 
@@ -59,13 +70,18 @@ void SessionHistory::recordStart(const std::string& game_name, bool boost) {
 }
 
 void SessionHistory::recordEndWithScore(double avg_ping, double avg_jitter, double loss, double max_ping, double quality_score) {
-    recordEnd(avg_ping, avg_jitter, loss, max_ping);
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!records_.empty()) records_.back().quality_score = quality_score;
+    recordEndLocked(avg_ping, avg_jitter, loss, max_ping, quality_score);
 }
 
 void SessionHistory::recordEnd(double avg_ping, double avg_jitter, double loss, double max_ping) {
     std::lock_guard<std::mutex> lock(mutex_);
+    recordEndLocked(avg_ping, avg_jitter, loss, max_ping, 0.0);
+}
+
+// Вызывающий уже удерживает mutex_.
+void SessionHistory::recordEndLocked(double avg_ping, double avg_jitter, double loss, double max_ping,
+                                     double quality_score) {
     if (!recording_) return;
 
     current_.end_time_str = currentTimeStr();
@@ -73,6 +89,11 @@ void SessionHistory::recordEnd(double avg_ping, double avg_jitter, double loss, 
     current_.avg_jitter_ms = avg_jitter;
     current_.avg_packet_loss = loss;
     current_.max_ping_ms = max_ping;
+    // Оценка пишется в ту же запись и в той же критической секции: раньше
+    // recordEndWithScore() после recordEnd() присваивал score полю
+    // records_.back(), из-за чего при отсутствии записи оценка попадала в
+    // предыдущую (чужую) сессию.
+    current_.quality_score = quality_score;
 
     auto start = parseTimeStr(current_.start_time_str);
     auto end = parseTimeStr(current_.end_time_str);
@@ -83,11 +104,7 @@ void SessionHistory::recordEnd(double avg_ping, double avg_jitter, double loss, 
         records_.erase(records_.begin(), records_.end() - kMaxRecords);
     recording_ = false;
 
-    if (records_.size() > 500) {
-        records_.erase(records_.begin());
-    }
-
-    saveToFile();
+    saveToFileLocked(std::string());
 }
 
 std::vector<SessionRecord> SessionHistory::getAll() const {
@@ -104,7 +121,7 @@ std::vector<SessionRecord> SessionHistory::getLast(int count) const {
 void SessionHistory::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     records_.clear();
-    saveToFile();
+    saveToFileLocked(std::string());
 }
 
 double SessionHistory::getAveragePing() const {
@@ -123,14 +140,27 @@ double SessionHistory::getAverageJitter() const {
     return sum / records_.size();
 }
 
+double SessionHistory::getAverageLoss() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (records_.empty()) return 0.0;
+    double sum = 0;
+    for (const auto& r : records_) sum += r.avg_packet_loss;
+    return sum / records_.size();
+}
+
 bool SessionHistory::saveToFile(const std::string& path) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return saveToFileLocked(path);
+}
+
+// Вызывающий уже удерживает mutex_.
+bool SessionHistory::saveToFileLocked(const std::string& path) const {
     std::string p = path.empty() ? getSavePath() : path;
     std::string dir = p.substr(0, p.find_last_of("\\/"));
 #ifdef PLATFORM_WINDOWS
     CreateDirectoryA(dir.c_str(), nullptr);
 #endif
 
-    std::lock_guard<std::mutex> lock(mutex_);
     std::ofstream file(p);
     if (!file.is_open()) return false;
 
@@ -157,11 +187,16 @@ bool SessionHistory::saveToFile(const std::string& path) const {
 }
 
 bool SessionHistory::loadFromFile(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return loadFromFileLocked(path);
+}
+
+// Вызывающий уже удерживает mutex_.
+bool SessionHistory::loadFromFileLocked(const std::string& path) {
     std::string p = path.empty() ? getSavePath() : path;
     std::ifstream file(p);
     if (!file.is_open()) return false;
 
-    std::lock_guard<std::mutex> lock(mutex_);
     records_.clear();
 
     std::string line;
@@ -195,18 +230,37 @@ bool SessionHistory::loadFromFile(const std::string& path) {
                     std::remove(current.start_time_str.begin(), current.start_time_str.end(), '"'),
                     current.start_time_str.end());
             }
+        } else if (line.find("\"end\"") != std::string::npos) {
+            // Раньше end/max_ping/duration записывались в файл, но обратно не
+            // читались: после перезапуска приложения в таблице истории эти
+            // поля обнулялись.
+            auto pos = line.find(':');
+            if (pos != std::string::npos) {
+                current.end_time_str = line.substr(pos + 1);
+                trim(current.end_time_str);
+                current.end_time_str.erase(
+                    std::remove(current.end_time_str.begin(), current.end_time_str.end(), '"'),
+                    current.end_time_str.end());
+            }
         } else if (line.find("\"avg_ping\"") != std::string::npos) {
             auto pos = line.find(':');
-            if (pos != std::string::npos) current.avg_ping_ms = std::stod(line.substr(pos + 1));
+            if (pos != std::string::npos) current.avg_ping_ms = parseDouble(line.substr(pos + 1));
         } else if (line.find("\"quality_score\"") != std::string::npos) {
             auto pos = line.find(':');
-            if (pos != std::string::npos) current.quality_score = std::stod(line.substr(pos + 1));
+            if (pos != std::string::npos) current.quality_score = parseDouble(line.substr(pos + 1));
         } else if (line.find("\"avg_jitter\"") != std::string::npos) {
             auto pos = line.find(':');
-            if (pos != std::string::npos) current.avg_jitter_ms = std::stod(line.substr(pos + 1));
+            if (pos != std::string::npos) current.avg_jitter_ms = parseDouble(line.substr(pos + 1));
         } else if (line.find("\"avg_loss\"") != std::string::npos) {
             auto pos = line.find(':');
-            if (pos != std::string::npos) current.avg_packet_loss = std::stod(line.substr(pos + 1));
+            if (pos != std::string::npos) current.avg_packet_loss = parseDouble(line.substr(pos + 1));
+        } else if (line.find("\"max_ping\"") != std::string::npos) {
+            auto pos = line.find(':');
+            if (pos != std::string::npos) current.max_ping_ms = parseDouble(line.substr(pos + 1));
+        } else if (line.find("\"duration\"") != std::string::npos) {
+            auto pos = line.find(':');
+            if (pos != std::string::npos)
+                current.duration_seconds = static_cast<uint32_t>(parseDouble(line.substr(pos + 1)));
         } else if (line.find("\"boost\"") != std::string::npos) {
             current.boost_was_active = line.find("true") != std::string::npos;
         }

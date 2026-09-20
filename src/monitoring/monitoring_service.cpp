@@ -4,16 +4,19 @@
 #include <QTime>
 #include <thread>
 #include "../core/autopilot_plan.h"
+#include "../core/settings_keys.h"
 #include "core/connection_grader.h"
 
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <cmath>
 #include <algorithm>
+#include <cstdio>
 
 #include "game_profiles.h"
 #include "network_utils.h"
 #include "launch_diagnostics.h"
+#include "plain_language.h"
 #include "../core/system_audit.h"
 
 #ifdef PLATFORM_WINDOWS
@@ -48,8 +51,12 @@ void MonitoringService::start() {
         return;
 
     // v1.8: lightweight scheduler - evening quality snapshot, optional morning scan.
-    scheduler_timer_ = new QTimer(this);
-    connect(scheduler_timer_, &QTimer::timeout, this, &MonitoringService::checkSchedule);
+    // Таймер создаётся один раз: stop() его останавливает и удаляет, поэтому
+    // повторный start() не должен плодить второй планировщик.
+    if (!scheduler_timer_) {
+        scheduler_timer_ = new QTimer(this);
+        connect(scheduler_timer_, &QTimer::timeout, this, &MonitoringService::checkSchedule);
+    }
     scheduler_timer_->start(30 * 1000);
 
     ping_monitor_.setPingCallback([this](const ICMPResult& result) {
@@ -91,6 +98,13 @@ void MonitoringService::start() {
 }
 
 void MonitoringService::stop() {
+    // Раньше планировщик здесь не останавливался: после stop() он продолжал
+    // срабатывать, а повторный start() создавал второй такой же таймер.
+    if (scheduler_timer_) {
+        scheduler_timer_->stop();
+        delete scheduler_timer_;
+        scheduler_timer_ = nullptr;
+    }
     if (timer_) {
         timer_->stop();
         delete timer_;
@@ -104,6 +118,12 @@ void MonitoringService::stop() {
 
 void MonitoringService::setBoostActive(bool active) {
     boost_active_ = active;
+}
+
+qint64 MonitoringService::sessionElapsedSeconds() const {
+    if (current_game_.isEmpty() || !session_clock_.isValid())
+        return 0;
+    return session_clock_.elapsed() / 1000;
 }
 
 QVector<double> MonitoringService::pingHistory() const {
@@ -148,11 +168,33 @@ double MonitoringService::measurePingAvg() const {
     return sum / static_cast<double>(measure_pings_.size());
 }
 
+void MonitoringService::applyDiagnosticReport(const DiagnosticReport& report) {
+    // Перевод диагноза в рекомендацию живёт в plain_language — там же, где и
+    // весь остальной «человеческий» текст продукта. InsufficientData даёт
+    // пустую строку: нечем подкрепить совет.
+    last_diagnostic_recommendation_ =
+        QString::fromStdString(PlainLanguageReport::diagnosticRecommendation(report));
+    // Сам отчёт тоже запоминаем: по нему база знаний подбирает статьи под
+    // текущую проблему (ProblemDb::forDiagnostic).
+    last_diagnostic_report_ = report;
+    has_diagnostic_report_ = true;
+    if (!last_diagnostic_recommendation_.isEmpty())
+        emit recommendationAvailable(last_diagnostic_recommendation_);
+}
+
 QStringList MonitoringService::getRecommendations() const {
     QStringList recs;
+
+    // Диагноз маршрута — самый свежий источник: он говорит о текущем
+    // соединении, а история — о средних цифрах прошлых сессий. Поэтому
+    // он идёт первым, чтобы пользователь видел его в строке состояния.
+    if (!last_diagnostic_recommendation_.isEmpty())
+        recs << last_diagnostic_recommendation_;
+
     auto records = history_.getLast(50);
     if (records.empty()) {
-        recs << QString::fromUtf8("Играйте в игры — после первых сессий появятся персональные рекомендации.");
+        if (recs.isEmpty())
+            recs << QString::fromUtf8("Играйте в игры — после первых сессий появятся персональные рекомендации.");
         return recs;
     }
 
@@ -225,15 +267,19 @@ void MonitoringService::onTick() {
     }
 
     // loss: smoothed 1/0 per second over a 60 s window
+    double lossPercent = 0.0;
     {
         std::lock_guard<std::mutex> lock(hist_mutex_);
         loss_hist_.push_back(ok ? 0.0 : 1.0);
         if (loss_hist_.size() > static_cast<size_t>(kLossWindow))
             loss_hist_.erase(loss_hist_.begin());
+        // Сумма считается под тем же мьютексом: раньше loss_hist_ читался уже
+        // после освобождения блокировки, одновременно с записью из потока
+        // пинга — гонка на векторе (возможны мусорные проценты потерь).
+        double lossSum = 0.0;
+        for (double v : loss_hist_) lossSum += v;
+        lossPercent = lossSum / static_cast<double>(loss_hist_.size()) * 100.0;
     }
-    double lossSum = 0.0;
-    for (double v : loss_hist_) lossSum += v;
-    double lossPercent = lossSum / static_cast<double>(loss_hist_.size()) * 100.0;
 
     std::lock_guard<std::mutex> lock(hist_mutex_);
     jitter_hist_.push_back(jitter);
@@ -295,23 +341,36 @@ void MonitoringService::handleGameStart(const QString& game, const QString& proc
         if (profiles.has(game.toStdString())) {
             GameProfile p = profiles.get(game.toStdString());
             if (p.auto_apply &&
-                QSettings().value(QStringLiteral("remediation/autopilot"), true).toBool()) {
+                QSettings().value(SettingsKeys::Autopilot(), true).toBool()) {
                 // v1.6.1: apply on a worker thread - never freeze the UI at game launch.
                 std::thread([this, game, process, p]() {
-                    QStringList notes;
+                    QStringList applied;
+                    QStringList failed;
                     for (const auto& id : AutopilotPlan::actionIdsFor(p)) {
-                        LaunchDiagnostics::applyFix(id);
-                        notes << QString::fromUtf8(AutopilotPlan::displayName(id));
+                        const auto outcome = LaunchDiagnostics::applyFixDetailed(id);
+                        const QString name = QString::fromUtf8(AutopilotPlan::displayName(id));
+                        if (outcome.applied) applied << name;
+                        else if (!outcome.informational) failed << name;
                     }
-                    QMetaObject::invokeMethod(this, [this, game, notes]() {
-                        emit gameStarted(game + (notes.isEmpty() ? QString()
-                            : QString::fromUtf8("\x20\x2D\x20\xD0\xBF\xD1\x80\xD0\xBE\xD1\x84\xD0\xB8\xD0\xBB\xD1\x8C\x20\xD0\xBF\xD1\x80\xD0\xB8\xD0\xBC\xD0\xB5\xD0\xBD\xD1\x91\xD0\xBD\x3A\x20") + notes.join(", ")));
-                        emit remediationApplied(QString::fromUtf8("\xD0\x90\xD0\xB2\xD1\x82\xD0\xBE\xD0\xBF\xD0\xB8\xD0\xBB\xD0\xBE\xD1\x82\x3A\x20") + game +
-                            QString::fromUtf8("\x3A\x20") + notes.join(", ") +
-                            QString::fromUtf8("\x20\x28\xD1\x81\x20\xD0\xB1\xD1\x8D\xD0\xBA\xD0\xB0\xD0\xBF\xD0\xBE\xD0\xBC\x29"));
+                    QMetaObject::invokeMethod(this, [this, game, applied, failed]() {
+                        // Результат применения раньше игнорировался: уведомление
+                        // всегда сообщало «с бэкапом», даже когда движок отказал
+                        // (нет адаптера, игра не запущена, транзакция прервана).
+                        if (!applied.isEmpty())
+                            emit gameStarted(game + QString::fromUtf8(" — профиль применён: ") + applied.join(", "));
+                        else
+                            emit gameStarted(game);
+
+                        if (!applied.isEmpty())
+                            emit remediationApplied(QString::fromUtf8("Автопилот: ") + game +
+                                QString::fromUtf8(": ") + applied.join(", ") +
+                                QString::fromUtf8(" (с бэкапом)"));
+                        if (!failed.isEmpty())
+                            emit remediationApplied(QString::fromUtf8("Автопилот: ") + game +
+                                QString::fromUtf8(": не применено — ") + failed.join(", "));
                     }, Qt::QueuedConnection);
                 }).detach();
-} else {
+            } else {
                 emit gameStarted(game);
             }
         } else {
@@ -347,42 +406,54 @@ void MonitoringService::handleGameEnd(const QString& game) {
 
 void MonitoringService::playEventSound(const QString& kind) {
     if (!sound_enabled_) return;
+    // Джингл из нескольких нот собирается в ОДИН буфер: раньше вторая нота
+    // перезаписывала буфер первой прямо во время её воспроизведения (PlaySound
+    // с SND_MEMORY читает память асинхронно), поэтому звуки старта и конца
+    // игры никогда не звучали как две ноты — игралась только последняя.
+    std::vector<std::pair<int, int>> tones;
     if (kind == QStringLiteral("game_start")) {
-        playTone(660, 90);
-        playTone(880, 110);
+        tones = {{660, 90}, {880, 110}};
     } else if (kind == QStringLiteral("game_end")) {
-        playTone(880, 90);
-        playTone(660, 110);
+        tones = {{880, 90}, {660, 110}};
     } else if (kind == QStringLiteral("alert")) {
-        playTone(990, 220);
+        tones = {{990, 220}};
+    } else {
+        return;
     }
+    playTones(tones);
 }
 
-void MonitoringService::playTone(int freqHz, int durationMs) {
+void MonitoringService::playTones(const std::vector<std::pair<int, int>>& tones) {
 #ifdef PLATFORM_WINDOWS
+    if (tones.empty()) return;
     constexpr int kRate = 44100;
-    const int totalSamples = kRate * durationMs / 1000;
+
+    int totalSamples = 0;
+    for (const auto& tone : tones)
+        totalSamples += kRate * tone.second / 1000;
+    if (totalSamples <= 0) return;
     const int bytes = 44 + totalSamples * 2;
 
-    // keep the buffer alive while PlaySound plays asynchronously
-    static std::vector<BYTE> buffer;
-    buffer.assign(bytes, 0);
+    // Прежде чем переиспользовать буфер, останавливаем звук, который его ещё
+    // читает: иначе PlaySound читал бы память, которую мы сейчас перезапишем.
+    PlaySoundW(nullptr, nullptr, 0);
+    sound_buffer_.assign(static_cast<std::size_t>(bytes), 0);
 
     auto put32 = [&](int off, int v) {
-        buffer[off] = static_cast<BYTE>(v & 0xFF);
-        buffer[off + 1] = static_cast<BYTE>((v >> 8) & 0xFF);
-        buffer[off + 2] = static_cast<BYTE>((v >> 16) & 0xFF);
-        buffer[off + 3] = static_cast<BYTE>((v >> 24) & 0xFF);
+        sound_buffer_[off] = static_cast<unsigned char>(v & 0xFF);
+        sound_buffer_[off + 1] = static_cast<unsigned char>((v >> 8) & 0xFF);
+        sound_buffer_[off + 2] = static_cast<unsigned char>((v >> 16) & 0xFF);
+        sound_buffer_[off + 3] = static_cast<unsigned char>((v >> 24) & 0xFF);
     };
     auto put16 = [&](int off, int v) {
-        buffer[off] = static_cast<BYTE>(v & 0xFF);
-        buffer[off + 1] = static_cast<BYTE>((v >> 8) & 0xFF);
+        sound_buffer_[off] = static_cast<unsigned char>(v & 0xFF);
+        sound_buffer_[off + 1] = static_cast<unsigned char>((v >> 8) & 0xFF);
     };
 
-    memcpy(&buffer[0], "RIFF", 4);
+    memcpy(&sound_buffer_[0], "RIFF", 4);
     put32(4, 36 + totalSamples * 2);
-    memcpy(&buffer[8], "WAVE", 4);
-    memcpy(&buffer[12], "fmt ", 4);
+    memcpy(&sound_buffer_[8], "WAVE", 4);
+    memcpy(&sound_buffer_[12], "fmt ", 4);
     put32(16, 16);
     put16(20, 1);          // PCM
     put16(22, 1);          // mono
@@ -390,21 +461,29 @@ void MonitoringService::playTone(int freqHz, int durationMs) {
     put32(28, kRate * 2);  // byte rate
     put16(32, 2);          // block align
     put16(34, 16);         // bits per sample
-    memcpy(&buffer[36], "data", 4);
+    memcpy(&sound_buffer_[36], "data", 4);
     put32(40, totalSamples * 2);
 
-    const double attack = 0.02; // 20 ms fade in/out to avoid clicks
-    for (int i = 0; i < totalSamples; ++i) {
-        double t = static_cast<double>(i) / kRate;
-        double env = 1.0;
-        if (t < attack) env = t / attack;
-        if (t > static_cast<double>(durationMs) / 1000.0 - attack)
-            env = std::max(0.0, (static_cast<double>(durationMs) / 1000.0 - t) / attack);
-        short sample = static_cast<short>(env * 0.35 * 32767.0 * std::sin(2.0 * M_PI * freqHz * t));
-        put16(44 + i * 2, sample);
+    int pos = 44;
+    for (const auto& tone : tones) {
+        const int freqHz = tone.first;
+        const int durationMs = tone.second;
+        const int n = kRate * durationMs / 1000;
+        const double attack = 0.02; // 20 ms fade in/out to avoid clicks
+        for (int i = 0; i < n; ++i) {
+            double t = static_cast<double>(i) / kRate;
+            double env = 1.0;
+            if (t < attack) env = t / attack;
+            if (t > static_cast<double>(durationMs) / 1000.0 - attack)
+                env = std::max(0.0, (static_cast<double>(durationMs) / 1000.0 - t) / attack);
+            short sample = static_cast<short>(env * 0.35 * 32767.0 * std::sin(2.0 * M_PI * freqHz * t));
+            put16(pos, sample);
+            pos += 2;
+        }
     }
 
-    PlaySoundW(reinterpret_cast<LPCWSTR>(buffer.data()), nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+    PlaySoundW(reinterpret_cast<LPCWSTR>(sound_buffer_.data()), nullptr,
+               SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
 #endif
 }
 
@@ -412,27 +491,61 @@ void MonitoringService::checkSchedule() {
     QSettings s;
     const QString today_str = QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd"));
 
-    if (s.value(QStringLiteral("scheduler/evening"), false).toBool()) {
+    if (s.value(SettingsKeys::EveningCheck(), false).toBool()) {
         const QString target_time =
-            s.value(QStringLiteral("scheduler/eveningTime"), QStringLiteral("21:00")).toString();
-        if (QTime::currentTime() >= QTime::fromString(target_time, QStringLiteral("HH:mm")) &&
-            last_schedule_date_ != today_str + QStringLiteral("_eve")) {
-            last_schedule_date_ = today_str + QStringLiteral("_eve");
+            s.value(SettingsKeys::EveningTime(), QStringLiteral("21:00")).toString();
+        const QTime target = QTime::fromString(target_time, QStringLiteral("HH:mm"));
+        // Дата последнего замера хранится в настройках: раньше она жила только
+        // в памяти, поэтому каждый перезапуск приложения после 21:00 добавлял
+        // в историю ещё одну «плановую» запись за тот же день.
+        if (!target.isValid()) {
+            // Некорректное время раньше молча никогда не срабатывало: галочка
+            // выглядела включённой, а замера не было.
+            static bool warned_bad_time = false;
+            if (!warned_bad_time) {
+                warned_bad_time = true;
+                qWarning("Плановый вечерний замер: scheduler/eveningTime = \"%s\" не является временем ЧЧ:ММ",
+                         qUtf8Printable(target_time));
+            }
+        } else if (QTime::currentTime() >= target &&
+                   s.value(SettingsKeys::LastEvening()).toString() != today_str) {
+            s.setValue(SettingsKeys::LastEvening(), today_str);
+            const double ping = currentPing();
+            const double jitter = currentJitter();
+            const double loss = currentLossPercent();
             history_.recordStart(QStringLiteral("scheduled-evening").toStdString(), boost_active_);
-            history_.recordEndWithScore(currentPing(), currentJitter(), currentLossPercent(),
-                                        currentMaxPing(),
-                                        ConnectionGrader::evaluate(currentPing(), currentJitter(),
-                                                                   currentLossPercent()).score);
+            history_.recordEndWithScore(ping, jitter, loss, currentMaxPing(),
+                                        ConnectionGrader::evaluate(ping, jitter, loss).score);
             emit remediationApplied(QString::fromUtf8(
-                "\xD0\x9F\xD0\xBB\xD0\xB0\xD0\xBD\xD0\xBE\xD0\xB2\xD1\x8B\xD0\xB9\x20\xD0\xB7\xD0\xB0\xD0\xBC\xD0%B5\xD1%80\x20\xD1%81\xD0\xBE\xD1%85\xD1%80\xD0\xB0%D0\xBD%D1%91\xD0\xBD"));
+                "\xD0\x9F\xD0\xBB\xD0\xB0\xD0\xBD\xD0\xBE\xD0\xB2\xD1\x8B\xD0\xB9\x20\xD0\xB7\xD0\xB0\xD0\xBC\xD0\xB5\xD1\x80\x20\xD1\x81\xD0\xBE\xD1\x85\xD1\x80\xD0\xB0\xD0\xBD\xD1\x91\xD0\xBD"));
         }
     }
 
-    if (s.value(QStringLiteral("scheduler/morningScan"), false).toBool() &&
+    if (s.value(SettingsKeys::MorningScan(), false).toBool() &&
         last_schedule_date_ != today_str + QStringLiteral("_morn")) {
         last_schedule_date_ = today_str + QStringLiteral("_morn");
-        emit remediationApplied(QString::fromUtf8(
-            "\xD0\x90\xD0\xB2\xD1\x82\xD0\xBE\xD1\x81\xD0\xBA\xD0\xB0\xD0\xBD\x20\xD0\xBF\xD1%80\xD0\xB8\x20\xD1%81\xD1%82\xD0\xB0%D1%80\xD1%82\xD0%B5\x3A\x20\xD0\xBF\xD1%80\xD0\xBE\xD1%84\xD0\xB8\xD0\xBB\xD0\xB8\x20\xD0\xBF\xD0\xBE%D0%B4\x20\xD0\xBA\xD0\xBE%D0\xBD\xD1%82\xD1%80\xD0\xBE\xD0\xBB%D0%B5\xD0\xBC"));
+        // Раньше здесь только показывалось бодрое сообщение «профили под
+        // контролем» — то есть галочка «Автоскан при старте» ничего не
+        // сканировала. Теперь реально проверяем состояние системы (только
+        // чтение, без записи) и говорим, сколько параметров отличается.
+        const auto fps = SystemAudit::verifyFpsSettings();
+        const auto net = SystemAudit::verifyNetworkSettings();
+        int total = 0;
+        int ok = 0;
+        for (const auto* list : {&fps, &net}) {
+            for (const auto& change : *list) {
+                ++total;
+                if (change.status == SettingChange::Status::Verified) ++ok;
+            }
+        }
+        if (total == 0) {
+            emit remediationApplied(QString::fromUtf8("Автоскан при старте: нечего проверять"));
+        } else if (ok == total) {
+            emit remediationApplied(QString::fromUtf8("Автоскан при старте: все %1 параметров в порядке").arg(total));
+        } else {
+            emit remediationApplied(QString::fromUtf8("Автоскан при старте: %1 из %2 параметров можно улучшить")
+                                        .arg(total - ok).arg(total));
+        }
     }
 }
 } // namespace gno

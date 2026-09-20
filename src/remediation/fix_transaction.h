@@ -20,7 +20,11 @@ public:
                    std::vector<ActionTarget> targets,
                    IBackupStore& backup_store);
 
-    const TransactionRecord& record() const;
+    // Возвращает СНИМОК записи: вызывающий (часто другой поток — UI, опрашивающий
+    // статус) не должен получать ссылку на record_, мьютекс которой отпускается
+    // в момент возврата. Раньше возвращалась const& и persist(record())
+    // держал эту ссылку всё время записи файла в backup store.
+    TransactionRecord record() const;
 
     Result<TransactionRecord> prepare();
     Result<TransactionRecord> execute();

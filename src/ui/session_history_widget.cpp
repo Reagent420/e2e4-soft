@@ -14,14 +14,31 @@
 
 #include "../core/session_history.h"
 #include "../core/report_exporter.h"
+#include "monitoring_service.h"
 #include "report_export.h"
 
 namespace gno {
 
+namespace {
+
+// Служебные записи показываем понятным текстом, а не внутренним
+// идентификатором: плановый замер сохраняется с именем "scheduled-evening".
+QString displayGameName(const std::string& raw) {
+    if (raw == "scheduled-evening")
+        return QString::fromUtf8("Плановый вечерний замер");
+    return QString::fromStdString(raw);
+}
+
+} // namespace
+
 SessionHistoryWidget::SessionHistoryWidget(QWidget* parent)
-    : QWidget(parent), m_history(new SessionHistory()) {
+    : QWidget(parent), m_history(MonitoringService::instance().history()) {
     setupUI();
     refreshHistory();
+    // Список обновляется сам, когда сервис записывает завершённую сессию:
+    // раньше новые замеры были видны только после ручного нажатия «Обновить».
+    connect(&MonitoringService::instance(), &MonitoringService::sessionRecorded,
+            this, [this]() { refreshHistory(); });
 }
 
 void SessionHistoryWidget::setupUI() {
@@ -58,7 +75,8 @@ void SessionHistoryWidget::setupUI() {
         auto records = m_history->getAll();
         QString path = gno::report::defaultReportsDir() + "/history_report.png";
         bool ok = gno::report::exportHistoryReport(path, records,
-                    m_history->getAveragePing(), m_history->getAverageJitter());
+                    m_history->getAveragePing(), m_history->getAverageJitter(),
+                    m_history->getAverageLoss());
         QMessageBox::information(this, "Экспорт отчёта",
             ok ? QString("Отчёт сохранён:\n%1").arg(path)
                : QString("Не удалось сохранить отчёт."));
@@ -118,13 +136,16 @@ void SessionHistoryWidget::refreshHistory() {
 
     // Stats summary
     m_statsLabel->setText(QString(
-        "%1 сессий · Средний пинг: %2 ms · Оценка: %3")
+        "%1 сессий · Средний пинг: %2 ms · Потери: %3% · Оценка: %4")
         .arg(records.size())
         .arg(m_history->getAveragePing(), 0, 'f', 1)
+        .arg(m_history->getAverageLoss(), 0, 'f', 2)
+        // Потери передаются реальные: раньше здесь стоял жёсткий 0, и сводная
+        // оценка не сходилась с оценками отдельных сессий в списке.
         .arg(ConnectionGrader::evaluate(
             m_history->getAveragePing(),
             m_history->getAverageJitter(),
-            0).score));
+            m_history->getAverageLoss()).score));
 
     // Score trend chart
     auto* series = new QLineSeries();
@@ -175,7 +196,7 @@ void SessionHistoryWidget::refreshHistory() {
 
         auto* nameLbl = new QLabel(
             QString("%1\n%2 → %3")
-                .arg(QString::fromStdString(it->game_name),
+                .arg(displayGameName(it->game_name),
                      QString::fromStdString(it->start_time_str),
                      QString::fromStdString(it->end_time_str)),
             card);

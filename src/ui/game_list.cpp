@@ -103,6 +103,7 @@ void GameListWidget::onRefresh() {
 void GameListWidget::buildGameCards() {
     games_.clear();
     game_cards_.clear();
+    card_visible_.clear();
 
     // clear grid
     QLayoutItem* item;
@@ -194,17 +195,20 @@ void GameListWidget::buildGameCards() {
 
         grid_layout_->addWidget(card, i / cols, i % cols);
         game_cards_.append(card);
+        card_visible_.append(true);
     }
 }
 
 void GameListWidget::onSearchChanged(const QString& text) {
-    int visible = 0;
+    // card_visible_ — наш собственный учёт видимости. isVisible() тут не
+    // подходит: страница создаётся лениво и до первого show все карточки
+    // сообщают isVisible()==false, и статус показывал бы «Показано игр: 0».
     for (int i = 0; i < game_cards_.size(); ++i) {
         bool match = text.isEmpty() ||
                      games_[i].name.contains(text, Qt::CaseInsensitive) ||
                      games_[i].category.contains(text, Qt::CaseInsensitive);
         game_cards_[i]->setVisible(match);
-        if (match) ++visible;
+        card_visible_[i] = match;
     }
     updateStatus();
 }
@@ -241,7 +245,7 @@ void GameListWidget::updateStatus() {
     int installed = 0;
     int running = 0;
     for (int i = 0; i < games_.size(); ++i) {
-        if (game_cards_[i]->isVisible()) {
+        if (i < card_visible_.size() && card_visible_[i]) {
             ++total;
             if (games_[i].installed) ++installed;
             if (games_[i].running) ++running;

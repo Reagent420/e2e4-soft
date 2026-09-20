@@ -11,21 +11,28 @@
 
 namespace gno {
 
+// Новая IA (GNO_CONCEPT 8+1): 8 секций + модальные настройки.
+// Бывшие 14 пунктов стали представлениями (вкладками) внутри секций:
+//   Games        ← Games + Profiles
+//   Network      ← Monitoring + NetworkTools + Diagnostics
+//   System       ← ProcessMonitor + FineTune
+//   Optimizations← Remediation + Optimizer
+//   Servers      ← GeoMap
+//   History      ← History
+//   Knowledge    ← новая секция (problem_db)
+//   Settings     ← модалка (не секция)
+// FPS Boost выведен из навигации (плацебо-риск; действия переедут в Optimizations, P10).
 enum class NavPage {
     Dashboard = 0,
     Games,
-    Profiles,
-    Monitoring,
-    Optimizer,
-    NetworkTools,
-    ProcessMonitor,
+    Network,
+    System,
+    Optimizations,
+    Servers,
     History,
-    Diagnostics,
-    Remediation,
-    GeoMap,
-    ThemeEditor,
-    Settings,
-    Count
+    Knowledge,
+    Count,
+    Settings = 100  // виртуальный id кнопки настроек (вне стека страниц)
 };
 
 class Sidebar : public QWidget {
@@ -39,12 +46,14 @@ public:
 
 signals:
     void navigationChanged(int index);
+    void settingsRequested();
 
 private:
     QPushButton* createNavButton(NavPage page);
     static QIcon makeIcon(NavPage page, const QColor& color);
 
     QButtonGroup* m_buttonGroup;
+    QPushButton* m_settingsButton = nullptr;
     QLabel* m_logoLabel;
     QLabel* m_versionLabel;
     static constexpr int BUTTON_COUNT = static_cast<int>(NavPage::Count);

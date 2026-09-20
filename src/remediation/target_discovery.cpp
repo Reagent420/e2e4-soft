@@ -31,12 +31,29 @@ std::optional<ActionTarget> discoverPrimaryInterface() {
     if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, nullptr, adapters, &size) != NO_ERROR)
         return std::nullopt;
 
-    for (auto* adapter = adapters; adapter; adapter = adapter->Next) {
-        if (adapter->OperStatus != IfOperStatusUp || !adapter->FirstGatewayAddress) continue;
+    auto make_target = [](IP_ADAPTER_ADDRESSES* adapter) {
         char guid[128] = {};
         strncpy(guid, adapter->AdapterName, sizeof(guid) - 1);
         return ActionTarget{InterfaceTarget{guid, adapter->IfIndex}};
+    };
+
+    // Первый проход — настоящий адаптер (Ethernet/Wi-Fi). Туннельные и loopback
+    // пропускаем: у туннеля MTU из MIB бывает 65535, из-за чего движок падал с
+    // «observed state out of bounds» и не применял НИЧЕГО, а выставлять MTU/DNS
+    // виртуальному адаптеру бессмысленно — трафик идёт через сам туннель.
+    IP_ADAPTER_ADDRESSES* fallback = nullptr;
+    for (auto* adapter = adapters; adapter; adapter = adapter->Next) {
+        if (adapter->OperStatus != IfOperStatusUp || !adapter->FirstGatewayAddress) continue;
+        const bool virtual_like = adapter->IfType == IF_TYPE_TUNNEL ||
+                                  adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK;
+        if (virtual_like) {
+            // VPN-only конфигурация: если ничего другого нет — используем туннель.
+            if (!fallback) fallback = adapter;
+            continue;
+        }
+        return make_target(adapter);
     }
+    if (fallback) return make_target(fallback);
     return std::nullopt;
 }
 

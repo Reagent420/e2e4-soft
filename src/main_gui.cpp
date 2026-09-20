@@ -1,46 +1,52 @@
-﻿#include <QApplication>
+#include <QApplication>
 #include <QMessageBox>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QSettings>
 #include <QObject>
-#include <cstdio>
+#include <QTimer>
+#include <string>
 
 #include "ui/main_window.h"
 #include "ui/system_tray.h"
 #include "ui/overlay.h"
 #include "ui/theme.h"
+#include "ui/update_checker.h"
 #include "monitoring/monitoring_service.h"
 #include "core/alert_thresholds.h"
-#include "optimization/fps_optimizer.h"
-#include "core/network_utils.h"
+#include "core/settings_keys.h"
+#include "core/logger.h"
+#include "remediation/boost_gate.h"
 
+#include <filesystem>
+
+namespace gno_log = gno::log;
+
+// Раньше все сообщения шли в stderr. При запуске из ярлыка (подсистема WIN32,
+// без консоли) stderr уходит в никуда, поэтому лог теперь пишется в файл —
+// см. core/logger.h. Источник (файл:строка) сохраняем: без него разбор
+// жалоб по логу превращается в гадание.
 void myMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg) {
-    QByteArray localMsg = msg.toLocal8Bit();
     const char* typeStr = "";
+    gno_log::Level level = gno_log::Level::Info;
     switch (type) {
-        case QtDebugMsg:    typeStr = "DEBUG"; break;
-        case QtInfoMsg:     typeStr = "INFO"; break;
-        case QtWarningMsg:  typeStr = "WARN"; break;
-        case QtCriticalMsg: typeStr = "CRIT"; break;
-        case QtFatalMsg:    typeStr = "FATAL"; break;
+        case QtDebugMsg:    typeStr = "DEBUG"; level = gno_log::Level::Debug; break;
+        case QtInfoMsg:     typeStr = "INFO";  level = gno_log::Level::Info; break;
+        case QtWarningMsg:  typeStr = "WARN";  level = gno_log::Level::Warning; break;
+        case QtCriticalMsg: typeStr = "CRIT";  level = gno_log::Level::Error; break;
+        case QtFatalMsg:    typeStr = "FATAL"; level = gno_log::Level::Critical; break;
     }
-    fprintf(stderr, "[QT %s] %s (%s:%u %s)\n", typeStr, localMsg.constData(),
-            context.file ? context.file : "", context.line, context.function ? context.function : "");
-}
 
-static gno::FPSBoostConfig loadBoostConfig() {
-    QSettings settings;
-    gno::FPSBoostConfig cfg;
-    cfg.disable_game_dvr = settings.value("optimizer/gameDvr", true).toBool();
-    cfg.disable_fullscreen_optimizations = settings.value("optimizer/fullscreenOpt", true).toBool();
-    cfg.disable_mouse_acceleration = settings.value("optimizer/mouseAccel", true).toBool();
-    cfg.disable_game_mode = settings.value("optimizer/gameMode", false).toBool();
-    cfg.optimize_power_plan = settings.value("optimizer/powerPlan", true).toBool();
-    cfg.set_high_priority = settings.value("optimizer/highPriority", true).toBool();
-    cfg.optimize_virtual_memory = settings.value("optimizer/virtualMemory", true).toBool();
-    return cfg;
+    std::string line = std::string("[QT ") + typeStr + "] " + msg.toStdString();
+    if (context.file) {
+        line += " (";
+        line += context.file;
+        line += ':';
+        line += std::to_string(context.line);
+        line += ')';
+    }
+    gno_log::write(level, line);
 }
 
 static void applyBoost(bool on, gno::MainWindow& window) {
@@ -48,46 +54,70 @@ static void applyBoost(bool on, gno::MainWindow& window) {
     svc.setBoostActive(on);
     window.setBoostIndicator(on);
 
-    if (on) {
-        gno::FPSOptimizer optimizer;
-        auto result = optimizer.applyConfig(loadBoostConfig());
-        if (!result.warnings.empty())
-            window.showRecommendation(QString::fromStdString(result.warnings[0]));
+    namespace rem = gno::remediation;
+    rem::BoostGate gate(rem::defaultBackupsDir());
 
+    if (on) {
         QSettings settings;
-        if (settings.value("optimizer/tcpOpt", true).toBool())
-            gno::NetworkUtils::applyTCPOptimizations(true);
-        if (settings.value("optimizer/mtuOpt", true).toBool()) {
-            std::string iface = gno::NetworkUtils::getNetworkInterfaceName();
-            if (iface != "default")
-                gno::NetworkUtils::setMTU(iface, settings.value("optimizer/mtuValue", 1400).toUInt());
-        }
-        if (settings.value("optimizer/customDns", false).toBool()) {
-            std::string iface = gno::NetworkUtils::getNetworkInterfaceName();
-            if (iface != "default")
-                gno::NetworkUtils::setDNS(iface, settings.value("optimizer/dnsServer", "1.1.1.1").toString().toStdString());
-        }
-        fprintf(stderr, "Boost applied\n");
+        namespace sk = gno::SettingsKeys;
+        rem::BoostRequest req;
+        req.disable_game_dvr = settings.value(sk::GameDvr(), true).toBool();
+        req.disable_fullscreen_optimizations = settings.value(sk::FullscreenOpt(), true).toBool();
+        req.disable_mouse_acceleration = settings.value(sk::MouseAccel(), true).toBool();
+        req.disable_game_mode = settings.value(sk::GameMode(), false).toBool();
+        req.optimize_power_plan = settings.value(sk::PowerPlan(), true).toBool();
+        req.set_high_priority = settings.value(sk::HighPriority(), true).toBool();
+        req.optimize_virtual_memory = false; // engine-off-policy: skip with explanation
+        req.tcp_optimization = settings.value(sk::TcpOpt(), true).toBool();
+        req.mtu_optimization = settings.value(sk::MtuOpt(), true).toBool();
+        req.mtu_value = settings.value(sk::MtuValue(), 1500).toUInt();
+        req.custom_dns = settings.value(sk::CustomDns(), false).toBool();
+        req.dns_server = settings.value(sk::DnsServer(), "1.1.1.1").toString().toStdString();
+
+        auto result = gate.applyBoost(req);
+        window.showRecommendation(QString::fromUtf8("Буст через безопасный движок: %1")
+                                      .arg(QString::fromStdString(result.detail)));
+        if (!result.skipped.empty())
+            window.showRecommendation(QString::fromUtf8("Пропущено: %1")
+                                          .arg(QString::fromStdString(result.skipped[0])));
+        gno_log::write(gno_log::Level::Info,
+                       std::string("Boost applied via gate: ok=") + (result.ok ? "1" : "0") +
+                           " txn=" + result.transaction_id);
     } else {
-        gno::FPSOptimizer optimizer;
-        optimizer.revertAll();
-        gno::NetworkUtils::applyTCPOptimizations(false);
-        fprintf(stderr, "Boost reverted\n");
+        auto result = gate.revertBoost();
+        gno_log::write(gno_log::Level::Info,
+                       std::string("Boost revert via gate: ok=") + (result.ok ? "1" : "0") +
+                           " " + result.detail);
     }
 }
 
 int main(int argc, char* argv[]) {
+    // --smoke-test: прогон реального пути старта без человека за монитором.
+    // Нужен для CI и scripts/smoke-test.sh: приложение поднимает всё как обычно,
+    // но само выходит через пару секунд и не показывает модальных окон —
+    // иначе проверка повисла бы навсегда на первом же QMessageBox.
+    bool smoke_test = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--smoke-test")
+            smoke_test = true;
+    }
+
+    // Лог инициализируем ДО установки обработчика Qt: иначе первые сообщения
+    // Qt (в т.ч. о неподнявшемся platform-плагине) уйдут в никуда.
+    gno_log::init("GNO");
     qInstallMessageHandler(myMessageHandler);
 
-    fprintf(stderr, "=== E2E4 Soft v%s Starting ===\n", gno::theme::APP_VERSION);
-    fprintf(stderr, "App dir: %s\n", QDir::currentPath().toUtf8().constData());
+    gno_log::write(gno_log::Level::Info,
+                   std::string("=== E2E4 Soft v") + gno::theme::APP_VERSION + " Starting ===");
+    gno_log::write(gno_log::Level::Info, "App dir: " + QDir::currentPath().toStdString());
 
     QApplication app(argc, argv);
     app.setApplicationName("GNO");
     app.setApplicationVersion(gno::theme::APP_VERSION);
     app.setOrganizationName("GNO");
 
-    fprintf(stderr, "Platform: %s\n", QApplication::platformName().toUtf8().constData());
+    gno_log::write(gno_log::Level::Info,
+                   std::string("Platform: ") + QApplication::platformName().toStdString());
 
     QString appDir = QApplication::applicationDirPath();
     QStringList checks = {
@@ -97,42 +127,47 @@ int main(int argc, char* argv[]) {
     bool allOk = true;
     for (const QString& f : checks) {
         bool ok = QFile::exists(appDir + "/" + f);
-        fprintf(stderr, "Check %s: %s\n", f.toUtf8().constData(), ok ? "OK" : "MISSING!");
+        gno_log::write(ok ? gno_log::Level::Info : gno_log::Level::Error,
+                       "Check " + f.toStdString() + ": " + (ok ? "OK" : "MISSING!"));
         if (!ok) allOk = false;
     }
 
     if (!allOk) {
-        QMessageBox::critical(nullptr, QString::fromUtf8("Ошибка E2E4 Soft"),
-            QString::fromUtf8("Отсутствуют необходимые файлы!\nУбедитесь, что все DLL находятся в одной папке с E2E4.exe."));
+        if (!smoke_test) {
+            QMessageBox::critical(nullptr, QString::fromUtf8("Ошибка E2E4 Soft"),
+                QString::fromUtf8("Отсутствуют необходимые файлы!\nУбедитесь, что все DLL находятся в одной папке с E2E4.exe."));
+        }
+        gno_log::shutdown();
         return 1;
     }
 
-    fprintf(stderr, "Applying stylesheet...\n");
+    gno_log::write(gno_log::Level::Info, "Applying stylesheet...");
     QSettings settings;
-    bool darkTheme = settings.value("theme", "dark").toString() != "light";
+    namespace sk = gno::SettingsKeys;
+    bool darkTheme = settings.value(sk::Theme(), "dark").toString() != "light";
     app.setStyleSheet(gno::theme::globalStyleSheet(darkTheme));
 
-    fprintf(stderr, "Creating MainWindow...\n");
+    gno_log::write(gno_log::Level::Info, "Creating MainWindow...");
     try {
         gno::MainWindow window;
         gno::SystemTray tray;
 
         gno::MonitoringService& svc = gno::MonitoringService::instance();
-        svc.setSoundEnabled(settings.value("soundNotifications", true).toBool());
+        svc.setSoundEnabled(settings.value(sk::SoundNotifications(), true).toBool());
         svc.start();
 
         gno::OverlayWidget overlay;
         overlay.setCorner(static_cast<gno::OverlayWidget::Corner>(
-            settings.value("overlayCorner", 1).toInt()));
+            settings.value(sk::OverlayCorner(), 1).toInt()));
         overlay.setOpacityPercent(
-            QList<int>{60, 75, 85, 95, 100}.value(settings.value("overlayOpacity", 2).toInt(), 85));
-        if (settings.value("overlayEnabled", false).toBool())
+            QList<int>{60, 75, 85, 95, 100}.value(settings.value(sk::OverlayOpacity(), 2).toInt(), 85));
+        if (settings.value(sk::OverlayEnabled(), false).toBool())
             overlay.showOverlay();
 
         // settings page lives inside the main window; forward its signals
         QObject::connect(&window, &gno::MainWindow::themeChanged,
                 &window, [&app, &settings](bool dark) {
-            settings.setValue("theme", dark ? "dark" : "light");
+            settings.setValue(gno::SettingsKeys::Theme(), dark ? "dark" : "light");
             app.setStyleSheet(gno::theme::globalStyleSheet(dark));
         });
 
@@ -140,6 +175,12 @@ int main(int argc, char* argv[]) {
                 &window, &gno::MainWindow::forceShow);
 
         QObject::connect(&tray, &gno::SystemTray::boostToggled,
+                &window, [&window](bool on) {
+            applyBoost(on, window);
+        });
+
+        // Dashboard «ВКЛЮЧИТЬ ОПТИМИЗАЦИЮ» — тот же безопасный движок, что и в трее.
+        QObject::connect(&window, &gno::MainWindow::boostRequested,
                 &window, [&window](bool on) {
             applyBoost(on, window);
         });
@@ -187,14 +228,22 @@ QObject::connect(&svc, &gno::MonitoringService::pingUpdated,
             tray.showMessage(QString::fromUtf8("Игра завершена"),
                              QString::fromUtf8("%1 — сессия сохранена в истории").arg(game));
         });
+        // Раньше remediationApplied эмитился и никем не принимался: результаты
+        // автопилота, планового замера и автоскана молча пропадали, хотя
+        // программа при этом меняла настройки системы.
+        QObject::connect(&svc, &gno::MonitoringService::remediationApplied,
+                &tray, [&tray](const QString& summary) {
+            tray.showMessage(QString::fromUtf8("Оптимизация"), summary);
+        });
 
         // settings page -> overlay / service / tray
         QObject::connect(&window, &gno::MainWindow::overlaySettingsChanged,
                 &overlay, [&overlay](bool enabled, int corner, int opacity) {
             QSettings s;
-            s.setValue("overlayEnabled", enabled);
-            s.setValue("overlayCorner", corner);
-            s.setValue("overlayOpacity", opacity);
+            namespace sk = gno::SettingsKeys;
+            s.setValue(sk::OverlayEnabled(), enabled);
+            s.setValue(sk::OverlayCorner(), corner);
+            s.setValue(sk::OverlayOpacity(), opacity);
             overlay.setCorner(static_cast<gno::OverlayWidget::Corner>(corner));
             overlay.setOpacityPercent(QList<int>{60, 75, 85, 95, 100}.value(opacity, 85));
             if (enabled)
@@ -216,17 +265,51 @@ QObject::connect(&svc, &gno::MonitoringService::pingUpdated,
         QObject::connect(&overlay, &gno::OverlayWidget::overlayToggled,
                 &tray, &gno::SystemTray::setOverlayOn);
 
-        fprintf(stderr, "MainWindow + SystemTray + MonitoringService created, showing...\n");
+        gno_log::write(gno_log::Level::Info,
+                       "MainWindow + SystemTray + MonitoringService created, showing...");
         window.show();
-        fprintf(stderr, "=== Entering event loop ===\n");
-        return app.exec();
+
+        // Автопроверка обновлений: асинхронно, с задержкой — окно уже на
+        // экране и остаётся отзывчивым, а диалог появляется только если
+        // обновление действительно есть.
+        if (!smoke_test && settings.value(sk::AutoUpdate(), true).toBool()) {
+            gno_log::write(gno_log::Level::Info,
+                           "Автопроверка обновлений запланирована через 2.5 с");
+            QTimer::singleShot(2500, &window, [&window]() {
+                // Живёт вместе с окном: запрос завершится уже после выхода
+                // из этого лямбда-выражения.
+                auto* checker = new gno::ui::UpdateChecker(&window);
+                checker->checkAsync(&window);
+            });
+        } else if (!smoke_test) {
+            gno_log::write(gno_log::Level::Info,
+                           "Автопроверка обновлений отключена в настройках");
+        }
+
+        gno_log::write(gno_log::Level::Info, "=== Entering event loop ===");
+        if (smoke_test) {
+            // Даём событийному циклу провернуть стартовые задачи (таймеры
+            // мониторинга, отрисовка первого кадра) и выходим сами.
+            gno_log::write(gno_log::Level::Info, "smoke-test: auto-quit in 1500 ms");
+            QTimer::singleShot(1500, &app, &QApplication::quit);
+        }
+        const int rc = app.exec();
+        gno_log::write(gno_log::Level::Info, "=== Event loop finished, exiting ===");
+        gno_log::shutdown();
+        return rc;
     } catch (const std::exception& e) {
-        fprintf(stderr, "FATAL: %s\n", e.what());
-        QMessageBox::critical(nullptr, QString::fromUtf8("Критическая ошибка E2E4 Soft"), QString("Exception: %1").arg(e.what()));
+        gno_log::write(gno_log::Level::Critical, std::string("FATAL: ") + e.what());
+        if (!smoke_test) {
+            QMessageBox::critical(nullptr, QString::fromUtf8("Критическая ошибка E2E4 Soft"), QString("Exception: %1").arg(e.what()));
+        }
+        gno_log::shutdown();
         return 1;
     } catch (...) {
-        fprintf(stderr, "FATAL: unknown exception\n");
-        QMessageBox::critical(nullptr, QString::fromUtf8("Критическая ошибка E2E4 Soft"), QString::fromUtf8("Неизвестная ошибка"));
+        gno_log::write(gno_log::Level::Critical, "FATAL: unknown exception");
+        if (!smoke_test) {
+            QMessageBox::critical(nullptr, QString::fromUtf8("Критическая ошибка E2E4 Soft"), QString::fromUtf8("Неизвестная ошибка"));
+        }
+        gno_log::shutdown();
         return 1;
     }
 }

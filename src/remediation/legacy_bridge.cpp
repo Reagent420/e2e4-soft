@@ -33,7 +33,9 @@ bool mapLegacy(const std::string& legacy_id, Mapped& out) {
 
 } // namespace
 
-std::string applySafeFix(const std::string& legacy_id, WindowsStateApi& api, IBackupStore& store) {
+std::string applySafeFix(const std::string& legacy_id, WindowsStateApi& api, IBackupStore& store,
+                         bool* applied_out) {
+    if (applied_out) *applied_out = false;
     Mapped mapped;
     if (!mapLegacy(legacy_id, mapped))
         return {};
@@ -80,7 +82,38 @@ std::string applySafeFix(const std::string& legacy_id, WindowsStateApi& api, IBa
     if (!executed)
         return "Применение прервано: " + executed.detail();
 
+    if (applied_out) *applied_out = true;
     return actionDisplayName(mapped.id) + ": применено (создан бэкап, откат - кнопка «Откатить последнее» во вкладке «Оптимизация Win»).";
+}
+
+std::string applySafeDns(const DnsValue& value, WindowsStateApi& api,
+                         IBackupStore& store, bool* applied_out) {
+    if (applied_out) *applied_out = false;
+
+    // Цель — активный адаптер с шлюзом, как и у любого другого сетевого фикса.
+    auto iface = discoverPrimaryInterface();
+    if (!iface) return "Не удалось: не найден активный сетевой адаптер с шлюзом.";
+
+    // Создаём только DNS-действие, но со значением пользователя, а не с парой
+    // движка по умолчанию. Движок по-прежнему делает backup → apply → verify.
+    std::vector<std::unique_ptr<FixAction>> actions;
+    actions.push_back(std::make_unique<WindowsFixAction>(ActionId::Dns, api, value));
+
+    std::vector<ActionTarget> targets{*iface};
+    FixTransaction transaction("tx-dns-" + std::to_string(
+                                   std::chrono::steady_clock::now().time_since_epoch().count()),
+                               std::move(actions), std::move(targets), store);
+
+    auto prepared = transaction.prepare();
+    if (!prepared)
+        return "Не удалось подготовить изменение: " + prepared.detail();
+
+    auto executed = transaction.execute();
+    if (!executed)
+        return "Применение прервано: " + executed.detail();
+
+    if (applied_out) *applied_out = true;
+    return actionDisplayName(ActionId::Dns) + ": применено (создан бэкап, откат - кнопка «Откатить последнее» во вкладке «Оптимизация Win»).";
 }
 
 } // namespace remediation

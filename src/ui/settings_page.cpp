@@ -14,7 +14,11 @@
 
 #include "../core/pro_presets.h"
 #include "theme.h"
-#include "../core/i18n.h"
+#include "../core/settings_keys.h"
+#include "../core/updater.h"
+#include "update_checker.h"
+
+namespace sk = gno::SettingsKeys;
 
 static QWidget* createSection(const QString& title, QVBoxLayout* contentLayout, QWidget* parent) {
     auto* group = new QWidget(parent);
@@ -158,16 +162,6 @@ void SettingsPageWidget::setupUI()
         themeRow->addWidget(themeLabel);
         themeRow->addSpacing(12);
         themeRow->addWidget(theme_);
-
-        auto* langLbl = new QLabel(QString::fromUtf8("\xD0\xAF\xD0\xB7\xD1\x8B\xD0\xBA\x3A"), this);
-        themeRow->addSpacing(12);
-        themeRow->addWidget(langLbl);
-        language_ = createComboBox({QStringLiteral("Russian"), QStringLiteral("English")}, 
-            QSettings().value(QStringLiteral("app/language"), 0).toInt(), this);
-        themeRow->addWidget(language_);
-        connect(language_, &QComboBox::currentIndexChanged, this, [this](int idx) {
-            QSettings().setValue(QStringLiteral("app/language"), idx);
-        });
         themeRow->addStretch();
         generalLayout->addLayout(themeRow);
 
@@ -294,6 +288,18 @@ void SettingsPageWidget::setupUI()
         dev_mode_ = createCheckBox(QString::fromUtf8("Режим разработчика"), false, this);
         advLayout->addWidget(verbose_log_);
         advLayout->addWidget(auto_update_);
+
+        // Кнопка рядом с галочкой: «автообновление» проверяет версию при
+        // старте, а эта кнопка позволяет проверить прямо сейчас.
+        auto* updateRow = new QHBoxLayout();
+        check_updates_ = new QPushButton(QString::fromUtf8("Проверить обновления"), this);
+        check_updates_->setObjectName("secondaryButton");
+        check_updates_->setCursor(Qt::PointingHandCursor);
+        connect(check_updates_, &QPushButton::clicked, this, &SettingsPageWidget::onCheckUpdates);
+        updateRow->addWidget(check_updates_);
+        updateRow->addStretch();
+        advLayout->addLayout(updateRow);
+
         advLayout->addWidget(dev_mode_);
 
         scrollLayout->addWidget(createSection(QString::fromUtf8("ДОПОЛНИТЕЛЬНО"), advLayout, this));
@@ -333,10 +339,16 @@ void SettingsPageWidget::setupUI()
         descLabel->setWordWrap(true);
         aboutLayout->addWidget(descLabel);
 
-        auto* githubLabel = new QLabel("GitHub: github.com/user/gno-native", this);
-        QPalette pal = githubLabel->palette();
-        pal.setColor(QPalette::WindowText, QColor(0x55, 0x99, 0xFF));
-        githubLabel->setPalette(pal);
+        // Ссылка ведёт на реальный репозиторий продукта (совпадает с
+        // core/updater.h) — раньше здесь стояла заглушка github.com/user/...
+        auto* githubLabel = new QLabel(
+            QString("<a style='color:#5599ff; text-decoration:none;' href=\"%1\">"
+                    "GitHub: github.com/%2/%3</a>")
+                .arg(QString::fromStdString(gno::updater::repositoryUrl()),
+                     gno::updater::kOwner, gno::updater::kRepo),
+            this);
+        githubLabel->setOpenExternalLinks(true);
+        githubLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
         aboutLayout->addWidget(githubLabel);
 
         scrollLayout->addWidget(createSection(QString::fromUtf8("О ПРОГРАММЕ"), aboutLayout, this));
@@ -360,42 +372,42 @@ void SettingsPageWidget::setupUI()
 
 void SettingsPageWidget::loadSettings() {
     QSettings settings;
-    start_windows_->setChecked(settings.value("startWithWindows", false).toBool());
-    minimize_tray_->setChecked(settings.value("minimizeToTray", true).toBool());
-    show_notifications_->setChecked(settings.value("notifications", true).toBool());
-    sound_notifications_->setChecked(settings.value("soundNotifications", true).toBool());
-    overlay_enabled_->setChecked(settings.value("overlayEnabled", false).toBool());
-    language_->setCurrentIndex(settings.value("language", 0).toInt());
-    theme_->setCurrentIndex(settings.value("theme", "dark").toString() == "light" ? 1 : 0);
-    protocol_->setCurrentIndex(settings.value("protocol", 0).toInt());
-    region_->setCurrentIndex(settings.value("region", 0).toInt());
-    max_routes_->setCurrentIndex(settings.value("maxRoutes", 2).toInt());
-    ping_interval_->setCurrentIndex(settings.value("pingInterval", 1).toInt());
-    overlay_corner_->setCurrentIndex(settings.value("overlayCorner", 1).toInt());
-    overlay_opacity_->setCurrentIndex(settings.value("overlayOpacity", 2).toInt());
-    verbose_log_->setChecked(settings.value("verboseLog", false).toBool());
-    auto_update_->setChecked(settings.value("autoUpdate", true).toBool());
-    dev_mode_->setChecked(settings.value("devMode", false).toBool());
+    start_windows_->setChecked(settings.value(sk::StartWithWindows(), false).toBool());
+    minimize_tray_->setChecked(settings.value(sk::MinimizeToTray(), true).toBool());
+    show_notifications_->setChecked(settings.value(sk::Notifications(), true).toBool());
+    sound_notifications_->setChecked(settings.value(sk::SoundNotifications(), true).toBool());
+    overlay_enabled_->setChecked(settings.value(sk::OverlayEnabled(), false).toBool());
+    language_->setCurrentIndex(settings.value(sk::Language(), 0).toInt());
+    theme_->setCurrentIndex(settings.value(sk::Theme(), QStringLiteral("dark")).toString() == "light" ? 1 : 0);
+    protocol_->setCurrentIndex(settings.value(sk::Protocol(), 0).toInt());
+    region_->setCurrentIndex(settings.value(sk::Region(), 0).toInt());
+    max_routes_->setCurrentIndex(settings.value(sk::MaxRoutes(), 2).toInt());
+    ping_interval_->setCurrentIndex(settings.value(sk::PingInterval(), 1).toInt());
+    overlay_corner_->setCurrentIndex(settings.value(sk::OverlayCorner(), 1).toInt());
+    overlay_opacity_->setCurrentIndex(settings.value(sk::OverlayOpacity(), 2).toInt());
+    verbose_log_->setChecked(settings.value(sk::VerboseLog(), false).toBool());
+    auto_update_->setChecked(settings.value(sk::AutoUpdate(), true).toBool());
+    dev_mode_->setChecked(settings.value(sk::DevMode(), false).toBool());
 }
 
 void SettingsPageWidget::saveSettings() {
     QSettings settings;
-    settings.setValue("startWithWindows", start_windows_->isChecked());
-    settings.setValue("minimizeToTray", minimize_tray_->isChecked());
-    settings.setValue("notifications", show_notifications_->isChecked());
-    settings.setValue("soundNotifications", sound_notifications_->isChecked());
-    settings.setValue("overlayEnabled", overlay_enabled_->isChecked());
-    settings.setValue("language", language_->currentIndex());
-    settings.setValue("theme", theme_->currentIndex() == 1 ? "light" : "dark");
-    settings.setValue("protocol", protocol_->currentIndex());
-    settings.setValue("region", region_->currentIndex());
-    settings.setValue("maxRoutes", max_routes_->currentIndex());
-    settings.setValue("pingInterval", ping_interval_->currentIndex());
-    settings.setValue("overlayCorner", overlay_corner_->currentIndex());
-    settings.setValue("overlayOpacity", overlay_opacity_->currentIndex());
-    settings.setValue("verboseLog", verbose_log_->isChecked());
-    settings.setValue("autoUpdate", auto_update_->isChecked());
-    settings.setValue("devMode", dev_mode_->isChecked());
+    settings.setValue(sk::StartWithWindows(), start_windows_->isChecked());
+    settings.setValue(sk::MinimizeToTray(), minimize_tray_->isChecked());
+    settings.setValue(sk::Notifications(), show_notifications_->isChecked());
+    settings.setValue(sk::SoundNotifications(), sound_notifications_->isChecked());
+    settings.setValue(sk::OverlayEnabled(), overlay_enabled_->isChecked());
+    settings.setValue(sk::Language(), language_->currentIndex());
+    settings.setValue(sk::Theme(), theme_->currentIndex() == 1 ? "light" : "dark");
+    settings.setValue(sk::Protocol(), protocol_->currentIndex());
+    settings.setValue(sk::Region(), region_->currentIndex());
+    settings.setValue(sk::MaxRoutes(), max_routes_->currentIndex());
+    settings.setValue(sk::PingInterval(), ping_interval_->currentIndex());
+    settings.setValue(sk::OverlayCorner(), overlay_corner_->currentIndex());
+    settings.setValue(sk::OverlayOpacity(), overlay_opacity_->currentIndex());
+    settings.setValue(sk::VerboseLog(), verbose_log_->isChecked());
+    settings.setValue(sk::AutoUpdate(), auto_update_->isChecked());
+    settings.setValue(sk::DevMode(), dev_mode_->isChecked());
 }
 
 void SettingsPageWidget::applyStartWithWindows(bool enabled) {
@@ -436,4 +448,19 @@ void SettingsPageWidget::onResetDefaults() {
     emit themeChanged(false);
     emit overlayChanged(false, 1, 2);
     applyStartWithWindows(false);
+}
+
+void SettingsPageWidget::onCheckUpdates() {
+    // Проверка синхронная: интерфейс на время запроса недоступен, поэтому
+    // кнопку гасим и честно показываем, что идёт работа.
+    check_updates_->setEnabled(false);
+    const QString original = check_updates_->text();
+    check_updates_->setText(QString::fromUtf8("Проверяем…"));
+    QCoreApplication::processEvents();
+
+    gno::ui::UpdateChecker checker(this);
+    checker.checkInteractive(this);
+
+    check_updates_->setText(original);
+    check_updates_->setEnabled(true);
 }

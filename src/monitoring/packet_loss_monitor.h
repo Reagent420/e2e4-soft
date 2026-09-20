@@ -43,6 +43,8 @@ private:
     std::string target_ip_;
     std::atomic<bool> running_{false};
     std::thread monitor_thread_;
+    uint32_t interval_ms_ = 5000;
+    uint32_t packet_count_ = 20;
     
     mutable std::mutex stats_mutex_;
     PacketLossResult stats_;

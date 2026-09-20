@@ -1,10 +1,16 @@
 ﻿#include "main_window.h"
 #include "sidebar.h"
 #include "theme.h"
+#include "tabbed_section.h"
 
 #include <QApplication>
 #include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QWidget>
+#include <QDialog>
+#include <QDialogButtonBox>
+
+#include <cstdlib>
 
 #include "dashboard.h"
 #include "game_list.h"
@@ -15,12 +21,26 @@
 #include "process_monitor_widget.h"
 #include "session_history_widget.h"
 #include "diagnostics_widget.h"
+#include "multipath_widget.h"
 #include "remediation_widget.h"
-#include "theme_editor.h"
 #include "geo_map.h"
+#include "fine_tune_widget.h"
+#include "knowledge_widget.h"
 #include "settings_page.h"
 
 namespace gno {
+
+namespace {
+
+// Отладка и скриншоты: GNO_START_TAB=<n> открывает нужную вкладку секции.
+void applyStartTab(TabbedSection* section) {
+    const char* env = std::getenv("GNO_START_TAB");
+    if (!env) return;
+    const int index = std::atoi(env);
+    if (index > 0) section->setCurrentTab(index);
+}
+
+} // namespace
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -30,8 +50,19 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_sidebar, &Sidebar::navigationChanged,
             this, &MainWindow::onNavigationChanged);
+    connect(m_sidebar, &Sidebar::settingsRequested,
+            this, &MainWindow::openSettings);
 
-    m_sidebar->setNavigationIndex(0);
+    // GNO_START_PAGE=<0..7> — открыть раздел сразу (отладка/скриншоты).
+    int start_page = 0;
+    if (const char* env = std::getenv("GNO_START_PAGE")) {
+        const int parsed = std::atoi(env);
+        if (parsed >= 0 && parsed < static_cast<int>(m_page_creators_.size()))
+            start_page = parsed;
+    }
+    m_sidebar->setNavigationIndex(start_page);
+    // setNavigationIndex только подсвечивает кнопку — страницу переключаем явно.
+    if (start_page != 0) onNavigationChanged(start_page);
 }
 
 void MainWindow::setupUi()
@@ -98,36 +129,100 @@ void MainWindow::setupUi()
     statusBar()->addWidget(statusBarWidget, 1);
 }
 
+// Новая IA (GNO_CONCEPT): 8 секций, все страницы ленивые;
+// бывшие 14 пунктов — представлениями (вкладками) внутри секций.
 void MainWindow::setupPages()
 {
-    m_stackedWidget->addWidget(new DashboardWidget(this));
-    m_stackedWidget->addWidget(new GameListWidget(this));
-    m_stackedWidget->addWidget(new GameProfilesWidget(this));
-    m_page_creators_.resize(13);
-    m_page_created_.assign(13, false);
-    m_page_creators_[3] = [this]() { return new MonitoringWidget(this); };
-    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 3
-    m_stackedWidget->addWidget(new OptimizerWidget(this));
-    m_page_creators_[5] = [this]() { return new NetworkToolsWidget(this); };
-    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 5
-    m_page_creators_[6] = [this]() { return new ProcessMonitorWidget(this); };
-    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 6
-    m_stackedWidget->addWidget(new SessionHistoryWidget(this));
-    m_stackedWidget->addWidget(new DiagnosticsWidget(this));
-    m_stackedWidget->addWidget(new RemediationWidget(this));
-    m_page_creators_[10] = [this]() { return new GeoMapWidget(this); };
-    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 10
-    m_page_creators_[11] = [this]() { return new ThemeEditorWidget(this); };
-    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 11
-    m_page_creators_[12] = [this]() { return new SettingsPageWidget(this); };
-    m_stackedWidget->addWidget(new QWidget(this)); // placeholder 12
+    m_page_creators_.resize(8);
+    m_page_created_.assign(8, false);
 
+    m_page_creators_[0] = [this]() {
+        auto* dash = new DashboardWidget(this);
+        // Главная кнопка буста раньше эмитила сигнал в никуда: индикатор
+        // обновлялся, но реальные оптимизации не применялись. Теперь запрос
+        // уходит в main_gui → BoostGate (как из трея).
+        connect(dash, &DashboardWidget::boostToggled,
+                this, &MainWindow::boostRequested);
+        return dash;
+    };
+
+    m_page_creators_[1] = [this]() {
+        auto* sec = new TabbedSection(this);
+        sec->addTab(QString::fromUtf8("Игры"), [this]() { return new GameListWidget(this); });
+        sec->addTab(QString::fromUtf8("Профили игр"), [this]() { return new GameProfilesWidget(this); });
+        return sec;
+    };
+
+    m_page_creators_[2] = [this]() {
+        auto* sec = new TabbedSection(this);
+        sec->addTab(QString::fromUtf8("Live-мониторинг"), [this]() { return new MonitoringWidget(this); });
+        sec->addTab(QString::fromUtf8("Тесты сети"), [this]() { return new NetworkToolsWidget(this); });
+        sec->addTab(QString::fromUtf8("Диагностика"), [this]() { return new DiagnosticsWidget(this); });
+        // MultipathEngine раньше был доступен только из консоли (--multipath).
+        // Теперь та же модель — в GUI: таблица путей, подсветка активного,
+        // переключатель auto_switch и уведомление о переключении.
+        sec->addTab(QString::fromUtf8("Мультипуть"), [this]() {
+            auto* mp = new MultipathWidget(this);
+            connect(mp, &MultipathWidget::pathSwitched, this, &MainWindow::showRecommendation);
+            return mp;
+        });
+        return sec;
+    };
+
+    m_page_creators_[3] = [this]() {
+        auto* sec = new TabbedSection(this);
+        sec->addTab(QString::fromUtf8("Процессы"), [this]() { return new ProcessMonitorWidget(this); });
+        sec->addTab(QString::fromUtf8("Тонкая настройка"), [this]() { return new FineTuneWidget(this); });
+        return sec;
+    };
+
+    m_page_creators_[4] = [this]() {
+        auto* sec = new TabbedSection(this);
+        sec->addTab(QString::fromUtf8("Центр изменений"), [this]() { return new RemediationWidget(this); });
+        sec->addTab(QString::fromUtf8("Прайм-сетап"), [this, sec]() {
+            auto* opt = new OptimizerWidget(this);
+            // Обе вкладки работают с ОДНИМ журналом транзакций. После
+            // применения или отката на «Прайм-сетапе» соседняя вкладка обязана
+            // перечитать историю: иначе «Центр изменений» показывал бы список
+            // без только что созданной транзакции, а её кнопка отката —
+            // устаревшую доступность. contentAt(0) вернёт nullptr, если вкладку
+            // ещё не открывали, — тогда обновлять нечего.
+            if (auto* rem = qobject_cast<RemediationWidget*>(sec->contentAt(0))) {
+                connect(opt, &OptimizerWidget::systemStateChanged, rem,
+                        &RemediationWidget::refreshJournal);
+                // И обратно: фикс, применённый в «Центре изменений», должен
+                // включить кнопку отката здесь.
+                connect(rem, &RemediationWidget::journalChanged, opt,
+                        &OptimizerWidget::refreshExternalState);
+            }
+            return opt;
+        });
+        applyStartTab(sec);
+        return sec;
+    };
+
+    m_page_creators_[5] = [this]() { return new GeoMapWidget(this); };
+    m_page_creators_[6] = [this]() { return new SessionHistoryWidget(this); };
+    m_page_creators_[7] = [this]() {
+        auto* k = new KnowledgeWidget(this);
+        connect(k, &KnowledgeWidget::applyRequested, this, [this](const QString&) {
+            // deep-link:Knowledge → Optimizations (страница 4)
+            m_sidebar->setNavigationIndex(4);
+            onNavigationChanged(4);
+        });
+        return k;
+    };
+
+    for (std::size_t i = 0; i < m_page_creators_.size(); ++i)
+        m_stackedWidget->addWidget(new QWidget(this)); // placeholders
+
+    ensurePage(0);
+    m_stackedWidget->setCurrentIndex(0);
 }
 
 void MainWindow::onNavigationChanged(int index)
 {
     ensurePage(index);
-
     m_stackedWidget->setCurrentIndex(index);
 }
 
@@ -145,21 +240,30 @@ QWidget* MainWindow::ensurePage(int index)
     m_stackedWidget->insertWidget(pos, page);
     m_page_created_[static_cast<std::size_t>(index)] = true;
     return page;
-    if (index == 12) {
-        auto* settingsPage = qobject_cast<SettingsPageWidget*>(page);
-        if (settingsPage) {
-            connect(settingsPage, &SettingsPageWidget::themeChanged,
-                    this, &MainWindow::themeChanged);
-            connect(settingsPage, &SettingsPageWidget::overlayChanged,
-                    this, &MainWindow::overlaySettingsChanged);
-            connect(settingsPage, &SettingsPageWidget::soundChanged,
-                    this, &MainWindow::soundSettingsChanged);
-            connect(settingsPage, &SettingsPageWidget::notificationsChanged,
-                    this, &MainWindow::notificationsSettingsChanged);
-        }
-    }
 }
 
+// Настройки — модалка (IA 8+1). Сигналы пробрасываются как раньше.
+void MainWindow::openSettings()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(QString::fromUtf8("Настройки"));
+    dialog.resize(720, 560);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* page = new SettingsPageWidget(&dialog);
+    layout->addWidget(page, 1);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    layout->addWidget(buttons);
+
+    connect(page, &SettingsPageWidget::themeChanged, this, &MainWindow::themeChanged);
+    connect(page, &SettingsPageWidget::overlayChanged, this, &MainWindow::overlaySettingsChanged);
+    connect(page, &SettingsPageWidget::soundChanged, this, &MainWindow::soundSettingsChanged);
+    connect(page, &SettingsPageWidget::notificationsChanged, this, &MainWindow::notificationsSettingsChanged);
+
+    dialog.exec();
+}
 
 void MainWindow::updateLiveMetrics(int pingMs, int jitterMs, double lossPercent)
 {

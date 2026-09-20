@@ -1,4 +1,6 @@
 ﻿#include "remediation/windows_fix_action.h"
+#include "remediation/boost_gate.h"
+#include "remediation/remediation_service.h"   // summarizeValue для диагностики
 
 #include <utility>
 
@@ -8,13 +10,16 @@ namespace remediation {
 namespace {
 
 constexpr const char* kHighPerformancePlan = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
-constexpr const char* kDnsPrimary = "1.1.1.1";
-constexpr const char* kDnsSecondary = "1.0.0.1";
-constexpr std::uint32_t kDesiredMtu = 1500;
-constexpr std::int32_t kDesiredInitialRtt = 5000;
-constexpr const char* kFullscreenFlags = "~ DISABLEDXMAXIMIZEDWINDOWEDMODE";
+// Значения берём из публичного списка движка (boost_gate.h), а не дублируем:
+// раньше копия в этом файле разъехалась с UI-дефолтом, и опция MTU молча
+// ничего не делала.
+constexpr const char* kDnsPrimary = kEngineDnsPrimary;
+constexpr const char* kDnsSecondary = kEngineDnsSecondary;
+constexpr std::uint32_t kDesiredMtu = kEngineMtuValue;
+constexpr std::int32_t kDesiredInitialRtt = kEngineTcpInitialRtt;
+constexpr const char* kFullscreenFlags = kEngineFullscreenFlags;
 
-ActionValue proposedValueFor(ActionId id) {
+ActionValue proposedValueFor(ActionId id, const DnsValue& dns_override) {
     switch (id) {
         case ActionId::PowerPlan:
             return PowerPlanValue{kHighPerformancePlan};
@@ -24,8 +29,17 @@ ActionValue proposedValueFor(ActionId id) {
             return FullscreenValue{true, kFullscreenFlags, true};
         case ActionId::TcpParameters:
             return TcpValue{{TcpSetting{TcpParameter::InitialRetransmissionTimeout, true, kDesiredInitialRtt}}};
-        case ActionId::Dns:
-            return DnsValue{false, {kDnsPrimary, kDnsSecondary}};
+        case ActionId::Dns: {
+            // По умолчанию — безопасная пара движка. Если действие создано с
+            // переопределённым значением (кнопка «Применить» в таблице DNS),
+            // применяем его: движок всё равно делает backup → apply → verify.
+            // automatic=true означает сброс на DHCP; пустой список статических
+            // серверов добиваем парой движка, иначе setDns подставит fallback.
+            DnsValue value = dns_override;
+            if (!value.automatic && value.servers.empty())
+                value.servers = {kDnsPrimary, kDnsSecondary};
+            return value;
+        }
         case ActionId::Mtu:
             return MtuValue{kDesiredMtu};
         case ActionId::ProcessPriority:
@@ -46,7 +60,12 @@ bool valuesEqual(const ActionValue& a, const ActionValue& b) { return a == b; }
 
 } // namespace
 
-WindowsFixAction::WindowsFixAction(ActionId id, WindowsStateApi& api) : id_(id), api_(api) {}
+WindowsFixAction::WindowsFixAction(ActionId id, WindowsStateApi& api, DnsValue dns_override)
+    : id_(id), api_(api), dns_override_(std::move(dns_override)) {}
+
+ActionValue WindowsFixAction::proposedValue() const {
+    return proposedValueFor(id_, dns_override_);
+}
 
 Result<ActionState> WindowsFixAction::observe(const ActionTarget& target) {
     if (!isValidTarget(target))
@@ -126,7 +145,7 @@ Result<ActionState> WindowsFixAction::observe(const ActionTarget& target) {
             return Fail(RemediationError::Unsupported, "EnergyMode is not implemented");
     }
 
-    const ActionValue proposed = proposedValueFor(id_);
+    const ActionValue proposed = proposedValue();
     ActionState state;
     state.id = id_;
     state.value = current;
@@ -142,7 +161,9 @@ Result<PreparedAction> WindowsFixAction::prepare(const ActionTarget& target, con
     if (!isValidTarget(target))
         return Fail(RemediationError::InvalidTarget, "invalid target for " + to_string(id_));
     if (!isValidState(current))
-        return Fail(RemediationError::PreflightFailed, "current state out of bounds");
+        return Fail(RemediationError::PreflightFailed,
+                    "current state out of bounds for " + to_string(id_) + ": " +
+                        summarizeValue(current.value));
 
     PreparedAction prepared;
     prepared.id = id_;
@@ -151,7 +172,7 @@ Result<PreparedAction> WindowsFixAction::prepare(const ActionTarget& target, con
 
     prepared.proposed.id = id_;
     prepared.proposed.status = ActionStatus::AlreadyConfigured;
-    prepared.proposed.value = proposedValueFor(id_);
+    prepared.proposed.value = proposedValue();
     prepared.proposed.detail.clear();
 
     switch (id_) {

@@ -1,6 +1,9 @@
 ﻿build/
 build-msys/
+build-qt/
+cmake-check/
 deploy/
+deploy_package/
 *.zip
 *.log
 *.tmp

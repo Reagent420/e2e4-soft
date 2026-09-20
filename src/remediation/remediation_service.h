@@ -28,6 +28,11 @@ struct ApplyOutcome {
     std::string detail;
     TransactionStatus status = TransactionStatus::Unprepared;
     std::vector<ActionOutcome> outcomes;
+    // Действия, которые движок даже не пытался применить: на этой машине они
+    // неприменимы (observe вернул Unsupported — например, CS2 не установлен).
+    // Их отбрасывают ДО создания транзакции, потому что prepare() работает по
+    // принципу «всё или ничего».
+    std::vector<ActionId> unsupported_actions;
 };
 
 // High-level facade over the transaction engine: observe, apply, rollback.
@@ -58,6 +63,15 @@ private:
 std::string actionDisplayName(ActionId id);
 std::string actionDescription(ActionId id);
 std::string summarizeValue(const ActionValue& value);
+
+// Стандартный резолвер целей: сетевые действия получают активный интерфейс,
+// действия над игрой — exe/pid запущенного процесса, чисто реестровые — NoTarget.
+// Один на всех (UI, BoostGate, трей): пока каждая точка входа держала свою копию,
+// они расходились — например, TcpParameters в «Центре изменений» шёл с NoTarget,
+// а в бусте требовал поднятый адаптер и молча пропускался, хотя это параметр
+// реестра HKLM и адаптер ему не нужен.
+std::vector<std::optional<ActionTarget>> defaultTargetResolver(
+    const std::vector<FixAction*>& actions);
 
 } // namespace remediation
 } // namespace gno

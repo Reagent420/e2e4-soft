@@ -108,14 +108,28 @@ bool NetworkUtils::isPortOpen(const std::string& host, uint16_t port, uint32_t t
     tv.tv_usec = (timeout_ms % 1000) * 1000;
     
     int result = select(sock + 1, nullptr, &writefds, nullptr, &tv);
-    
+
+    // A failed non-blocking connect can still make the socket report as
+    // "writable" on some stacks -- verify the real error before deciding.
+    bool open = false;
+    if (result > 0) {
+        int err = 0;
+#if defined(PLATFORM_WINDOWS)
+        int len = sizeof(err);
+#else
+        socklen_t len = sizeof(err);
+#endif
+        getsockopt(sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &len);
+        open = (err == 0);
+    }
+
 #ifdef PLATFORM_WINDOWS
     closesocket(sock);
 #else
     close(sock);
 #endif
-    
-    return result > 0;
+
+    return open;
 }
 
 std::vector<uint16_t> NetworkUtils::scanPorts(const std::string& host, uint16_t start_port, uint16_t end_port, uint32_t timeout_ms) {
@@ -293,6 +307,8 @@ bool NetworkUtils::getMTU(const std::string& interface_name, uint32_t& mtu_out) 
     std::string iface = interface_name;
     if (iface.empty() || iface == "default")
         iface = getInterfaceFriendlyName();
+    if (iface.empty()) // never search for an empty substring: find("", 0)
+        return false;  // would match at offset 0 forever and spin the CPU
 
     std::wstring ifaceW(iface.begin(), iface.end());
     std::wstring cmd = L"netsh interface ipv4 show subinterfaces";
@@ -318,51 +334,6 @@ bool NetworkUtils::getMTU(const std::string& interface_name, uint32_t& mtu_out) 
 #endif
     (void)interface_name;
     return false;
-}
-
-bool NetworkUtils::applyTCPOptimizations(bool enable) {
-    bool ok = false;
-#ifdef PLATFORM_WINDOWS
-    HKEY hkey;
-    if (RegOpenKeyExA(HKEY_CURRENT_USER,
-                      "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-                      0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-        if (enable) {
-            DWORD one = 1;
-            RegSetValueExA(hkey, "TcpAckFrequency", 0, REG_DWORD, (BYTE*)&one, sizeof(one));
-            RegSetValueExA(hkey, "TCPNoDelay", 0, REG_DWORD, (BYTE*)&one, sizeof(one));
-            RegSetValueExA(hkey, "TcpMaxDataRetransmissions", 0, REG_DWORD, (BYTE*)&one, sizeof(one));
-        } else {
-            RegDeleteValueA(hkey, "TcpAckFrequency");
-            RegDeleteValueA(hkey, "TCPNoDelay");
-            RegDeleteValueA(hkey, "TcpMaxDataRetransmissions");
-        }
-        RegCloseKey(hkey);
-        ok = true;
-    }
-
-    // HKLM parameters need admin; try and ignore failure
-    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-                      "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
-                      0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-        if (enable) {
-            DWORD ttl = 64;
-            DWORD tcp1323 = 1;
-            RegSetValueExA(hkey, "DefaultTTL", 0, REG_DWORD, (BYTE*)&ttl, sizeof(ttl));
-            RegSetValueExA(hkey, "Tcp1323Opts", 0, REG_DWORD, (BYTE*)&tcp1323, sizeof(tcp1323));
-        } else {
-            RegDeleteValueA(hkey, "DefaultTTL");
-            RegDeleteValueA(hkey, "Tcp1323Opts");
-        }
-        RegCloseKey(hkey);
-    }
-#endif
-    return ok;
-}
-
-uint32_t NetworkUtils::recommendMTU() {
-    // 1500 (Ethernet) minus IP+ICMP headers gives a safe game MTU
-    return 1400;
 }
 
 } // namespace gno

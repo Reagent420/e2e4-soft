@@ -13,7 +13,7 @@ class SystemTray : public QObject {
 
 public:
     explicit SystemTray(QObject* parent = nullptr);
-    ~SystemTray() override = default;
+    ~SystemTray() override;
 
     void updatePing(int pingMs);
     void setAlertThresholds(double maxPing, double maxLoss);

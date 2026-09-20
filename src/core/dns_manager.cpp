@@ -1,16 +1,5 @@
 #include "dns_manager.h"
-#include <thread>
-#include <chrono>
-#include <algorithm>
-
-#ifdef PLATFORM_WINDOWS
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <iphlpapi.h>
-#include <icmpapi.h>
-#pragma comment(lib, "iphlpapi.lib")
-#pragma comment(lib, "ws2_32.lib")
-#endif
+#include "launch_diagnostics.h"
 
 namespace gno {
 
@@ -35,61 +24,56 @@ DNSPreset DNSManager::getCurrentDNS() const {
 }
 
 bool DNSManager::applyDNS(const std::string& primary, const std::string& secondary) {
-#ifdef PLATFORM_WINDOWS
-    PIP_ADAPTER_ADDRESSES aa = nullptr;
-    ULONG size = 0;
-    GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, nullptr, &size);
-    aa = (PIP_ADAPTER_ADDRESSES)malloc(size);
-    if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, aa, &size) == NO_ERROR) {
-        for (PIP_ADAPTER_ADDRESSES a = aa; a; a = a->Next) {
-            if (a->OperStatus == IfOperStatusUp && a->FirstDnsServerAddress) {
-                free(aa);
-                return true;
-            }
-        }
-    }
-    free(aa);
-#endif
-    return false;
+    // Раньше это была заглушка: параметры игнорировались, метод возвращал true,
+    // если хоть один адаптер включён, а UI показывал «DNS установлен» — хотя
+    // ничего не применялось. Теперь — едиственный путь: транзакционный движок
+    // (backup → apply → verify → rollback), как и у любого другого фикса.
+    std::vector<std::string> servers;
+    if (!primary.empty()) servers.push_back(primary);
+    if (!secondary.empty()) servers.push_back(secondary);
+
+    last_outcome_ = LaunchDiagnostics::applyDnsDetailed(servers);
+    return last_outcome_.applied;
 }
 
-bool DNSManager::resetToDHCP() { return applyDNS("auto"); }
+bool DNSManager::resetToDHCP() {
+    // Сброс на DHCP — это тоже применение значения через движок (automatic=true),
+    // а не вызов заглушки applyDNS("auto"), который возвращал true
+    // от слова «адаптер включён».
+    last_outcome_ = LaunchDiagnostics::applyDnsDetailed({}, true);
+    return last_outcome_.applied;
+}
+
+const LaunchDiagnostics::FixOutcome& DNSManager::lastOutcome() const {
+    return last_outcome_;
+}
+
+void DNSManager::setPingProbe(IcmpPing probe) {
+    ping_probe_ = std::move(probe);
+}
 
 DNSBenchmarkResult DNSManager::benchmarkServer(const std::string& server_ip) {
     DNSBenchmarkResult result;
     result.server = server_ip;
 
-#ifdef PLATFORM_WINDOWS
-    HANDLE icmp = IcmpCreateFile();
-    if (icmp != INVALID_HANDLE_VALUE) {
-        struct in_addr addr;
-        inet_pton(AF_INET, server_ip.c_str(), &addr);
+    // Копия в локалку: зонд может быть переустановлен во время бенчмарка,
+    // а ссылаться на ping_probe_ из нескольких потоков небезопасно.
+    const IcmpPing probe = ping_probe_ ? ping_probe_ : defaultIcmpPing();
 
-        char send[] = "GNO";
-        char recv_buf[1024] = {};
-
-        double total = 0;
-        int ok = 0;
-
-        for (int i = 0; i < 3; ++i) {
-            auto start = std::chrono::steady_clock::now();
-            DWORD reply = IcmpSendEcho(icmp, addr.S_un.S_addr,
-                send, sizeof(send), nullptr, recv_buf, sizeof(recv_buf), 2000);
-            auto end = std::chrono::steady_clock::now();
-
-            if (reply > 0) {
-                total += std::chrono::duration<double, std::milli>(end - start).count();
-                ok++;
-            }
+    double total = 0;
+    int ok = 0;
+    for (int i = 0; i < 3; ++i) {
+        const double ms = probe(server_ip, 2000);
+        if (ms >= 0.0) {
+            total += ms;
+            ok++;
         }
-
-        if (ok > 0) {
-            result.latency_ms = total / ok;
-            result.success = true;
-        }
-        IcmpCloseHandle(icmp);
     }
-#endif
+
+    if (ok > 0) {
+        result.latency_ms = total / ok;
+        result.success = true;
+    }
 
     return result;
 }

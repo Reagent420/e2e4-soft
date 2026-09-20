@@ -1,0 +1,34 @@
+# Нормализация переводов строк.
+#
+# Зачем это здесь: в репозитории включён core.autocrlf, и при checkout
+# `scripts/*.sh` получил бы CRLF. Для bash это фатально — shebang вида
+# "#!/usr/bin/env bash\r" даёт «bad interpreter: No such file or directory»,
+# то есть шаги CI с deploy.sh и smoke-test.sh падали бы на чистом клоне.
+
+# Shell-скрипты — строго LF.
+*.sh            text eol=lf
+
+# Исходники и текст — LF в репозитории (сборка MinGW с LF работает нормально).
+*.c             text eol=lf
+*.h             text eol=lf
+*.cpp           text eol=lf
+*.hpp           text eol=lf
+*.md            text eol=lf
+*.txt           text eol=lf
+*.yml           text eol=lf
+*.json          text eol=lf
+*.cmake         text eol=lf
+CMakeLists.txt  text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+
+# Бинарные — git не должен их трогать.
+*.dll           binary
+*.exe           binary
+*.lib           binary
+*.a             binary
+*.png           binary
+*.ico           binary
+*.zip           binary
+*.db            binary
+*.sqlite        binary

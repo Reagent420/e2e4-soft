@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -113,8 +114,18 @@ private:
         while (pos_ < s_.size() && (std::isdigit(static_cast<unsigned char>(s_[pos_])) ||
                s_[pos_] == '-' || s_[pos_] == '+' || s_[pos_] == '.' || s_[pos_] == 'e' || s_[pos_] == 'E')) ++pos_;
         if (pos_ == start) return false;
-        out = std::stod(s_.substr(start, pos_ - start));
-        return true;
+        // Поток значений может прийти из повреждённого или чужого файла в папке
+        // Backups: одиночная "e" или "+" бросает invalid_argument, "1e999" —
+        // std::out_of_range. До фикса чтение журнала роняло процесс.
+        try {
+            std::size_t used = 0;
+            const double parsed = std::stod(s_.substr(start, pos_ - start), &used);
+            if (used == 0) return false;
+            out = parsed;
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
     }
     bool parseString(std::string& out) {
         if (pos_ >= s_.size() || s_[pos_] != '"') return false;
@@ -137,7 +148,14 @@ private:
                     case 't': out += '\t'; break;
                     case 'u': {
                         if (pos_ + 4 > s_.size()) return false;
-                        unsigned code = std::stoul(s_.substr(pos_, 4), nullptr, 16);
+                        // stoul на не-шестнадцатеричных символах ("\uZZZZ")
+                        // бросает invalid_argument — такой файл не должен
+                        // ронять приложение при чтении журнала.
+                        const std::string hex4 = s_.substr(pos_, 4);
+                        for (char hc : hex4)
+                            if (!std::isxdigit(static_cast<unsigned char>(hc))) return false;
+                        unsigned code = static_cast<unsigned>(
+                            std::strtoul(hex4.c_str(), nullptr, 16));
                         pos_ += 4;
                         // encode as UTF-8 (BMP only - enough for our own payloads)
                         if (code < 0x80) {
@@ -363,7 +381,12 @@ void writeTarget(const ActionTarget& target, std::string& out) {
         }
         void operator()(const ProcessTarget& t) const {
             out += "{\"$type\":\"process\",\"pid\":" + std::to_string(t.pid);
-            out += ",\"creation_time\":" + std::to_string(t.creation_time);
+            // creation_time — это FILETIME (~1.3e17 тиков с 1601 года), что
+            // далеко за 2^53: в double значение теряет точность, и после
+            // перечитывания записи метка процесса уже не совпадала бы с
+            // настоящей. Пишем строкой, читаем оба варианта (старые записи с
+            // числом остаются читаемыми).
+            out += ",\"creation_time\":\"" + std::to_string(t.creation_time) + "\"";
             out += ",\"path\":";
             escapeInto(t.path, out);
             out += "}";
@@ -376,10 +399,22 @@ ActionTarget readTarget(const Json& j) {
     const std::string type = j.str("$type");
     if (type == "interface") return InterfaceTarget{j.str("id"), j.uint32Or("index", 0)};
     if (type == "executable") return ExecutableTarget{j.str("path")};
-    if (type == "process")
-        return ProcessTarget{j.uint32Or("pid", 0),
-                             static_cast<std::uint64_t>(j.find("creation_time") ? j.find("creation_time")->number : 0),
-                             j.str("path")};
+    if (type == "process") {
+        std::uint64_t creation_time = 0;
+        if (auto* c = j.find("creation_time")) {
+            if (c->kind == Json::Kind::String) {
+                try {
+                    creation_time = static_cast<std::uint64_t>(std::stoull(c->text));
+                } catch (const std::exception&) {
+                    creation_time = 0;
+                }
+            } else if (c->kind == Json::Kind::Number) {
+                // Старые записи хранили число (с потерей точности).
+                creation_time = static_cast<std::uint64_t>(c->number);
+            }
+        }
+        return ProcessTarget{j.uint32Or("pid", 0), creation_time, j.str("path")};
+    }
     return NoTarget{};
 }
 
@@ -438,6 +473,8 @@ std::string serializeRecord(const TransactionRecord& r) {
     out += ",\"transaction_id\":";
     escapeInto(r.transaction_id, out);
     out += ",\"status\":" + std::to_string(static_cast<int>(r.status));
+    out += ",\"created_at\":";
+    escapeInto(r.created_at, out);
     out += ",\"prepared_actions\":[";
     for (std::size_t i = 0; i < r.prepared_actions.size(); ++i) {
         if (i) out += ',';
@@ -480,6 +517,9 @@ bool deserializeRecord(const std::string& text, TransactionRecord& out) {
     out.schema_version = root.uint32Or("schema_version", 1);
     out.transaction_id = root.str("transaction_id");
     out.status = static_cast<TransactionStatus>(root.int32Or("status", 0));
+    // Записи, созданные до появления created_at, остаются читаемыми: для них
+    // время возьмётся из mtime файла (см. JsonBackupStore::list).
+    out.created_at = root.str("created_at");
     if (auto* arr = root.find("prepared_actions"); arr && arr->kind == Json::Kind::Array)
         for (const auto& item : arr->array) out.prepared_actions.push_back(readPrepared(item));
     if (auto* arr = root.find("outcomes"); arr && arr->kind == Json::Kind::Array)
@@ -557,10 +597,21 @@ Result<TransactionRecord> JsonBackupStore::load(const std::string& transaction_i
 }
 
 Result<std::vector<TransactionSummary>> JsonBackupStore::list() {
-    std::vector<TransactionSummary> result;
+    // Ключ сортировки — время СОЗДАНИЯ записи, а не mtime файла: файл
+    // перезаписывается на каждом шаге (прогресс применения, откат), поэтому по
+    // mtime откаченная транзакция «переезжала» наверх списка с чужим временем.
+    // Для старых записей без created_at остаётся mtime; точное mtime держим
+    // рядом как тайбрейкер, потому что "%Y-%m-%d %H:%M:%S" не различает две
+    // транзакции внутри одной секунды.
+    struct Entry {
+        TransactionSummary summary;
+        std::filesystem::file_time_type written;
+        std::string sort_key;
+    };
+    std::vector<Entry> entries;
     std::error_code ec;
     if (!std::filesystem::exists(directory_, ec))
-        return result;
+        return std::vector<TransactionSummary>{};
     for (const auto& entry : std::filesystem::directory_iterator(directory_, ec)) {
         if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
         std::ifstream file(entry.path(), std::ios::binary);
@@ -569,19 +620,36 @@ Result<std::vector<TransactionSummary>> JsonBackupStore::list() {
         buffer << file.rdbuf();
         TransactionRecord record;
         if (deserializeRecord(buffer.str(), record)) {
-            const auto wtime = std::filesystem::last_write_time(entry.path());
+            std::error_code tec;
+            const auto wtime = std::filesystem::last_write_time(entry.path(), tec);
             const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(wtime);
             const std::time_t tt = std::chrono::system_clock::to_time_t(sys);
+            // std::localtime возвращает указатель на общий статический буфер:
+            // два потока (история в UI + проверка маркера в трее) рано или
+            // поздно портили его одновременно. formatLocalTimestamp() уже
+            // использует потокобезопасный вариант — делаем так же.
+            std::tm local_buf{};
+#if defined(_WIN32)
+            localtime_s(&local_buf, &tt);
+#else
+            localtime_r(&tt, &local_buf);
+#endif
             char time_buf[32] = {};
-            std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M", std::localtime(&tt));
-            result.push_back({record.transaction_id, record.status, time_buf});
+            std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &local_buf);
+            const std::string sort_key = record.created_at.empty() ? time_buf : record.created_at;
+            entries.push_back({{record.transaction_id, record.status, sort_key},
+                               tec ? std::filesystem::file_time_type{} : wtime, sort_key});
         }
     }
     // Chronological order (newest first). IDs are NOT monotonic.
-    std::sort(result.begin(), result.end(),
-              [](const TransactionSummary& a, const TransactionSummary& b) {
-                  return a.created_at > b.created_at;
-              });
+    std::stable_sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
+        if (a.sort_key != b.sort_key) return a.sort_key > b.sort_key;
+        return a.written > b.written;
+    });
+
+    std::vector<TransactionSummary> result;
+    result.reserve(entries.size());
+    for (auto& e : entries) result.push_back(std::move(e.summary));
     return result;
 }
 

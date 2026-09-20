@@ -38,6 +38,14 @@ enum class DiagnosticOutcome {
 enum class ConfidenceLevel { Low, Medium, High };
 enum class TransportProtocol { Tcp, Udp };
 
+// ГРАНИЦА ПРИМЕНЕНИЯ result-типов: полный комментарий — в
+// remediation/remediation_types.h над Result<T>. Кратко: DiagnosticResult —
+// это результат ЧТЕНИЯ/измерения (пинг, соединения, маршруты). Значение и
+// ошибка не существуют одновременно: либо измерение прошло (value валиден),
+// либо нет (только error). Поэтому .value — поле, а не метод, как у
+// remediation::Result<T>, где частично применённая транзакция требует и
+// значение, и ошибку одновременно. Текст для пользователя собирается на
+// уровне UI через PlainLanguageReport::errorLabel — самого кода достаточно.
 template <typename T>
 struct DiagnosticResult {
     T value{};

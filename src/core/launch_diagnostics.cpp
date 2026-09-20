@@ -12,6 +12,7 @@
 #include "remediation/legacy_bridge.h"
 #include "remediation/windows_state_api.h"
 #include "remediation/backup_store.h"
+#include "remediation/boost_gate.h"
 
 #ifdef PLATFORM_WINDOWS
 #include <windows.h>
@@ -31,6 +32,23 @@
 namespace gno {
 
 namespace {
+
+// IPv4-валидация для DNS-адресов: значение попадает в netsh-команду, поэтому
+// принимаем только четыре октета через точки. Раньше валидации не было вовсе
+// (кнопка «Применить» ничего реально не применяла).
+bool isValidDnsAddress(const std::string& addr) {
+    if (addr.empty() || addr.size() > 15) return false;
+    unsigned int octets[4] = {0, 0, 0, 0};
+    char sep = 0;
+    const int parsed = std::sscanf(addr.c_str(), "%3u.%3u.%3u.%3u%c",
+                                   &octets[0], &octets[1], &octets[2], &octets[3], &sep);
+    if (parsed != 4) return false;
+    for (unsigned int o : octets)
+        if (o > 255) return false;
+    // Запрещаем multicast/broadcast-диапазоны как бессмысленные для DNS.
+    if (octets[0] == 0 || octets[0] >= 224) return false;
+    return true;
+}
 
 #ifdef PLATFORM_WINDOWS
 std::string runCmd(const std::string& cmdline) {
@@ -104,6 +122,10 @@ bool isProcessRunning(const std::string& name) {
 } // namespace
 
 void LaunchDiagnostics::add(GameDiagnostics& d, DiagnosticCheck c) {
+    // severity в чек-функциях задаётся как «тяжесть при провале»;
+    // успешная проверка не может быть предупреждением/ошибкой.
+    if (c.passed) c.severity = 0;
+    else if (c.severity == 0) c.severity = 1; // упало без уровня => минимум предупреждение
     d.checks.push_back(c);
     if (c.severity == 2) ++d.error_count;
     else if (c.severity == 1) ++d.warning_count;
@@ -169,7 +191,7 @@ DiagnosticCheck LaunchDiagnostics::checkDnsResolution() {
                   : "Программа выполнила nslookup google.com — домен не разрешился.";
     c.explanation = "Программа спрашивает у DNS-сервера адрес домена. Если ответа нет — DNS сломан или заблокирован, игра не сможет подключиться к серверам.";
     c.recommendation = ok ? ""
-                          : "Смените DNS-сервер на вкладке «Оптимизация» (например, 1.1.1.1 или 8.8.8.8) — программа сделает это через netsh.";
+                          : "Нажмите «Исправить автоматически» — программа сменит DNS на 1.1.1.1 через безопасный движок (с бэкапом и откатом).";
     c.fix_action = "dns";
 #else
     c.passed = true;
@@ -194,7 +216,7 @@ DiagnosticCheck LaunchDiagnostics::checkMtu() {
     c.explanation = "MTU — максимальный размер пакета. Слишком большой MTU вызывает фрагментацию и потери в играх. Программа читает его командой netsh ipv4 show subinterfaces.";
     c.recommendation = ok && mtu == 1500
         ? "MTU = 1500 (стандартный). Для игр программа может установить 1400 — меньше фрагментация на плохих линиях."
-        : "Установите MTU 1400 на вкладке «Оптимизация» — программа сделает это через netsh.";
+        : "Нажмите «Исправить автоматически» — программа выставит MTU 1500 через безопасный движок (с бэкапом и откатом).";
     c.fix_action = "mtu";
 #else
     c.passed = true;
@@ -214,11 +236,11 @@ DiagnosticCheck LaunchDiagnostics::checkPowerPlan() {
     bool highPerf = plan == "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
     c.passed = highPerf;
     c.detail = highPerf
-        ? "Программа прочитала ActivePowerScheme — активен план «Высокая производительность»."
-        : "Программа прочитала ActivePowerScheme — активен другой план (" + (plan.empty() ? "не определён" : plan) + ").";
-    c.explanation = "План питания ограничивает частоту процессора. На «Сбалансированном» плане CPU сбрасывает частоту — в играх падает FPS. Программа читает активный план из реестра Windows.";
+        ? "Программа спросила активный план у Windows — включён «Высокая производительность»."
+        : "Программа спросила активный план у Windows — включён другой план (" + (plan.empty() ? "не определён" : plan) + ").";
+    c.explanation = "План питания ограничивает частоту процессора. На «Сбалансированном» плане CPU сбрасывает частоту — в играх падает FPS. Программа запрашивает активный план через Windows API.";
     c.recommendation = highPerf ? ""
-                                : "Примените план «Высокая производительность» на вкладке «Оптимизация» — программа переключит его через powercfg.";
+                                : "Нажмите «Исправить автоматически» — программа включит план «Высокая производительность» (с бэкапом и откатом).";
     c.fix_action = "power_plan";
     return c;
 }
@@ -231,10 +253,10 @@ DiagnosticCheck LaunchDiagnostics::checkGameDvr() {
     std::string val = SystemAudit::readGameDvrValue();
     bool off = val == "0";
     c.passed = off;
-    c.detail = off ? "Программа видит AppCaptureEnabled = 0 — запись игр отключена."
-                   : "Программа видит AppCaptureEnabled = " + (val.empty() ? "не задан" : val) + " — запись игр может работать в фоне.";
-    c.explanation = "Game DVR пишет видео с экрана в фоне и забирает FPS. Программа читает параметр AppCaptureEnabled в реестре текущего пользователя.";
-    c.recommendation = off ? "" : "Отключите запись игр на вкладке «Оптимизация».";
+    c.detail = off ? "Программа видит GameDVR_Enabled = 0 — запись игр отключена."
+                   : "Программа видит GameDVR_Enabled = " + (val.empty() ? "не задан" : val) + " — запись игр может работать в фоне.";
+    c.explanation = "Game DVR пишет видео с экрана в фоне и забирает FPS. Программа читает параметр GameDVR_Enabled в реестре текущего пользователя.";
+    c.recommendation = off ? "" : "Нажмите «Исправить автоматически» — программа отключит игровой DVR (с бэкапом и откатом).";
     c.fix_action = "game_dvr";
     return c;
 }
@@ -245,12 +267,19 @@ DiagnosticCheck LaunchDiagnostics::checkFullscreenOptimizations() {
     c.name = "Оптимизации полноэкранного режима";
     c.severity = 0;
     std::string val = SystemAudit::readFullscreenOptValue();
-    bool off = val == "1";
+    bool off = val == "отключено";
     c.passed = off;
-    c.detail = off ? "Программа видит GameDVR_FSEBehaviorMode = 1 — оптимизации полноэкранного режима отключены."
-                   : "Программа видит GameDVR_FSEBehaviorMode = " + (val.empty() ? "не задан" : val) + ".";
-    c.explanation = "Оптимизации полноэкранного режима добавляют задержку ввода в некоторых играх. Программа читает параметр из реестра.";
-    c.recommendation = off ? "" : "Отключите оптимизации полноэкранного режима на вкладке «Оптимизация».";
+    if (val.empty()) {
+        // Игра не запущена — флаг совместимости ставится конкретному exe,
+        // поэтому проверять нечего. Это не ошибка и не «не применено».
+        c.passed = true;
+        c.detail = "Игра не запущена — проверка возможна только при запущенной игре.";
+    } else {
+        c.detail = off ? "Программа видит флаг совместимости — оптимизации полноэкранного режима отключены."
+                       : "Флаг совместимости не выставлен — оптимизации полноэкранного режима работают.";
+    }
+    c.explanation = "Оптимизации полноэкранного режима добавляют задержку ввода в некоторых играх. Программа ставит флаг совместимости для exe запущенной игры.";
+    c.recommendation = off ? "" : "Нажмите «Исправить автоматически» — программа отключит оптимизации полноэкранного режима для игры (с бэкапом и откатом).";
     c.fix_action = "fullscreen_opt";
     return c;
 }
@@ -431,64 +460,71 @@ DiagnosticCheck LaunchDiagnostics::checkRuntimeLibraries() {
     return c;
 }
 
-std::string LaunchDiagnostics::applyFix(const std::string& action_id) {
-    // v1.5: route allowlisted fixes through the transactional engine (backup + verify + rollback).
-    {
-        static gno::remediation::JsonBackupStore backup_store([] {
-            const char* app = std::getenv("APPDATA");
-            return (std::filesystem::path(app ? app : ".") / "GNO" / "Backups").string();
-        }());
-        gno::remediation::WindowsStateApi state_api;
-        std::string safe_result = gno::remediation::applySafeFix(action_id, state_api, backup_store);
-        if (!safe_result.empty())
-            return safe_result;
-    }
-#ifdef PLATFORM_WINDOWS
-    if (action_id == "power_plan") {
-        std::string out = runCmd("powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
-        (void)out;
-        return "План питания переключён на «Высокая производительность» (powercfg).";
-    }
-    if (action_id == "game_dvr") {
-        std::string out = runCmd("reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR\" /v AppCaptureEnabled /t REG_DWORD /d 0 /f");
-        (void)out;
-        return "Запись игр отключена (значение AppCaptureEnabled = 0).";
-    }
-    if (action_id == "fullscreen_opt") {
-        std::string out = runCmd("reg add \"HKCU\\System\\GameConfigStore\" /v GameDVR_FSEBehaviorMode /t REG_DWORD /d 1 /f");
-        (void)out;
-        return "Оптимизации полноэкранного режима отключены.";
-    }
-    if (action_id == "tcp") {
-        NetworkUtils::applyTCPOptimizations(true);
-        return "TCP-стек оптимизирован (адаптивные ACK, NoDelay) в реестре.";
-    }
+LaunchDiagnostics::FixOutcome LaunchDiagnostics::applyFixDetailed(const std::string& action_id) {
+    FixOutcome out;
+    // Единственный путь применения — transactional engine
+    // (backup -> apply -> verify -> rollback). Прямых записей reg/netsh нет.
+    //
+    // Действия вне белого списка движка объясняем словами, а не пишем в реестр.
     if (action_id == "vm") {
-        std::string out = runCmd("reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management\" /v LargeSystemCache /t REG_DWORD /d 0 /f");
-        (void)out;
-        return "Оптимизация виртуальной памяти применена (LargeSystemCache = 0).";
+        out.informational = true;
+        out.message = "Оптимизация виртуальной памяти отменена: правка HKLM вне белого списка безопасного движка.";
+        return out;
     }
-    if (action_id == "priority") {
-        return "Высокий приоритет будет применён автоматически при запуске игры (профиль игры).";
+
+    static gno::remediation::JsonBackupStore backup_store(gno::remediation::defaultBackupsDir());
+    gno::remediation::WindowsStateApi state_api;
+    bool applied = false;
+    const std::string safe_result =
+        gno::remediation::applySafeFix(action_id, state_api, backup_store, &applied);
+    if (!safe_result.empty()) {
+        out.applied = applied;
+        out.message = safe_result;
+        return out;
     }
-    if (action_id == "dns") {
-        std::string iface = NetworkUtils::getNetworkInterfaceName();
-        if (iface != "default") {
-            NetworkUtils::setDNS(iface, "1.1.1.1", "1.0.0.1");
-            return "DNS изменён на 1.1.1.1 / 1.0.0.1 через netsh.";
+
+    // applySafeFix покрывает все allowlist-действия (см. createActions), сюда
+    // попадаем только для неизвестного id.
+    out.message = "Неизвестное действие: " + action_id;
+    return out;
+}
+
+std::string LaunchDiagnostics::applyFix(const std::string& action_id) {
+    return applyFixDetailed(action_id).message;
+}
+
+LaunchDiagnostics::FixOutcome LaunchDiagnostics::applyDnsDetailed(const std::vector<std::string>& servers,
+                                                                  bool automatic) {
+    FixOutcome out;
+
+    // Без валидации адрес уходит в netsh-команду как есть. Прежде кнопка
+    // «Применить» вообще ничего не применяла, а только показывала «DNS установлен»,
+    // так что валидации на пути не было вовсе.
+    if (!automatic) {
+        if (servers.empty()) {
+            out.message = "DNS не выбран: укажите хотя бы один сервер.";
+            return out;
         }
-        return "Не удалось изменить DNS: сетевой адаптер не найден.";
-    }
-    if (action_id == "mtu") {
-        std::string iface = NetworkUtils::getNetworkInterfaceName();
-        if (iface != "default") {
-            NetworkUtils::setMTU(iface, 1400);
-            return "MTU установлен в 1400 через netsh.";
+        for (const auto& s : servers) {
+            if (!isValidDnsAddress(s)) {
+                out.message = "Неверный адрес DNS-сервера: " + s;
+                return out;
+            }
         }
-        return "Не удалось изменить MTU: сетевой адаптер не найден.";
     }
-#endif
-    return "Неизвестное действие: " + action_id;
+
+    static gno::remediation::JsonBackupStore backup_store(gno::remediation::defaultBackupsDir());
+    gno::remediation::WindowsStateApi state_api;
+
+    gno::remediation::DnsValue value;
+    value.automatic = automatic;
+    value.servers = servers;
+
+    bool applied = false;
+    const std::string result = gno::remediation::applySafeDns(value, state_api, backup_store, &applied);
+    out.applied = applied;
+    out.message = result;
+    return out;
 }
 
 } // namespace gno

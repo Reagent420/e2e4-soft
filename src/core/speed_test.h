@@ -3,10 +3,11 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include <functional>
 #include <thread>
 #include <atomic>
 #include <mutex>
+
+#include "icmp_probe.h"
 
 namespace gno {
 
@@ -38,11 +39,13 @@ public:
 
     PingResult benchmarkServer(const std::string& server_ip, int probes = 5);
 
-    using BenchmarkCallback = std::function<void(const PingResult&)>;
-    void setBenchmarkCallback(BenchmarkCallback callback);
-
     std::vector<PingResult> getResults() const;
     PingResult getBestServer() const;
+
+    // Подмена ICMP-зонда для тестов: детерминированный пинг без сети.
+    // См. MultipathEngine::setPathProbe. Устанавливать до runBenchmark,
+    // пока рабочий поток ещё не запущен.
+    void setPingProbe(IcmpPing probe);
 
 private:
     void benchmarkThread();
@@ -52,7 +55,7 @@ private:
     mutable std::mutex results_mutex_;
     std::atomic<bool> running_{false};
     std::thread bench_thread_;
-    BenchmarkCallback callback_;
+    IcmpPing ping_probe_;
 };
 
 } // namespace gno

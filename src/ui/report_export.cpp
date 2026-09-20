@@ -10,6 +10,10 @@
 #include <QDateTime>
 #include <QFont>
 #include <QWidget>
+#include <QTextDocument>
+#include <QPdfWriter>
+#include <QPageSize>
+#include <QPageLayout>
 #include <algorithm>
 #include <cmath>
 
@@ -123,20 +127,6 @@ void drawStatCard(QPainter& p, int x, int y, int w, int h, const QString& label,
     p.setFont(vf);
     p.setPen(valueColor);
     p.drawText(r.adjusted(14, 34, -14, -8), Qt::AlignLeft | Qt::AlignVCenter, value);
-}
-
-QString formatImprovement(double before, double after, bool lowerIsBetter) {
-    if (before <= 0.0) return QString();
-    double diff = after - before;
-    if (lowerIsBetter)
-        diff = before - after;
-    if (std::fabs(diff) < 0.05) return QString::fromUtf8("без изменений");
-    double pct = diff / before * 100.0;
-    bool good = lowerIsBetter ? (after < before) : (after > before);
-    return QString("%1%2 (%3%)")
-        .arg(good ? "+" : "")
-        .arg(diff, 0, 'f', 1)
-        .arg(pct, 0, 'f', 1);
 }
 
 } // namespace
@@ -340,7 +330,7 @@ bool exportComparisonReport(const QString& path,
 
 bool exportHistoryReport(const QString& path,
                          const std::vector<SessionRecord>& records,
-                         double avgPing, double avgJitter) {
+                         double avgPing, double avgJitter, double avgLoss) {
     QImage img(kPageWidth, 1400, QImage::Format_RGB32);
     img.fill(bgPrimary());
 
@@ -351,11 +341,15 @@ bool exportHistoryReport(const QString& path,
 
     int y = kHeaderH + 32;
 
-    const int cw = (kPageWidth - 2 * kMargin - 20) / 3;
+    // Четыре карточки, как в отчёте мониторинга: раньше средние потери в сводке
+    // отсутствовали, хотя в таблице колонка «ПОТЕРИ» была.
+    const int cw = (kPageWidth - 2 * kMargin - 30) / 4;
     const int ch = 110;
     drawStatCard(p, kMargin, y, cw, ch, QString::fromUtf8("СЕССИЙ"), QString::number(records.size()), accent());
     drawStatCard(p, kMargin + cw + 10, y, cw, ch, QString::fromUtf8("СРЕДНИЙ ПИНГ"), QString("%1 мс").arg(avgPing, 0, 'f', 1), accentCyan());
     drawStatCard(p, kMargin + 2 * (cw + 10), y, cw, ch, QString::fromUtf8("СРЕДНИЙ ДЖИТТЕР"), QString("%1 мс").arg(avgJitter, 0, 'f', 1), textPrimary());
+    drawStatCard(p, kMargin + 3 * (cw + 10), y, cw, ch, QString::fromUtf8("СРЕДНИЕ ПОТЕРИ"), QString("%1%").arg(avgLoss, 0, 'f', 2),
+                 avgLoss < 0.5 ? success() : avgLoss < 2.0 ? warning() : error());
     y += ch + 30;
 
     drawSectionTitle(p, y, QString::fromUtf8("Последние сессии"));
@@ -407,5 +401,76 @@ bool exportHistoryReport(const QString& path,
     return img.save(path, "PNG");
 }
 
+namespace {
+
+// Шапка текстового отчёта: версия продукта + момент формирования. Время берём
+// здесь (а не в core), чтобы генераторы оставались детерминированными.
+ReportHeader currentHeader() {
+    ReportHeader header;
+    header.app_version = theme::APP_VERSION;
+    header.generated_at =
+        QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm").toStdString();
+    return header;
+}
+
+bool writeTextFile(const QString& path, const std::string& text) {
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    const qint64 written = file.write(text.data(), static_cast<qint64>(text.size()));
+    file.close();
+    return written == static_cast<qint64>(text.size());
+}
+
+// HTML -> PDF через QPdfWriter. Раньше PDF в проекте не было вообще: отчёты
+// умели только PNG, который нельзя ни отредактировать, ни выделить текстом.
+bool renderHtmlToPdf(const QString& path, const std::string& html) {
+    QPdfWriter writer(path);
+    writer.setPageSize(QPageSize(QPageSize::A4));
+    writer.setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout::Millimeter);
+    writer.setResolution(300);
+
+    QTextDocument doc;
+    doc.setHtml(QString::fromStdString(html));
+    doc.print(&writer);
+
+    return QFile::exists(path);
+}
+
+} // namespace
+
+bool exportDiagnosticReport(const QString& path, const DiagnosticReport& report,
+                            ReportFormat format) {
+    const ReportHeader header = currentHeader();
+    switch (format) {
+        case ReportFormat::Markdown:
+            return writeTextFile(path, diagnosticReportToMarkdown(report, header));
+        case ReportFormat::Html:
+            return writeTextFile(path, diagnosticReportToHtml(report, header, false));
+        case ReportFormat::Pdf:
+            return renderHtmlToPdf(path, diagnosticReportToHtml(report, header, true));
+    }
+    return false;
+}
+
+bool exportSessionHistoryText(const QString& path,
+                              const std::vector<SessionRecord>& records,
+                              double avgPing, double avgJitter, double avgLoss,
+                              ReportFormat format) {
+    const ReportHeader header = currentHeader();
+    switch (format) {
+        case ReportFormat::Markdown:
+            return writeTextFile(path,
+                                 sessionHistoryToMarkdown(records, avgPing, avgJitter, avgLoss, header));
+        case ReportFormat::Html:
+            return writeTextFile(path,
+                                 sessionHistoryToHtml(records, avgPing, avgJitter, avgLoss, header, false));
+        case ReportFormat::Pdf:
+            return renderHtmlToPdf(path,
+                                   sessionHistoryToHtml(records, avgPing, avgJitter, avgLoss, header, true));
+    }
+    return false;
+}
+
 } // namespace report
-} // namespace gno#include <QWidget>
+} // namespace gno

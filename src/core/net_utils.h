@@ -68,7 +68,9 @@ struct WifiNetwork {
 inline int signalQuality(int rssi) {
     if (rssi <= -90) return 0;
     if (rssi >= -30) return 100;
-    return 2 * (rssi + 90);
+    // Линейная шкала 2*(rssi+90) на отрезке (-90,-30) доходит до 120 —
+    // качество >100% бессмысленно (и раздувало веса в bestChannel24).
+    return std::min(2 * (rssi + 90), 100);
 }
 
 // Parses localized `netsh wlan show networks mode=bssid` output loosely:

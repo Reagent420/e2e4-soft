@@ -15,6 +15,7 @@
 #include "stats_collector.h"
 #include "../core/session_history.h"
 #include "../core/game_watcher.h"
+#include "../diagnostics/diagnostic_types.h"
 
 namespace gno {
 
@@ -39,6 +40,12 @@ public:
     double currentMaxPing() const { return max_ping_.load(); }
     bool hasPing() const { return ping_ok_.load(); }
     QString currentGame() const { return current_game_; }
+    // Секунды с начала текущей сессии (session_clock_ перезапускается в
+    // handleGameStart). Возвращает 0, если игра не идёт. Оверлей раньше
+    // высчитывал это время по последней записи истории, но getLast() отдаёт
+    // только завершённые сессии — таймер рос бесконечно, отсчитывая время
+    // от старта предыдущей игры.
+    qint64 sessionElapsedSeconds() const;
     bool isBoostActive() const { return boost_active_; }
     void setBoostActive(bool active);
     bool soundEnabled() const { return sound_enabled_; }
@@ -46,6 +53,16 @@ public:
 
     SessionHistory* history() { return &history_; }
     StatsCollector* collector() { return &collector_; }
+
+    // Диагноз маршрута из DiagnosticsService (виджет диагностики). Помимо
+    // хранения, сразу эмитит recommendationAvailable — раньше единственным
+    // источником рекомендаций была история прошлых сессий.
+    void applyDiagnosticReport(const DiagnosticReport& report);
+    QString lastDiagnosticRecommendation() const { return last_diagnostic_recommendation_; }
+    // Последний собранный диагноз маршрута. Нужен базе знаний, чтобы подобрать
+    // статьи под текущую проблему, а не показывать весь список.
+    const DiagnosticReport& lastDiagnosticReport() const { return last_diagnostic_report_; }
+    bool hasDiagnosticReport() const { return has_diagnostic_report_; }
 
     QVector<double> pingHistory() const;
     QVector<double> jitterHistory() const;
@@ -82,7 +99,7 @@ private:
     void handleGameStart(const QString& game, const QString& process = QString());
     void handleGameEnd(const QString& game);
     void playEventSound(const QString& kind);
-    void playTone(int freqHz, int durationMs);
+    void playTones(const std::vector<std::pair<int, int>>& tones);
 
     PingMonitor ping_monitor_;
     JitterCalculator jitter_calc_;
@@ -119,6 +136,17 @@ private:
     std::vector<double> measure_pings_;
 
     bool spike_active_ = false;
+
+    // Самая свежая рекомендация из диагностики маршрута (пустая, если диагноза
+    // ещё не было или он дал «недостаточно данных»).
+    QString last_diagnostic_recommendation_;
+    DiagnosticReport last_diagnostic_report_;
+    bool has_diagnostic_report_ = false;
+
+    // WAV собирается прямо сюда: PlaySound с SND_MEMORY читает буфер
+    // асинхронно, поэтому он должен жить всё время воспроизведения (и его
+    // нельзя перезаписывать, пока предыдущий звук не остановлен).
+    std::vector<unsigned char> sound_buffer_;
 };
 
 } // namespace gno

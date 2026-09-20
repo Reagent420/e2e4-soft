@@ -10,6 +10,7 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace gno {
 
@@ -102,33 +103,40 @@ void FpsBoostWidget::setupUI() {
     m_startup_table_->setAlternatingRowColors(true);
     m_startup_table_->setMaximumHeight(180);
 
+    connect(m_services_table_, &QTableWidget::cellClicked,
+            this, &FpsBoostWidget::onServiceAction);
+    connect(m_startup_table_, &QTableWidget::cellClicked,
+            this, &FpsBoostWidget::onStartupToggle);
+
     // ---- Layout assembly ----
-    layout->addWidget(timerTitle);
-    layout->addLayout(timerRow);
-    layout->addWidget(ramTitle);
-    layout->addLayout(ramRow);
-    layout->addWidget(svcTitle);
-    layout->addWidget(m_services_table_);
+    root->addWidget(timerTitle);
+    root->addLayout(timerRow);
+    root->addWidget(ramTitle);
+    root->addLayout(ramRow);
+    root->addWidget(svcTitle);
+    root->addWidget(m_services_table_);
 
-    layout->addWidget(startupTitle);
-    layout->addWidget(m_startup_table_);
+    root->addWidget(startupTitle);
+    root->addWidget(m_startup_table_);
 
-    connect(m_timer_btn_, &QPushButton::clicked,
-            this, &FpsBoostWidget::onTimerToggle);
-    connect(m_ram_btn_, &QPushButton::clicked,
-            this, &FpsBoostWidget::onRamClean);
+    onRefreshServices();
+    refreshStartup();
+
+    // Инициализация подписи таймера: без этого она пуста до первого клика.
+    double res = currentTimerResolution() / 10000.0;
+    m_timer_label_->setText(
+        QString("Timer: %1 ms").arg(res, 0, 'f', 2));
 }
 
 void FpsBoostWidget::onTimerToggle() {
-    static bool active = false;
-    if (!active) {
+    if (!timer_active_) {
         if (setTimerResolution(5000)) {
-            active = true;
+            timer_active_ = true;
             m_timer_btn_->setText("Disable 0.5ms");
         }
     } else {
         releaseTimerResolution();
-        active = false;
+        timer_active_ = false;
         m_timer_btn_->setText("Enable 0.5ms");
     }
     double res = currentTimerResolution() / 10000.0;
@@ -147,24 +155,46 @@ void FpsBoostWidget::onRamClean() {
     m_ram_btn_->setEnabled(true);
 }
 
+void FpsBoostWidget::onServiceAction(int row, int col) {
+    if (col != 2) return;
+    if (row < 0 || row >= 3) return;
+    struct SvcDef { const char* name; const char* display; };
+    static const SvcDef services[] = {
+        {"SysMain", "SysMain (Superfetch)"},
+        {"WSearch", "Windows Search"},
+        {"DoSvc", "Delivery Optimization"},
+    };
+    auto info = queryService(services[row].name);
+    // Toggle: disabled -> auto, anything else -> disable
+    ServiceAction action = (info.start_type == 4) ? ServiceAction::AutoStart
+                                                  : ServiceAction::Disable;
+    serviceControl(services[row].name, action);
+    onRefreshServices();
+}
+
 void FpsBoostWidget::onStartupToggle(int row, int col) {
     if (col != 2) return;
+    // Определяем программу по данным из самой таблицы, а не по индексу строки:
+    // enumStartupPrograms() может вернуть другой порядок или другой набор
+    // записей к моменту клика (например, добавилась новая запись в автозапуск) —
+    // тогда индекс укажет на чужую программу, и мы переключим не то, что видел
+    // пользователь. Сверяем и имя, и команду: записи с одинаковым именем могут
+    // лежать в разных ветках (HKCU Run / HKLM Run).
+    QTableWidgetItem* nameItem = m_startup_table_->item(row, 0);
+    QTableWidgetItem* cmdItem = m_startup_table_->item(row, 1);
+    if (!nameItem) return;
+    const QString target = nameItem->text();
+    const QString targetCmd = cmdItem ? cmdItem->text() : QString();
+
     auto entries = enumStartupPrograms();
-    if (row < 0 || row >= static_cast<int>(entries.size())) return;
-    const auto& entry = entries[static_cast<std::size_t>(row)];
-    setStartupEnabled(entry.location, entry.name, !entry.enabled);
-    // Refresh table
-    auto updated = enumStartupPrograms();
-    m_startup_table_->setRowCount(static_cast<int>(updated.size()));
-    for (int r = 0; r < static_cast<int>(updated.size()); ++r) {
-        const auto& e = updated[static_cast<std::size_t>(r)];
-        m_startup_table_->setItem(r, 0,
-            new QTableWidgetItem(QString::fromStdString(e.name)));
-        m_startup_table_->setItem(r, 1,
-            new QTableWidgetItem(QString::fromStdString(e.command)));
-        m_startup_table_->setItem(r, 2,
-            new QTableWidgetItem(e.enabled ? "YES" : "NO"));
-    }
+    auto it = std::find_if(entries.begin(), entries.end(),
+        [&](const StartupEntry& e) {
+            return QString::fromStdString(e.name) == target &&
+                   QString::fromStdString(e.command) == targetCmd;
+        });
+    if (it == entries.end()) return;
+    setStartupEnabled(it->location, it->name, !it->enabled);
+    refreshStartup();
 }
 
 void FpsBoostWidget::onRefreshServices() {
@@ -176,6 +206,7 @@ void FpsBoostWidget::onRefreshServices() {
     };
 
     bool elevated = SystemAudit::isAdmin();
+    m_services_table_->clearContents();
     m_services_table_->setRowCount(3);
     for (int i = 0; i < 3; ++i) {
         auto info = queryService(services[i].name);
@@ -192,6 +223,21 @@ void FpsBoostWidget::onRefreshServices() {
             ? QStringLiteral("Enable") : QStringLiteral("Disable");
         m_services_table_->setItem(i, 2,
             new QTableWidgetItem(action_text));
+    }
+}
+
+void FpsBoostWidget::refreshStartup() {
+    auto entries = enumStartupPrograms();
+    m_startup_table_->clearContents();
+    m_startup_table_->setRowCount(static_cast<int>(entries.size()));
+    for (int r = 0; r < static_cast<int>(entries.size()); ++r) {
+        const auto& e = entries[static_cast<std::size_t>(r)];
+        m_startup_table_->setItem(r, 0,
+            new QTableWidgetItem(QString::fromStdString(e.name)));
+        m_startup_table_->setItem(r, 1,
+            new QTableWidgetItem(QString::fromStdString(e.command)));
+        m_startup_table_->setItem(r, 2,
+            new QTableWidgetItem(e.enabled ? "YES" : "NO"));
     }
 }
 

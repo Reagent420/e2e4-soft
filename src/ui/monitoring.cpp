@@ -328,7 +328,9 @@ void BandwidthChartWidget::drawGrid(QPainter& p, const QRect& r) {
 
 void BandwidthChartWidget::drawChart(QPainter& p, const QRect& r) {
     double maxVal = 100.0;
-    int n = download_data_.size();
+    // Ряды download/upload могут рассинхронизироваться, если точки добавляются
+    // раздельно — берём минимум, чтобы не читать upload_data_ за пределами.
+    int n = qMin(download_data_.size(), upload_data_.size());
     if (n < 2) return;
     double step = r.width() / static_cast<double>(n - 1);
 
@@ -575,9 +577,16 @@ void MonitoringWidget::onExportClicked() {
 }
 
 void MonitoringWidget::addLogEntry(const QString& message, const QColor& color) {
-    Q_UNUSED(color);
     auto* label = new QLabel(message);
-    label->setStyleSheet("color: #94A3B8; font-size: 11px; font-family: 'Cascadia Code', 'Consolas', monospace; padding: 1px 0;");
+    // Раньше цвет игнорировался (Q_UNUSED): записи о старте/конце игры
+    // должны были подсвечиваться зелёным и янтарным, но всегда были серыми.
+    if (color.isValid()) {
+        label->setStyleSheet(QString("color: %1; font-size: 11px;"
+                                     " font-family: 'Cascadia Code', 'Consolas', monospace; padding: 1px 0;")
+                                 .arg(color.name()));
+    } else {
+        label->setStyleSheet("color: #94A3B8; font-size: 11px; font-family: 'Cascadia Code', 'Consolas', monospace; padding: 1px 0;");
+    }
 
     log_layout_->insertWidget(log_layout_->count() - 1, label);
     log_count_++;

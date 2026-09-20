@@ -1,7 +1,9 @@
 ﻿#include "remediation/remediation_service.h"
+#include "remediation/target_discovery.h"
 #include "remediation/windows_fix_action.h"
 
 #include <chrono>
+#include <mutex>
 #include <sstream>
 #include <algorithm>
 
@@ -17,21 +19,87 @@ std::string generateTransactionId() {
     return out.str();
 }
 
-RemediationService::TargetResolver defaultResolver() {
-    return [](const std::vector<FixAction*>& actions) {
-        std::vector<std::optional<ActionTarget>> targets;
-        targets.reserve(actions.size());
-        for (auto* action : actions) targets.emplace_back(NoTarget{});
-        return targets;
-    };
+// Одна операция на процесс.
+//
+// У каждой транзакции есть свой operation_mutex_, но он защищает только от
+// повторного входа в ОДНУ И ТУ ЖЕ транзакцию. Две разные операции при этом шли
+// бы параллельно: «Применить выбранное» на «Прайм-сетапе» и «Применить
+// рекомендации» на «Центре изменений» — это две соседние вкладки одной
+// страницы, и переключиться между ними, пока идёт операция, ничто не мешает.
+// Последствия параллельного запуска не косметические: вторая операция
+// снимает «до» уже ПОСЛЕ правки первой, поэтому её бэкап содержит не исходное
+// значение, и откат вернул бы не то, что было до оптимизации. Плюс обе пишут
+// один маркер буста, и одна из транзакций осталась бы без кнопки отката.
+//
+// Поэтому вход в applyIds()/rollback() — через try_lock: вторая операция
+// получает RemediationError::Busy и честно сообщает об этом, вместо того чтобы
+// тихо испортить точку отката.
+std::mutex& operationMutex() {
+    static std::mutex mutex;
+    return mutex;
 }
 
+// RAII: держит блокировку до конца операции и снимает её при любом выходе,
+// включая ранние return-ы и исключения.
+class OperationGuard {
+public:
+    OperationGuard() : lock_(operationMutex(), std::try_to_lock) {}
+    bool acquired() const { return lock_.owns_lock(); }
+
+private:
+    std::unique_lock<std::mutex> lock_;
+};
+
+constexpr const char* kBusyDetail =
+    "другая операция уже выполняется — дождитесь её завершения и повторите";
+
 } // namespace
+
+std::vector<std::optional<ActionTarget>> defaultTargetResolver(
+    const std::vector<FixAction*>& actions) {
+    std::vector<std::optional<ActionTarget>> targets;
+    targets.reserve(actions.size());
+    const auto iface = discoverPrimaryInterface();
+    const auto game = discoverRunningGameProcess();
+    for (auto* action : actions) {
+        if (!action) {
+            targets.emplace_back(std::nullopt);
+            continue;
+        }
+        switch (action->id()) {
+            case ActionId::Dns:
+            case ActionId::Mtu:
+                targets.emplace_back(iface);
+                break;
+            case ActionId::FullscreenOptimizations:
+                if (game) targets.emplace_back(ActionTarget{ExecutableTarget{game->path}});
+                else targets.emplace_back(std::nullopt);
+                break;
+            case ActionId::ProcessPriority:
+                if (game)
+                    targets.emplace_back(ActionTarget{
+                        ProcessTarget{game->pid, game->creation_time, game->path}});
+                else targets.emplace_back(std::nullopt);
+                break;
+            default:
+                // TcpParameters, PowerPlan, GameDvr, GameMode, MouseAccel, Cs2* —
+                // действия над системой/реестром, конкретная цель им не нужна.
+                // ВАЖНО: сюда нельзя подставлять InterfaceTarget «на всякий случай»
+                // и нельзя оставлять Dns/Mtu без цели — std::get<InterfaceTarget>
+                // в windows_fix_action бросил бы bad_variant_access.
+                targets.emplace_back(ActionTarget{NoTarget{}});
+        }
+    }
+    return targets;
+}
 
 RemediationService::RemediationService(WindowsStateApi& api, IBackupStore& backup_store,
                                        TargetResolver resolver)
     : api_(api), backup_store_(backup_store), resolver_(std::move(resolver)) {
-    if (!resolver_) resolver_ = defaultResolver();
+    // Резолвер по умолчанию — настоящий (а не «всем NoTarget»): иначе вызов
+    // observeAll()/applyAll() без явного резолвера ронял бы процесс на
+    // std::get<InterfaceTarget> внутри Dns/Mtu.
+    if (!resolver_) resolver_ = &defaultTargetResolver;
 }
 
 std::string actionDisplayName(ActionId id) {
@@ -171,6 +239,9 @@ Result<std::vector<ActionView>> RemediationService::observeAll() const {
 }
 
 Result<ApplyOutcome> RemediationService::applyIds(const std::vector<ActionId>& ids) {
+    OperationGuard guard;
+    if (!guard.acquired()) return Fail(RemediationError::Busy, kBusyDetail);
+
     auto actions = createActions(api_);
     std::vector<FixAction*> raw;
     for (auto& a : actions) raw.push_back(a.get());
@@ -192,11 +263,41 @@ Result<ApplyOutcome> RemediationService::applyIds(const std::vector<ActionId>& i
     if (selected.empty()) {
         outcome.error = RemediationError::InvalidTarget;
         outcome.detail = "нет ни одного действия с доступной целью";
-        return outcome;
+        // Ошибка обязана быть видна и в Result: раньше здесь возвращалось
+        // значение без ошибки, поэтому !ok() не наступал никогда, а ветка
+        // «движок отклонил применение» в BoostGate была мёртвой.
+        return Result<ApplyOutcome>(outcome, Fail(outcome.error, outcome.detail));
     }
 
-    FixTransaction transaction(generateTransactionId(), std::move(selected), std::move(targets),
-                               backup_store_);
+    // Отбрасываем действия, которые на этой машине неприменимы (observe вернул
+    // Unsupported — например, CS2 не установлен). prepare() работает по принципу
+    // «всё или ничего», поэтому раньше одно такое действие прерывало применение
+    // целиком: «Применить рекомендации» на машине без CS2 не делало НИЧЕГО и
+    // сообщало только «CS2 не найден (Steam cfg)».
+    // Пропускаем именно Unsupported: остальные ошибки чтения (например,
+    // PermissionDenied) остаются настоящими ошибками и должны быть видны.
+    std::vector<std::unique_ptr<FixAction>> usable;
+    std::vector<ActionTarget> usable_targets;
+    std::vector<ActionId> unsupported;
+    for (std::size_t i = 0; i < selected.size(); ++i) {
+        auto probe = selected[i]->observe(targets[i]);
+        if (!probe && probe.code() == RemediationError::Unsupported) {
+            unsupported.push_back(selected[i]->id());
+            continue;
+        }
+        usable.push_back(std::move(selected[i]));
+        usable_targets.push_back(targets[i]);
+    }
+    outcome.unsupported_actions = unsupported;
+
+    if (usable.empty()) {
+        outcome.error = RemediationError::InvalidTarget;
+        outcome.detail = "ни одно из выбранных действий не поддерживается на этой машине";
+        return Result<ApplyOutcome>(outcome, Fail(outcome.error, outcome.detail));
+    }
+
+    FixTransaction transaction(generateTransactionId(), std::move(usable),
+                               std::move(usable_targets), backup_store_);
 
     auto prepared = transaction.prepare();
     if (!prepared) {
@@ -205,7 +306,7 @@ Result<ApplyOutcome> RemediationService::applyIds(const std::vector<ActionId>& i
         outcome.detail = prepared.detail().empty() ? "prepare failed" : prepared.detail();
         outcome.status = transaction.record().status;
         outcome.outcomes = transaction.record().outcomes;
-        return outcome;
+        return Result<ApplyOutcome>(outcome, Fail(outcome.error, outcome.detail));
     }
 
     auto executed = transaction.execute();
@@ -215,6 +316,10 @@ Result<ApplyOutcome> RemediationService::applyIds(const std::vector<ActionId>& i
                                    : (executed.detail().empty() ? "выполнение прервано" : executed.detail());
     outcome.status = transaction.record().status;
     outcome.outcomes = transaction.record().outcomes;
+    // Частичный успех возвращаем как ошибку (какие-то действия упали), но с
+    // заполненным outcome: вызывающий должен видеть, что именно применилось.
+    if (outcome.error != RemediationError::None)
+        return Result<ApplyOutcome>(outcome, Fail(outcome.error, outcome.detail));
     return outcome;
 }
 
@@ -225,12 +330,20 @@ Result<ApplyOutcome> RemediationService::applyAll() {
     return applyIds(every);
 }
 Result<ApplyOutcome> RemediationService::rollback(const std::string& transaction_id) {
+    // Откат — такая же операция над системой: он не должен идти одновременно
+    // с применением (см. OperationGuard выше).
+    OperationGuard guard;
+    if (!guard.acquired()) return Fail(RemediationError::Busy, kBusyDetail);
+
     auto loaded = backup_store_.load(transaction_id);
     if (!loaded) {
         ApplyOutcome outcome;
         outcome.error = loaded.code();
         outcome.detail = loaded.detail().empty() ? "транзакция не найдена" : loaded.detail();
-        return outcome;
+        // Раньше ошибка жила только в outcome, а Result оставался «успешным»:
+        // любой вызывающий, проверявший rolled.ok(), считал откат удавшимся —
+        // вплоть до снятия маркера буста при полностью провалившемся откате.
+        return Result<ApplyOutcome>(outcome, Fail(outcome.error, outcome.detail));
     }
 
     TransactionRecord record = loaded.value();
@@ -262,6 +375,8 @@ Result<ApplyOutcome> RemediationService::rollback(const std::string& transaction
                                  : (rolled.detail().empty() ? "откат не завершён" : rolled.detail());
     outcome.status = transaction.record().status;
     outcome.outcomes = transaction.record().outcomes;
+    if (outcome.error != RemediationError::None)
+        return Result<ApplyOutcome>(outcome, Fail(outcome.error, outcome.detail));
     return outcome;
 }
 
