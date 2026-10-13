@@ -133,6 +133,10 @@ STATUS="$(printf '%s' "$HDRS" | sed -n 's|^HTTP/[0-9.]* \([0-9]\{3\}\).*|\1|p' |
 SCOPES="$(printf '%s' "$HDRS" | sed -n 's/^[Xx]-[Oo]auth-[Ss]copes: //p')"
 [ -n "$SCOPES" ] || die "токен принят, но OAuth-скоупов не отдаёт — это fine-grained PAT.
        Нужен classic PAT (ghp_...) со скоупами repo + workflow."
+# GitHub отдаёт скоупы через запятую С пробелом («repo, workflow»). Без
+# нормализации точное сравнение «,workflow,» не срабатывает — и валидный токен
+# признаётся негодным. Приводим разделитель к голой запятой.
+SCOPES="$(printf '%s' "$SCOPES" | tr -s ' ,' ',' | sed 's/^,//; s/,$//')"
 echo "Скоупы токена: $SCOPES"
 for need in repo workflow; do
     case ",$SCOPES," in
