@@ -62,9 +62,10 @@ done
 BODY_FILE=""
 PAYLOAD=""
 HDRS_FILE="$(mktemp)"
+ASSETS_JSON=""
 cleanup() {
     local f
-    for f in "${BODY_FILE:-}" "${PAYLOAD:-}" "${HDRS_FILE:-}"; do
+    for f in "${BODY_FILE:-}" "${PAYLOAD:-}" "${HDRS_FILE:-}" "${ASSETS_JSON:-}"; do
         if [ -n "$f" ] && [ -f "$f" ]; then
             # `rm` под песочницей перехватывается обёрткой безопасного удаления,
             # которая на смешанных путях ругается в stderr; python удаляет тихо.
@@ -263,33 +264,57 @@ step "8. Верификация на сервере"
 # ВНИМАНИЕ: здесь обязателен `-c`, а не `python - <<'PY'`. Конструкция
 # `curl | python - <<'PY'` выглядит рабочей, но heredoc перекрывает stdin —
 # python читает из него программу, а данные от curl теряются целиком.
-curl -sS "${AUTH[@]}" "$API/repos/$OWNER/$REPO/releases/$RELEASE_ID/assets" \
-    | PYTHONIOENCODING=utf-8 "$PYTHON" -c '
+ASSETS_JSON="$(mktemp)"
+curl -sS "${AUTH[@]}" "$API/repos/$OWNER/$REPO/releases/$RELEASE_ID/assets" > "$ASSETS_JSON"
+[ -s "$ASSETS_JSON" ] || die "не удалось получить список ассетов релиза (пустой ответ)"
+
+# ZIP проверяется по собственному git-digest ассета: он обязан совпадать с
+# локальным sha256. Sidecar — отдельный ассет, у него СВОЙ дайджест, и сравнивать
+# его с sha256 архива бессмысленно (раньше именно на этом падала проверка):
+# для sidecar сверяем его СОДЕРЖИМОЕ с локальным файлом.
+ASSETS_REPORT="$(PYTHONIOENCODING=utf-8 "$PYTHON" -c '
 import json, sys
-zip_name, side_name, want = sys.argv[1], sys.argv[2], sys.argv[3]
-assets = {a["name"]: a for a in json.load(sys.stdin)}
+zip_name, side_name, want, assets_file = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+assets = {a["name"]: a for a in json.load(open(assets_file, encoding="utf-8"))}
 ok = True
-for name in (zip_name, side_name):
-    a = assets.get(name)
-    if not a:
-        print("  " + name + ": ОТСУТСТВУЕТ")
+a = assets.get(zip_name)
+if not a:
+    print("  %s: ОТСУТСТВУЕТ" % zip_name)
+    ok = False
+else:
+    digest = (a.get("digest") or "").split(":", 1)[-1]
+    verdict = "совпадает" if digest == want else "НЕ СОВПАДАЕТ"
+    print("  %s: %s байт, скачиваний %s, digest %s" % (zip_name, format(a["size"], ","),
+          a.get("download_count", 0), verdict))
+    if digest != want:
         ok = False
-        continue
-    line = "  %s: %s байт, скачиваний %s" % (name, format(a["size"], ","),
-                                             a.get("download_count", 0))
-    digest = a.get("digest") or ""
-    if digest:
-        got = digest.split(":", 1)[-1]
-        line += ", digest " + ("совпадает" if got == want else "НЕ СОВПАДАЕТ")
-        if got != want:
-            ok = False
-    print(line)
-print()
-print("Серверные дайджесты совпадают с локальным." if ok
-      else "ВНИМАНИЕ: расхождение — проверьте ассеты вручную.")
-sys.exit(0 if ok else 1)
-' "$ZIP_NAME" "$SIDECAR_NAME" "$GOT" \
-    || die "верификация ассетов не прошла — откройте страницу релиза и проверьте вручную"
+b = assets.get(side_name)
+if not b:
+    print("  %s: ОТСУТСТВУЕТ" % side_name)
+    ok = False
+    print("URL:")
+else:
+    print("  %s: %s байт, скачиваний %s" % (side_name, format(b["size"], ","),
+          b.get("download_count", 0)))
+    print("URL:" + b.get("browser_download_url", ""))
+print("VERDICT:OK" if ok else "VERDICT:FAIL")
+' "$ZIP_NAME" "$SIDECAR_NAME" "$GOT" "$(winpath "$ASSETS_JSON")")" \
+    || die "не удалось разобрать список ассетов релиза"
+echo "$ASSETS_REPORT"
+printf '%s' "$ASSETS_REPORT" | grep -q 'VERDICT:OK$' \
+    || die "на сервере отсутствует часть ассетов — проверьте страницу релиза вручную"
+
+SIDE_URL="$(printf '%s' "$ASSETS_REPORT" | sed -n 's/^URL:http/http/p')"
+[ -n "$SIDE_URL" ] || die "не получена ссылка на скачивание sidecar"
+SIDE_REMOTE="$(curl -sSL "$SIDE_URL" | awk '{print tolower($1); exit}')"
+SIDE_LOCAL="$(awk '{print tolower($1); exit}' "$SIDECAR_NAME")"
+[ "$SIDE_REMOTE" = "$SIDE_LOCAL" ] \
+    || die "sidecar на сервере отличается от локального:
+       сервер:  ${SIDE_REMOTE:-<пусто>}
+       локально: $SIDE_LOCAL"
+[ "$SIDE_LOCAL" = "$GOT" ] \
+    || die "sidecar на сервере указывает на другой sha256, чем архив: $SIDE_LOCAL"
+echo "  sidecar на сервере ссылается на тот же sha256: $SIDE_REMOTE"
 
 echo
 echo "Готово: https://github.com/$OWNER/$REPO/releases/tag/$TAG"
